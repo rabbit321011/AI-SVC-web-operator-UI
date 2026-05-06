@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F0 Pitch Curve - 音高曲线预览</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 18px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
+}
+.toolbar h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
+.toolbar button {
+  padding: 5px 14px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.toolbar button:hover { background: #30363d; border-color: #58a6ff; }
+.toolbar .info {
+  font-size: 12px; color: #8b949e; margin-left: auto;
+  display: flex; gap: 18px;
+}
+.canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  background: #0d1117;
+}
+canvas { display: block; }
+.status-bar {
+  display: flex; align-items: center; gap: 20px;
+  padding: 4px 18px; background: #161b22;
+  border-top: 1px solid #21262d; font-size: 11px; color: #6e7681;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>🎤 F0 Pitch Curve — mei_summerArrided (Voice)</h1>
+  <button id="btnZoomIn" title="放大">🔍+</button>
+  <button id="btnZoomOut" title="缩小">🔍−</button>
+  <button id="btnReset" title="重置视图">↺</button>
+  <span class="info">
+    <span id="timeInfo">—</span>
+    <span id="freqInfo">—</span>
+    <span id="scaleInfo">—</span>
+  </span>
+</div>
+
+<div class="canvas-wrap" id="wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="status-bar">
+  <span id="statusText">加载中...</span>
+</div>
+
+<script>
+const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+let f0data = [];
+let totalDuration = 0;
+let pxPerSec = 60;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+
+const PAD_LEFT = 52;
+const PAD_RIGHT = 30;
+const PAD_TOP = 10;
+const PAD_BOT = 24;
+
+function freqToY(f) {
+  if (f <= 0) return -1;
+  const minFreq = 65.4;
+  const maxFreq = 2093.0;
+  const logMin = Math.log2(minFreq);
+  const logMax = Math.log2(maxFreq);
+  const logF = Math.log2(f);
+  const ratio = (logF - logMin) / (logMax - logMin);
+  const totalH = getLayout().totalH;
+  const chartH = totalH - PAD_TOP - PAD_BOT;
+  return PAD_TOP + chartH * (1 - ratio);
+}
+
+function timeToX(t) { return PAD_LEFT + t * pxPerSec; }
+function xToTime(x) { return (x - PAD_LEFT) / pxPerSec; }
+function pitchLabel(f) {
+  if (f <= 0) return '—';
+  const midi = Math.round(12 * Math.log2(f / 440) + 69);
+  if (midi < 0 || midi > 127) return f.toFixed(0) + 'Hz';
+  return N[midi % 12] + Math.floor(midi / 12 - 1);
+}
+
+function getLayout() {
+  const dpr = window.devicePixelRatio || 1;
+  const chartH = 460;
+  const totalH = PAD_TOP + chartH + PAD_BOT;
+  const totalW = timeToX(totalDuration) + PAD_RIGHT;
+  return { dpr, totalW, totalH, chartH };
+}
+
+function resizeCanvas() {
+  const { dpr, totalW, totalH } = getLayout();
+  canvas.width = Math.round(totalW * dpr);
+  canvas.height = Math.round(totalH * dpr);
+  canvas.style.width = totalW + 'px';
+  canvas.style.height = totalH + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+}
+
+function draw() {
+  const { totalW, totalH, chartH } = getLayout();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const dpr = window.devicePixelRatio || 1;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, totalW, totalH);
+
+  // BG
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  // Chart area BG
+  ctx.fillStyle = '#0f1419';
+  ctx.fillRect(PAD_LEFT, PAD_TOP, totalW - PAD_LEFT - PAD_RIGHT, chartH);
+
+  // Horizontal grid: musical notes C2-C7
+  const gridNotes = [];
+  for (let midi = 36; midi <= 96; midi++) {
+    gridNotes.push({ midi, freq: 440 * Math.pow(2, (midi - 69) / 12) });
+  }
+
+  for (const gn of gridNotes) {
+    const y = freqToY(gn.freq);
+    if (y < PAD_TOP || y > PAD_TOP + chartH) continue;
+    const isC = gn.midi % 12 === 0;
+
+    ctx.strokeStyle = isC ? '#21262d' : '#161b22';
+    ctx.lineWidth = isC ? 1 : 0.5;
+    ctx.beginPath();
+    ctx.moveTo(PAD_LEFT, y);
+    ctx.lineTo(totalW - PAD_RIGHT, y);
+    ctx.stroke();
+
+    if (isC) {
+      ctx.fillStyle = '#484f58';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'right';
+      const nn = N[gn.midi % 12] + Math.floor(gn.midi / 12 - 1);
+      ctx.fillText(nn, PAD_LEFT - 6, y + 4);
+    }
+  }
+
+  // Time axis labels
+  const stepSec = pxPerSec > 120 ? 0.5 : pxPerSec > 60 ? 1 : pxPerSec > 30 ? 2 : pxPerSec > 15 ? 5 : 10;
+  for (let t = 0; t <= totalDuration; t += stepSec) {
+    const x = timeToX(t);
+    ctx.strokeStyle = '#161b22';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, PAD_TOP);
+    ctx.lineTo(x, PAD_TOP + chartH);
+    ctx.stroke();
+
+    ctx.fillStyle = '#484f58';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    const m = Math.floor(t / 60);
+    const s = t % 60;
+    ctx.fillText(m + ':' + String(s.toFixed(1)).padStart(4, '0'), x, PAD_TOP + chartH + 15);
+  }
+
+  // F0 curve
+  if (f0data.length < 2) return;
+
+  // Draw voiced segments as filled area + line
+  let segStart = 0;
+  for (let i = 0; i < f0data.length; i++) {
+    const d = f0data[i];
+    const isLast = i === f0data.length - 1;
+    const dt = (f0data[Math.min(i+1, f0data.length-1)].t - d.t) * 0.5;
+
+    if (d.freq > 0) {
+      if (i === 0 || f0data[i-1].freq <= 0) segStart = i;
+    }
+
+    if ((d.freq <= 0 || isLast) && i > 0 && f0data[i-1].freq > 0) {
+      const segEnd = d.freq > 0 ? i : i - 1;
+      ctx.beginPath();
+      const x0 = timeToX(f0data[segStart].t);
+      const y0 = freqToY(f0data[segStart].freq);
+      ctx.moveTo(x0, y0);
+
+      for (let j = segStart + 1; j <= segEnd; j++) {
+        const x = timeToX(f0data[j].t);
+        const y = freqToY(f0data[j].freq);
+        ctx.lineTo(x, y);
+      }
+
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#58a6ff';
+      ctx.stroke();
+
+      // Glow
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(88, 166, 255, 0.12)';
+      ctx.stroke();
+    }
+  }
+
+  // Draw confidence dots (thin down-sampled)
+  const dotStep = Math.max(1, Math.floor(f0data.length / 3000));
+  for (let i = 0; i < f0data.length; i += dotStep) {
+    const d = f0data[i];
+    if (d.freq <= 0) continue;
+    const x = timeToX(d.t);
+    const y = freqToY(d.freq);
+    const alpha = 0.15 + d.prob * 0.55;
+    const r = Math.max(1, d.prob * 2.5);
+    ctx.fillStyle = `rgba(88, 166, 255, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Hover readout
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const cx = (e.clientX - rect.left) / dpr;
+  const cy = (e.clientY - rect.top) / dpr;
+  const t = xToTime(cx);
+  if (t < 0 || t > totalDuration) {
+    document.getElementById('timeInfo').textContent = '—';
+    document.getElementById('freqInfo').textContent = '—';
+    return;
+  }
+  const idx = Math.round(t / (f0data[1]?.t - f0data[0]?.t || 0.016));
+  if (idx >= 0 && idx < f0data.length) {
+    const d = f0data[idx];
+    document.getElementById('timeInfo').textContent =
+      Math.floor(t / 60) + ':' + String((t % 60).toFixed(1)).padStart(4, '0');
+    document.getElementById('freqInfo').textContent =
+      d.freq > 0 ? pitchLabel(d.freq) + '  ' + d.freq.toFixed(1) + 'Hz' : 'unvoiced';
+  }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  document.getElementById('timeInfo').textContent = '—';
+  document.getElementById('freqInfo').textContent = '—';
+});
+
+// Zoom
+wrap.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey && !e.shiftKey) return;
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const cx = (e.clientX - rect.left) / dpr;
+  const tBefore = xToTime(cx);
+
+  const delta = e.deltaY > 0 ? -10 : 10;
+  pxPerSec = Math.max(8, Math.min(300, pxPerSec + delta));
+
+  const tAfter = xToTime(cx);
+  wrap.scrollLeft += (tAfter - tBefore) * pxPerSec;
+
+  resizeCanvas();
+  draw();
+  document.getElementById('scaleInfo').textContent = pxPerSec + 'px/s';
+}, { passive: false });
+
+document.getElementById('btnZoomIn').onclick = () => {
+  pxPerSec = Math.min(300, pxPerSec + 20);
+  resizeCanvas(); draw();
+  document.getElementById('scaleInfo').textContent = pxPerSec + 'px/s';
+};
+document.getElementById('btnZoomOut').onclick = () => {
+  pxPerSec = Math.max(8, pxPerSec - 20);
+  resizeCanvas(); draw();
+  document.getElementById('scaleInfo').textContent = pxPerSec + 'px/s';
+};
+document.getElementById('btnReset').onclick = () => {
+  pxPerSec = 60;
+  resizeCanvas(); draw();
+  wrap.scrollLeft = 0;
+  document.getElementById('scaleInfo').textContent = pxPerSec + 'px/s';
+};
+
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+
+// Load
+fetch('f0_data.json')
+  .then(r => r.json())
+  .then(json => {
+    f0data = json.data;
+    totalDuration = f0data[f0data.length - 1].t;
+    document.getElementById('statusText').textContent =
+      'F0 data: ' + f0data.length + ' frames | ' +
+      totalDuration.toFixed(0) + 's | ' +
+      (json.hop / json.sr * 1000).toFixed(1) + 'ms hop | pyin @ ' + json.sr + 'Hz';
+    document.getElementById('scaleInfo').textContent = pxPerSec + 'px/s';
+    resizeCanvas();
+    draw();
+  });
+</script>
+</body>
+</html>

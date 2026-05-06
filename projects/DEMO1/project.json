@@ -1,0 +1,20 @@
+{
+  "id": "9b666381-2d61-4f86-8f9d-588b23582931",
+  "name": "DEMO1",
+  "version": "1.0.0",
+  "tracks": {},
+  "trackOrder": [],
+  "segments": {},
+  "compGroups": {},
+  "compGroupOrder": [],
+  "timelineOffset": 0,
+  "pxPerSec": 60,
+  "f0Settings": {
+    "fmin": 65.4,
+    "fmax": 2093,
+    "algorithm": "pyin",
+    "hopMs": 16
+  },
+  "createdAt": "2026-05-06T04:28:39.547Z",
+  "modifiedAt": "2026-05-06T04:28:39.547Z"
+}

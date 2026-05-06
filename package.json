@@ -1,0 +1,14 @@
+{
+  "name": "aisvc-midi-web",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter client dev\" \"pnpm --filter server dev\"",
+    "dev:client": "pnpm --filter client dev",
+    "dev:server": "pnpm --filter server dev",
+    "build": "pnpm --filter client build && pnpm --filter server build",
+    "lint": "pnpm --filter client lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
