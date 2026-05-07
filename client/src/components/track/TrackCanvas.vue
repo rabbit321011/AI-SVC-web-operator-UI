@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
@@ -16,6 +16,7 @@ const selection = useSelectionStore()
 const playback = usePlaybackStore()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const playheadRef = ref<HTMLCanvasElement | null>(null)
 const containerRef = ref<HTMLDivElement | null>(null)
 
 const PAD_L = 52
@@ -69,6 +70,15 @@ function setupCanvas() {
   canvas.height = Math.round(CANVAS_H * dpr)
   canvas.style.width = totalW.value + 'px'
   canvas.style.height = CANVAS_H + 'px'
+
+  // Sync playhead overlay
+  const ph = playheadRef.value
+  if (ph) {
+    ph.width = canvas.width
+    ph.height = canvas.height
+    ph.style.width = canvas.style.width
+    ph.style.height = canvas.style.height
+  }
 }
 
 function draw() {
@@ -82,15 +92,12 @@ function draw() {
 
   const W = totalW.value
 
-  // BG
   ctx.fillStyle = '#0d1117'
   ctx.fillRect(0, 0, W, CANVAS_H)
 
-  // Chart area
   ctx.fillStyle = '#0f1419'
   ctx.fillRect(PAD_L, PAD_T, W - PAD_L - PAD_R, CHART_H)
 
-  // F0 grid lines
   const gridMidi = [48, 55, 60, 67, 72, 79, 84]
   for (const midi of gridMidi) {
     const f = 440 * Math.pow(2, (midi - 69) / 12)
@@ -104,11 +111,9 @@ function draw() {
     ctx.stroke()
   }
 
-  // F0 curves per segment
   for (const seg of segments.value) {
     if (!seg.f0Data || seg.f0Data.length < 2) continue
     const f0data = seg.f0Data
-    // only voiced regions
     let drawing = false
     ctx.beginPath()
     ctx.strokeStyle = seg.ignored ? 'rgba(88,166,255,0.15)' : 'rgba(88,166,255,0.7)'
@@ -126,7 +131,6 @@ function draw() {
     }
     ctx.stroke()
 
-    // glow
     drawing = false
     ctx.beginPath()
     ctx.strokeStyle = 'rgba(88,166,255,0.08)'
@@ -145,7 +149,6 @@ function draw() {
     ctx.stroke()
   }
 
-  // Segment blocks
   const segAreaTop = PAD_T + CHART_H + PAD_B
   const trackMuted = track.value?.muted ?? false
   for (const seg of segments.value) {
@@ -176,7 +179,6 @@ function draw() {
     }
   }
 
-  // Time labels every N seconds
   const step = project.pxPerSec > 120 ? 1 : project.pxPerSec > 60 ? 2 : project.pxPerSec > 30 ? 5 : 10
   for (let t = 0; t <= totalDuration.value; t += step) {
     const x = timeToX(t)
@@ -187,20 +189,29 @@ function draw() {
     ctx.lineTo(x, CANVAS_H)
     ctx.stroke()
   }
+}
 
-  // Playhead line
-  if (playback.isPlaying || playback.currentTime > 0) {
-    const px = timeToX(playback.currentTime)
-    if (px >= PAD_L && px <= W - PAD_R) {
-      ctx.strokeStyle = '#e94560'
-      ctx.lineWidth = 2
-      ctx.setLineDash([])
-      ctx.beginPath()
-      ctx.moveTo(px, 0)
-      ctx.lineTo(px, CANVAS_H)
-      ctx.stroke()
-    }
-  }
+function drawPlayhead() {
+  const ph = playheadRef.value
+  if (!ph) return
+  const ctx = ph.getContext('2d')!
+  const dpr = window.devicePixelRatio || 1
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, ph.width, ph.height)
+  ctx.scale(dpr, dpr)
+
+  if (!playback.isPlaying && playback.currentTime <= 0) return
+
+  const px = timeToX(playback.currentTime)
+  const W = totalW.value
+  if (px < PAD_L || px > W - PAD_R) return
+
+  ctx.strokeStyle = '#e94560'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(px, 0)
+  ctx.lineTo(px, CANVAS_H)
+  ctx.stroke()
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -249,7 +260,6 @@ function handleClick(e: MouseEvent) {
   }
 
   if (e.shiftKey) {
-    // split
     const t = xToTime(cx)
     handleSplit(t)
     return
@@ -261,7 +271,6 @@ function handleClick(e: MouseEvent) {
     draw()
     return
   }
-  // click on empty area → seek playhead
   const t = xToTime(cx)
   if (t >= 0) {
     ;(window as any).__playbackSeek?.(t)
@@ -279,7 +288,6 @@ function handleSplit(cutTime: number) {
       const segAClone = { ...seg }
       const segBClone = { ...seg }
 
-      // slice f0Data so each segment only has its own portion
       if (seg.f0Data) {
         const relCut = cutTime - seg.timelineStart
         const cutIdx = seg.f0Data.findIndex(f => seg.timelineStart + f.t >= cutTime)
@@ -330,7 +338,6 @@ function onDragMove(e: MouseEvent) {
   const dx = e.clientX - dragStartClientX.value
   const dt = dx / project.pxPerSec
 
-  // detect which track the mouse is over (cross-track drag)
   const elem = document.elementFromPoint(e.clientX, e.clientY)
   const trackRow = elem?.closest('[data-track-id]') as HTMLElement | null
   if (trackRow) {
@@ -408,24 +415,53 @@ function handleMousemove(e: MouseEvent) {
   const cy = e.clientY - rect.top
 
   const seg = findSegmentAt(cx, cy)
-  canvas.style.cursor = seg ? 'pointer' : 'default'
+  if (seg && (e.ctrlKey || e.metaKey)) {
+    canvas.style.cursor = 'grab'
+  } else {
+    canvas.style.cursor = 'default'
+  }
 }
 
-// Watch for changes and redraw
+// ── Watch: content redraw only (playhead separated) ──
 watch(() => [
   project.pxPerSec,
   totalDuration.value,
   segments.value.length,
   segments.value,
   selection.ids,
-  playback.currentTime,
   project.redrawTick,
 ], () => {
-  nextTick(() => { setupCanvas(); draw(); })
+  nextTick(() => { setupCanvas(); draw(); drawPlayhead(); })
 }, { deep: true })
 
+// ── Seek/stop playhead update (cheap: 1 line clear + 1 line draw) ──
+watch(() => playback.currentTime, () => {
+  if (!playback.isPlaying) drawPlayhead()
+})
+
+// ── Playhead-only loop ──
+let playheadRaf: number | null = null
+watch(() => playback.isPlaying, (playing) => {
+  if (playing) {
+    drawPlayhead()
+    function loop() {
+      if (!playback.isPlaying) { playheadRaf = null; drawPlayhead(); return }
+      drawPlayhead()
+      playheadRaf = requestAnimationFrame(loop)
+    }
+    playheadRaf = requestAnimationFrame(loop)
+  } else {
+    if (playheadRaf) { cancelAnimationFrame(playheadRaf); playheadRaf = null }
+    drawPlayhead()
+  }
+}, { immediate: false })
+
 onMounted(() => {
-  nextTick(() => { setupCanvas(); draw(); })
+  nextTick(() => { setupCanvas(); draw(); drawPlayhead(); })
+})
+
+onUnmounted(() => {
+  if (playheadRaf) cancelAnimationFrame(playheadRaf)
 })
 </script>
 
@@ -433,9 +469,15 @@ onMounted(() => {
   <div ref="containerRef" class="track-canvas-wrap">
     <canvas
       ref="canvasRef"
+      class="content-canvas"
       @click="handleClick"
       @mousedown="handleMousedown"
       @mousemove="handleMousemove"
+    />
+    <canvas
+      ref="playheadRef"
+      class="playhead-canvas"
+      style="pointer-events: none;"
     />
   </div>
 </template>
@@ -444,8 +486,19 @@ onMounted(() => {
 .track-canvas-wrap {
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
 }
 canvas {
   display: block;
+}
+.content-canvas {
+  position: relative;
+  z-index: 1;
+}
+.playhead-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
 }
 </style>

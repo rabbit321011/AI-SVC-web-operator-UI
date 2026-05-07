@@ -234,7 +234,6 @@ function setVolume(v: number | null) {
 }
 .f0-progress-bar {
   height: 100%; background: #58a6ff; border-radius: 6px;
-  transition: width 0.3s;
 }
 .f0-progress-text {
   position: absolute; top: 0; left: 0; right: 0;

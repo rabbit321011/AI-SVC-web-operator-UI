@@ -22,6 +22,18 @@ const DEFAULT_CONFIG: SvcRuntimeConfig = {
 const PRESETS: SvcRuntimeConfig[] = [
   DEFAULT_CONFIG,
   {
+    modelName: '默认模型 (未微调)',
+    checkpoint: 'E:/AIscene/AISVCs/YingMusic-SVC/YingMusic-SVC-full.pt',
+    configYml: CONFIG,
+    targetAudio: TARGET,
+    diffusionSteps: 100,
+    inferenceCfgRate: 0.7,
+    f0Condition: true,
+    semiToneShift: null,
+    device: '0',
+    fp16: true,
+  },
+  {
     modelName: 'cosine 3000',
     checkpoint: `${BASE}/yingmusic_cosine/ft_model.pth`,
     configYml: CONFIG,

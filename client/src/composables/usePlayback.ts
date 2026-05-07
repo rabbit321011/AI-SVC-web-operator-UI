@@ -15,6 +15,7 @@ export function usePlayback() {
   let scheduleBaseTimeline: number = 0
   let raf: number | null = null
   let playSelectedOnly = false
+  let isScheduling = false
 
   function ctx() {
     if (!audioCtx) audioCtx = new AudioContext()
@@ -43,11 +44,13 @@ export function usePlayback() {
 
   async function play() {
     if (pb.isPlaying) { pause(); return }
+    if (isScheduling) return
+    isScheduling = true
     const ac = ctx()
     killAll()
 
     const list = collectSegments()
-    if (list.length === 0) return
+    if (list.length === 0) { isScheduling = false; return }
 
     // Use existing totalDuration (set by syncProject from ALL segments)
     const playDuration = pb.totalDuration
@@ -118,6 +121,7 @@ export function usePlayback() {
     }
 
     pb.setPlaying(true)
+    isScheduling = false
     raf = requestAnimationFrame(tick)
   }
 

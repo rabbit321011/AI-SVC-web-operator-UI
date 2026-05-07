@@ -226,12 +226,13 @@ export function useKeyboard() {
         const actualSr = buf.sampleRate
         // Source sample count → normalize to actual decode rate
         const trackSr = tracks.tracks[seg.trackId]?.sampleRate || outputSr
-        const srcLenActual = (seg.srcEndSample - seg.srcStartSample) * (trackSr / actualSr)
+        const startActual = seg.srcStartSample * (actualSr / trackSr)
+         const srcLenActual = (seg.srcEndSample - seg.srcStartSample) * (actualSr / trackSr)
         const segLenOut = Math.round((srcLenActual / actualSr) * outputSr)
         const targetStart = Math.round((seg.timelineStart - minTimeline) * outputSr)
 
         for (let i = 0; i < segLenOut && (targetStart + i) < totalSamples; i++) {
-          const srcIdx = Math.round((i / Math.max(1, segLenOut - 1)) * srcLenActual)
+          const srcIdx = Math.round(startActual + (i / Math.max(1, segLenOut - 1)) * srcLenActual)
           if (srcIdx >= 0 && srcIdx < channel.length) {
             mixed[targetStart + i] += channel[srcIdx]
           }

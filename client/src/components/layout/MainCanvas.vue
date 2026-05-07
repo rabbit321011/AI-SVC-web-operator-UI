@@ -29,11 +29,29 @@ function handleCanvasClick() {
 }
 
 function handleWheel(e: WheelEvent) {
-  if (e.shiftKey) return // shift+wheel = native horizontal scroll
   const el = scrollRef.value
   if (!el) return
-  // Vertical wheel → horizontal scroll
-  el.scrollLeft += e.deltaY + e.deltaX
+
+  if (e.shiftKey) return
+
+  // Smooth: accumulate deltas, then animate
+  const target = el.scrollLeft + e.deltaY * (e.deltaMode === 1 ? 40 : 1) + e.deltaX * (e.deltaMode === 1 ? 40 : 1)
+
+  // Use a cancelable animation for smooth mouse wheel
+  const start = performance.now()
+  const from = el.scrollLeft
+  const duration = 80 // ms for smooth transition
+  let frameId = 0
+
+  function step(now: number) {
+     const t = Math.min(1, (now - start) / duration)
+     const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+     if (el) el.scrollLeft = from + (target - from) * eased
+     if (t < 1) frameId = requestAnimationFrame(step)
+   }
+  cancelAnimationFrame((handleWheel as any)._raf || 0);
+  (handleWheel as any)._raf = requestAnimationFrame(step)
+
   e.preventDefault()
 }
 </script>

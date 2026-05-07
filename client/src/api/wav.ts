@@ -55,14 +55,15 @@ export async function combineSegmentsToBlob(
       const actualSr = audioBuf.sampleRate
       const vol = seg.volume ?? 1
 
-      const srcLenActual = (seg.endSample - seg.startSample) * (seg.sampleRate / actualSr)
+      const startActual = seg.startSample * (actualSr / seg.sampleRate)
+      const srcLenActual = (seg.endSample - seg.startSample) * (actualSr / seg.sampleRate)
       const segDurationSec = srcLenActual / actualSr
       const segLenOut = Math.round(segDurationSec * outputSampleRate)
       const targetStart = Math.round((seg.timelineStart - minTimelineStart) * outputSampleRate)
 
       for (let i = 0; i < segLenOut && (targetStart + i) < totalSamples; i++) {
         const t = i / Math.max(1, segLenOut - 1)
-        const srcIdx = Math.round(t * srcLenActual)
+        const srcIdx = Math.round(startActual + t * srcLenActual)
         if (srcIdx >= 0 && srcIdx < channel.length) {
           combined[targetStart + i] += channel[srcIdx] * vol
         }
