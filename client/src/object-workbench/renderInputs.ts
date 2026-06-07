@@ -1,7 +1,7 @@
 import type { NodeId, ProjectObjectTree, RuntimeTreeIndex, TrackObjectContentType } from './types'
 import { buildNodeIndex } from './objectTree'
 
-export type RenderInputKind = 'trackObject' | 'group'
+export type RenderInputKind = 'trackObject' | 'group' | 'audioObject'
 export type RenderPanelMode = 'svc' | 'svs'
 export type RenderSlotId =
   | 'svc.condAudio'
@@ -33,6 +33,9 @@ export function makeRenderInputRef(tree: ProjectObjectTree, kind: RenderInputKin
   if (kind === 'group' && node.kind !== 'group') {
     throw new Error(`Expected GroupObject input: ${id}`)
   }
+  if (kind === 'audioObject' && node.kind !== 'audio') {
+    throw new Error(`Expected AudioObject input: ${id}`)
+  }
   return {
     kind,
     id,
@@ -47,13 +50,21 @@ export function validateRenderSlot(tree: ProjectObjectTree, slotId: RenderSlotId
   const mediaType = getRenderInputMediaType(index, input)
   if (!mediaType) return { ok: false, reason: '原对象不存在' }
 
-  if (slotId === 'svc.condAudio' || slotId === 'svc.sourceAudio' || slotId === 'svs.timbreAudio') {
+  if (slotId === 'svc.condAudio') {
+    return mediaType === 'audio'
+      ? { ok: true, mediaType }
+      : { ok: false, mediaType, reason: 'cond音频只接受 audio 对象' }
+  }
+
+  if (slotId === 'svc.sourceAudio' || slotId === 'svs.timbreAudio') {
+    if (input.kind === 'audioObject') return { ok: false, mediaType, reason: '该槽位只接受 audio TrackObject/GroupObject' }
     return mediaType === 'audio'
       ? { ok: true, mediaType }
       : { ok: false, mediaType, reason: '该槽位只接受 audio TrackObject/GroupObject' }
   }
 
   if (slotId === 'svs.melody') {
+    if (input.kind === 'audioObject') return { ok: false, mediaType, reason: '旋律槽只接受 audio 或 midi TrackObject/GroupObject' }
     return mediaType === 'audio' || mediaType === 'midi'
       ? { ok: true, mediaType }
       : { ok: false, mediaType, reason: '旋律槽只接受 audio 或 midi TrackObject/GroupObject' }
@@ -73,5 +84,6 @@ export function getRenderInputMediaType(index: RuntimeTreeIndex, input: RenderIn
   if (!node) return null
   if (input.kind === 'trackObject' && node.kind === 'trackObject') return node.trackObject.contentType
   if (input.kind === 'group' && node.kind === 'group') return node.group.mediaType
+  if (input.kind === 'audioObject' && node.kind === 'audio') return 'audio'
   return null
 }

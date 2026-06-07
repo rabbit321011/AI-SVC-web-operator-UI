@@ -14,6 +14,7 @@ export const useObjectTreeUiStore = defineStore('objectTreeUi', () => {
     L1: null,
     L2: null,
   })
+  const notice = ref('')
 
   const selectedIds = computed(() => [...selected.value])
 
@@ -77,11 +78,19 @@ export const useObjectTreeUiStore = defineStore('objectTreeUi', () => {
     selected.value = next
   }
 
+  function flashNotice(message: string) {
+    notice.value = message
+    window.setTimeout(() => {
+      if (notice.value === message) notice.value = ''
+    }, 1400)
+  }
+
   return {
     selected,
     selectedIds,
     expanded,
     locateHighlight,
+    notice,
     isSelectable,
     isSelected,
     selectNode,
@@ -91,5 +100,6 @@ export const useObjectTreeUiStore = defineStore('objectTreeUi', () => {
     toggleExpanded,
     expandPath,
     locateInL2,
+    flashNotice,
   }
 })

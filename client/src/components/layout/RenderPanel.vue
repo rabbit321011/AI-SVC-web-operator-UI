@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NInput, NInputNumber, NSpace, NTag } from 'naive-ui'
+import { NButton, NInput, NInputNumber, NSelect, NSpace, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
-import { useProjectStore } from '@/stores/project'
-import type { RenderSlotId } from '@/object-workbench'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useSvcConfigStore } from '@/stores/svcConfig'
+import { useRenderSvcPipeline } from '@/composables/useRenderSvcPipeline'
+import { validateRenderSlot, type RenderInputRef, type RenderSlotId } from '@/object-workbench'
 
 const renderPanel = useRenderPanelStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
-const project = useProjectStore()
+const objectTreeUi = useObjectTreeUiStore()
+const svcConfig = useSvcConfigStore()
+const renderSvcPipeline = useRenderSvcPipeline()
 const notice = ref('')
 
 const selectedObjectNodeId = computed(() => {
+  if (objectTreeUi.selectedIds.length === 1) return objectTreeUi.selectedIds[0]
   const selected = selection.ids[0]
   if (!selected || selection.ids.length !== 1) return null
   if (selected.startsWith('seg_')) return objectTree.legacyMaps?.trackObjectIdBySegmentId[selected] ?? `node:trackObject:${selected}`
@@ -21,11 +26,16 @@ const selectedObjectNodeId = computed(() => {
   return selected
 })
 
+const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
+
 function pickSelected(slotId: RenderSlotId) {
-  objectTree.loadFromLegacyProject(project.toJSON())
+  if (renderPanel.svcStatus === 'running') {
+    flash('SVC 运行中')
+    return
+  }
   const id = selectedObjectNodeId.value
   if (!id) {
-    flash('请选择一个片段或合成组')
+    flash('请选择一个对象')
     return
   }
   const result = renderPanel.setSlotFromNode(slotId, id)
@@ -34,7 +44,10 @@ function pickSelected(slotId: RenderSlotId) {
 
 function handleDrop(slotId: RenderSlotId, event: DragEvent) {
   event.preventDefault()
-  objectTree.loadFromLegacyProject(project.toJSON())
+  if (renderPanel.svcStatus === 'running') {
+    flash('SVC 运行中')
+    return
+  }
   const id = event.dataTransfer?.getData('application/x-aisvc-node-id') || event.dataTransfer?.getData('text/plain')
   if (!id) {
     flash('没有可放入的对象')
@@ -59,6 +72,24 @@ function flash(message: string) {
 function slotLabel(input: { displayName: string; kind: string } | null) {
   return input ? `${input.kind}: ${input.displayName}` : '未选择'
 }
+
+function slotReason(slotId: RenderSlotId, input: RenderInputRef | null) {
+  const validation = validateRenderSlot(objectTree.tree, slotId, input)
+  return validation.ok ? '' : validation.reason ?? '槽位不可用'
+}
+
+function clearSlot(slotId: RenderSlotId) {
+  if (renderPanel.svcStatus === 'running') {
+    flash('SVC 运行中')
+    return
+  }
+  renderPanel.clearSlot(slotId)
+}
+
+async function runSvc() {
+  await renderSvcPipeline.startSvc()
+  if (renderPanel.svcStatus === 'failed') flash(renderPanel.svcMessage || 'SVC 执行失败')
+}
 </script>
 
 <template>
@@ -72,14 +103,33 @@ function slotLabel(input: { displayName: string; kind: string } | null) {
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svc.condAudio', $event)">
         <div class="slot-title">cond音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svc.condAudio) }}</n-tag>
-        <n-button size="tiny" @click="pickSelected('svc.condAudio')">放入</n-button>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="renderPanel.svcStatus === 'running'" @click="pickSelected('svc.condAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svc.condAudio || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.condAudio')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svc.condAudio && slotReason('svc.condAudio', renderPanel.svc.condAudio)" class="slot-error">
+          {{ slotReason('svc.condAudio', renderPanel.svc.condAudio) }}
+        </div>
       </div>
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svc.sourceAudio', $event)">
         <div class="slot-title">被变声音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svc.sourceAudio) }}</n-tag>
-        <n-button size="tiny" @click="pickSelected('svc.sourceAudio')">放入</n-button>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="renderPanel.svcStatus === 'running'" @click="pickSelected('svc.sourceAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svc.sourceAudio || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.sourceAudio')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svc.sourceAudio && slotReason('svc.sourceAudio', renderPanel.svc.sourceAudio)" class="slot-error">
+          {{ slotReason('svc.sourceAudio', renderPanel.svc.sourceAudio) }}
+        </div>
       </div>
       <n-space vertical :size="8">
+        <label class="field-label">模型</label>
+        <n-select
+          :value="svcConfig.config.modelName"
+          :options="modelOptions"
+          size="small"
+          @update:value="(v: string) => svcConfig.selectPreset(v)"
+        />
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.svc.outputName" size="small" placeholder="SVC_output" />
         <label class="field-label">cfg</label>
@@ -87,7 +137,25 @@ function slotLabel(input: { displayName: string; kind: string } | null) {
         <label class="field-label">step</label>
         <n-input-number v-model:value="renderPanel.svc.steps" size="small" :min="10" :max="200" :step="10" />
       </n-space>
-      <n-button type="primary" size="small" :disabled="!renderPanel.canRunSvc" block>合成</n-button>
+      <div v-if="renderPanel.svcStatus !== 'idle'" class="run-status">
+        <div class="status-line">
+          <span>{{ renderPanel.svcMessage }}</span>
+          <span>{{ renderPanel.svcProgress }}%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" :style="{ width: `${renderPanel.svcProgress}%` }" />
+        </div>
+      </div>
+      <n-button
+        type="primary"
+        size="small"
+        :disabled="!renderPanel.canRunSvc"
+        :loading="renderPanel.svcStatus === 'running'"
+        block
+        @click="runSvc"
+      >
+        合成
+      </n-button>
     </div>
 
     <div v-else class="panel-body">
@@ -166,6 +234,15 @@ function slotLabel(input: { displayName: string; kind: string } | null) {
   font-size: 11px;
   color: #8b949e;
 }
+.slot-actions {
+  display: flex;
+  gap: 4px;
+}
+.slot-error {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: #f0b72f;
+}
 .field-label {
   font-size: 11px;
   color: #8b949e;
@@ -175,5 +252,34 @@ function slotLabel(input: { displayName: string; kind: string } | null) {
   padding: 0 10px 10px;
   font-size: 11px;
   color: #f0b72f;
+}
+.run-status {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.status-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #8b949e;
+}
+.status-line span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #21262d;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: #1f6feb;
+  transition: width 160ms ease;
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useObjectAudioPreview } from '@/composables/useObjectAudioPreview'
 import type { TreeNode } from '@/object-workbench'
 
 const props = defineProps<{
@@ -17,6 +18,7 @@ const props = defineProps<{
 }>()
 
 const ui = useObjectTreeUiStore()
+const audioPreview = useObjectAudioPreview()
 const expandable = computed(() => props.hasChildren(props.node) || (props.node.kind === 'group' && props.node.group.trackObjectIds.length > 0))
 const expanded = computed(() => ui.isExpanded(props.pane, props.node.id))
 const children = computed(() => props.hasChildren(props.node) ? props.node.children : [])
@@ -39,6 +41,11 @@ function handleVirtualMemberClick(trackObjectId: string, event: MouseEvent) {
   window.setTimeout(() => {
     if (ui.locateHighlight[props.pane] === trackObjectId) ui.locateHighlight[props.pane] = null
   }, 500)
+}
+
+function toggleAudioPreview(event: MouseEvent) {
+  event.stopPropagation()
+  if (props.node.kind === 'audio') audioPreview.toggleAudioObject(props.node.id)
 }
 </script>
 
@@ -64,6 +71,14 @@ function handleVirtualMemberClick(trackObjectId: string, event: MouseEvent) {
       <span class="twisty" @click="toggleExpanded">{{ expandable ? (expanded ? '▾' : '▸') : '·' }}</span>
       <span class="kind">{{ icon(node) }}</span>
       <span class="name">{{ node.name }}</span>
+      <button
+        v-if="node.kind === 'audio'"
+        class="tree-play-btn"
+        :title="audioPreview.playingNodeId.value === node.id ? '停止预览' : '播放音频'"
+        @click="toggleAudioPreview"
+      >
+        {{ audioPreview.playingNodeId.value === node.id ? '■' : '▶' }}
+      </button>
     </div>
     <div
       v-for="memberId in groupMemberIds"

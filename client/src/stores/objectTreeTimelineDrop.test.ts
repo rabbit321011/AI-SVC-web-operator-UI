@@ -37,6 +37,37 @@ describe('AudioObject drag into timeline', () => {
     const tracksChildren = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.tracks)!).children
     expect(tracksChildren.some(child => child.kind === 'trackFolder')).toBe(true)
   })
+
+  it('archives rendered SVC audio and backfills a timeline TrackObject', async () => {
+    setActivePinia(createPinia())
+    mockAudioContext()
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    objectTree.loadObjectTree(createEmptyProjectObjectTree())
+
+    const result = await objectTree.addRenderedAudioToTimeline({
+      blob: new Blob(['rendered']),
+      outputFileName: 'svc result',
+      renderKind: 'svc',
+      timelineStart: 7,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.outputFileName).toBe('svc result.wav')
+    expect(tracks.trackOrder).toHaveLength(1)
+    const seg = tracks.getSegment(result.segmentId!)
+    expect(seg?.timelineStart).toBe(7)
+    expect(seg?.timelineEnd).toBe(9)
+
+    const renderRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.renders)!)
+    const svcFolder = workspaceLike(renderRoot.children.find(child => child.name === 'svc')!)
+    expect(svcFolder.children.some(child => child.id === result.renderObjectId && child.kind === 'audio')).toBe(true)
+
+    const trackSourcesRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.trackSources)!)
+    const audioFolder = workspaceLike(trackSourcesRoot.children.find(child => child.name === 'audio')!)
+    expect(audioFolder.children.some(child => child.id === result.trackSourceObjectId && child.kind === 'audio')).toBe(true)
+    expect(objectTree.node(result.trackObjectId!)?.kind).toBe('trackObject')
+  })
 })
 
 function mockAudioContext() {

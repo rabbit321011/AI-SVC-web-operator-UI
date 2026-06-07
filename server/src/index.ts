@@ -395,6 +395,74 @@ function projectDir(name: string) { return path.join(PROJECTS_DIR, sanitizeName(
 function sanitizeName(name: string) { return name.replace(/[<>:"/\\|?*]/g, '_').slice(0, 60) }
 function projectJsonPath(name: string) { return path.join(projectDir(name), 'project.json') }
 function blobsDir(name: string) { return path.join(projectDir(name), 'blobs') }
+function blobManifestPath(name: string) { return path.join(blobsDir(name), 'manifest.json') }
+
+type BlobManifest = Record<string, string>
+
+function readProjectBlobs(name: string): Record<string, string> {
+  const bDir = blobsDir(name)
+  const blobs: Record<string, string> = {}
+  if (!fs.existsSync(bDir)) return blobs
+
+  const manifest = readBlobManifest(name)
+  for (const [fileName, originalKey] of Object.entries(manifest)) {
+    const filePath = path.join(bDir, fileName)
+    if (!fileName.endsWith('.blob') || !fs.existsSync(filePath)) continue
+    blobs[originalKey] = fs.readFileSync(filePath, 'base64')
+  }
+
+  // Backward compatibility for projects saved before the short-name manifest.
+  for (const f of fs.readdirSync(bDir)) {
+    if (!f.endsWith('.blob') || manifest[f]) continue
+    const raw = f.replace(/\.blob$/, '')
+    const originalKey = decodeURIComponent(raw)
+    if (!blobs[originalKey]) {
+      blobs[originalKey] = fs.readFileSync(path.join(bDir, f), 'base64')
+    }
+  }
+  return blobs
+}
+
+function writeProjectBlobs(name: string, sourceBlobs: Record<string, string>) {
+  const bDir = blobsDir(name)
+  fs.mkdirSync(bDir, { recursive: true })
+  for (const entry of fs.readdirSync(bDir)) {
+    const entryPath = path.join(bDir, entry)
+    if (fs.statSync(entryPath).isFile()) fs.unlinkSync(entryPath)
+  }
+
+  const manifest: BlobManifest = {}
+  const used = new Set<string>()
+  for (const [key, b64] of Object.entries(sourceBlobs)) {
+    const fileName = makeBlobFileName(key, used)
+    manifest[fileName] = key
+    fs.writeFileSync(path.join(bDir, fileName), Buffer.from(b64, 'base64'))
+  }
+  fs.writeFileSync(blobManifestPath(name), JSON.stringify(manifest, null, 2))
+}
+
+function readBlobManifest(name: string): BlobManifest {
+  const manifestPath = blobManifestPath(name)
+  if (!fs.existsSync(manifestPath)) return {}
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function makeBlobFileName(key: string, used: Set<string>): string {
+  const hash = crypto.createHash('sha256').update(key).digest('hex').slice(0, 40)
+  let fileName = `${hash}.blob`
+  let suffix = 2
+  while (used.has(fileName)) {
+    fileName = `${hash}_${suffix}.blob`
+    suffix++
+  }
+  used.add(fileName)
+  return fileName
+}
 
 app.get('/api/projects', (_req, res) => {
   fs.mkdirSync(PROJECTS_DIR, { recursive: true })
@@ -437,18 +505,7 @@ app.get('/api/projects/:name', (req, res) => {
   if (!fs.existsSync(p)) { res.status(404).json({ error: 'not found' }); return }
   try {
     const json = JSON.parse(fs.readFileSync(p, 'utf-8'))
-    const bDir = blobsDir(req.params.name)
-    const blobs: Record<string, string> = {}
-    if (fs.existsSync(bDir)) {
-      for (const f of fs.readdirSync(bDir)) {
-        if (f.endsWith('.blob')) {
-          const raw = f.replace(/\.blob$/, '')
-          const originalKey = decodeURIComponent(raw)
-          blobs[originalKey] = fs.readFileSync(path.join(bDir, f), 'base64')
-        }
-      }
-    }
-    json._sourceBlobsBase64 = blobs
+    json._sourceBlobsBase64 = readProjectBlobs(req.params.name)
     res.json(json)
   } catch (e: any) { res.status(500).json({ error: e.message }) }
 })
@@ -458,15 +515,8 @@ app.put('/api/projects/:name', (req, res) => {
   if (!project.name) { res.status(400).json({ error: 'invalid' }); return }
   const dir = projectDir(req.params.name)
   fs.mkdirSync(dir, { recursive: true })
-  const bDir = blobsDir(req.params.name)
   if (_sourceBlobsBase64) {
-    fs.mkdirSync(bDir, { recursive: true })
-    // Clean old blobs
-    for (const f of fs.readdirSync(bDir)) fs.unlinkSync(path.join(bDir, f))
-    for (const [k, b64] of Object.entries<string>(_sourceBlobsBase64)) {
-      const safeK = encodeURIComponent(k)
-      fs.writeFileSync(path.join(bDir, safeK + '.blob'), Buffer.from(b64, 'base64'))
-    }
+    writeProjectBlobs(req.params.name, _sourceBlobsBase64)
   }
   project.modifiedAt = new Date().toISOString()
   fs.writeFileSync(projectJsonPath(req.params.name), JSON.stringify(project, null, 2))
@@ -486,14 +536,9 @@ app.post('/api/projects/import', (req, res) => {
     dir = projectDir(finalName)
   }
   fs.mkdirSync(dir, { recursive: true })
-  const bDir = blobsDir(finalName)
   const { _sourceBlobsBase64, ...project } = data
   if (_sourceBlobsBase64) {
-    fs.mkdirSync(bDir, { recursive: true })
-    for (const [k, b64] of Object.entries<string>(_sourceBlobsBase64)) {
-      const safeK = encodeURIComponent(k)
-      fs.writeFileSync(path.join(bDir, safeK + '.blob'), Buffer.from(b64, 'base64'))
-    }
+    writeProjectBlobs(finalName, _sourceBlobsBase64)
   }
   project.name = finalName
   project.modifiedAt = new Date().toISOString()

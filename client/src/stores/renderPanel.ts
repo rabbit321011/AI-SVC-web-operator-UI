@@ -4,8 +4,14 @@ import type { RenderInputRef, RenderPanelMode, RenderSlotId } from '@/object-wor
 import { makeRenderInputRef, validateRenderSlot } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 
+export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed'
+
 export const useRenderPanelStore = defineStore('renderPanel', () => {
   const mode = ref<RenderPanelMode>('svc')
+  const svcStatus = ref<SvcRenderStatus>('idle')
+  const svcProgress = ref(0)
+  const svcMessage = ref('')
+  const currentJobId = ref<string | null>(null)
   const svc = reactive({
     condAudio: null as RenderInputRef | null,
     sourceAudio: null as RenderInputRef | null,
@@ -28,7 +34,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
 
   const canRunSvc = computed(() => {
     const objectTree = useObjectTreeStore()
-    return validateRenderSlot(objectTree.tree, 'svc.condAudio', svc.condAudio).ok
+    return svcStatus.value !== 'running'
+      && validateRenderSlot(objectTree.tree, 'svc.condAudio', svc.condAudio).ok
       && validateRenderSlot(objectTree.tree, 'svc.sourceAudio', svc.sourceAudio).ok
   })
 
@@ -66,10 +73,11 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     const objectTree = useObjectTreeStore()
     const node = objectTree.node(id)
     if (!node) return { ok: false, reason: '原对象不存在' }
-    if (node.kind !== 'trackObject' && node.kind !== 'group') {
-      return { ok: false, reason: '槽位只接受 TrackObject 或 GroupObject' }
+    if (node.kind !== 'trackObject' && node.kind !== 'group' && !(slotId === 'svc.condAudio' && node.kind === 'audio')) {
+      return { ok: false, reason: slotId === 'svc.condAudio' ? 'cond音频只接受 AudioObject/TrackObject/GroupObject' : '槽位只接受 TrackObject 或 GroupObject' }
     }
-    return setSlot(slotId, makeRenderInputRef(objectTree.tree, node.kind === 'group' ? 'group' : 'trackObject', id))
+    const kind = node.kind === 'group' ? 'group' : node.kind === 'audio' ? 'audioObject' : 'trackObject'
+    return setSlot(slotId, makeRenderInputRef(objectTree.tree, kind, id))
   }
 
   function clearSlot(slotId: RenderSlotId) {
@@ -80,8 +88,35 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     if (slotId === 'svs.text') svs.textRef = null
   }
 
+  function setSvcRunning(jobId: string, message = '准备 SVC') {
+    currentJobId.value = jobId
+    svcStatus.value = 'running'
+    svcProgress.value = 0
+    svcMessage.value = message
+  }
+
+  function updateSvcProgress(progress: number, message?: string) {
+    svcProgress.value = Math.max(0, Math.min(100, Math.round(progress)))
+    if (message !== undefined) svcMessage.value = message
+  }
+
+  function setSvcDone(message = 'SVC 完成') {
+    svcStatus.value = 'done'
+    svcProgress.value = 100
+    svcMessage.value = message
+  }
+
+  function setSvcFailed(message: string) {
+    svcStatus.value = 'failed'
+    svcMessage.value = message
+  }
+
   return {
     mode,
+    svcStatus,
+    svcProgress,
+    svcMessage,
+    currentJobId,
     svc,
     svs,
     canRunSvc,
@@ -90,5 +125,9 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     setSlot,
     setSlotFromNode,
     clearSlot,
+    setSvcRunning,
+    updateSvcProgress,
+    setSvcDone,
+    setSvcFailed,
   }
 })

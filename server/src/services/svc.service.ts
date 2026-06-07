@@ -40,7 +40,13 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
 
   const child = spawn(PYTHON, args, {
     cwd: WORK_DIR,
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      HF_HUB_OFFLINE: process.env.HF_HUB_OFFLINE ?? '1',
+      TRANSFORMERS_OFFLINE: process.env.TRANSFORMERS_OFFLINE ?? '1',
+      HF_DATASETS_OFFLINE: process.env.HF_DATASETS_OFFLINE ?? '1',
+      HF_HUB_DISABLE_TELEMETRY: process.env.HF_HUB_DISABLE_TELEMETRY ?? '1',
+    },
   })
 
   let stdoutBuf = ''
@@ -105,11 +111,22 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
         ws.send(JSON.stringify({ type: 'done', outputFile: null }))
       }
     } else {
-      ws.send(JSON.stringify({ type: 'error', message: `SVC process exited with code ${code}` }))
+      ws.send(JSON.stringify({ type: 'error', message: formatSvcError(code, stderrBuf || stdoutBuf) }))
     }
   })
 
   child.on('error', (err) => {
     ws.send(JSON.stringify({ type: 'error', message: err.message }))
   })
+}
+
+function formatSvcError(code: number | null, output: string): string {
+  const cleaned = output
+    .split(/\r?\n/)
+    .map(line => line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim())
+    .filter(Boolean)
+    .slice(-5)
+    .join(' | ')
+  const base = `SVC process exited with code ${code}`
+  return cleaned ? `${base}: ${cleaned}` : base
 }

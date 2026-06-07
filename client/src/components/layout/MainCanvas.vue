@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
@@ -83,6 +83,33 @@ function flash(message: string) {
     if (notice.value === message) notice.value = ''
   }, 1400)
 }
+
+function locateSegment(segmentId: string) {
+  const seg = tracks.getSegment(segmentId)
+  if (!seg) {
+    flash('时间线对象不存在')
+    return
+  }
+  selection.select(segmentId, false)
+  ;(window as any).__playbackSeek?.(seg.timelineStart)
+
+  const el = scrollRef.value
+  if (el) {
+    el.scrollLeft = Math.max(0, seg.timelineStart * project.pxPerSec - 80)
+    document.querySelector(`[data-track-id="${seg.trackId}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+  project.bumpRedraw()
+}
+
+onMounted(() => {
+  ;(window as any).__timelineLocateSegment = locateSegment
+})
+
+onUnmounted(() => {
+  if ((window as any).__timelineLocateSegment === locateSegment) {
+    delete (window as any).__timelineLocateSegment
+  }
+})
 </script>
 
 <template>

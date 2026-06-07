@@ -16,6 +16,43 @@
 
 ---
 
+## Object Workbench Checkpoint — 2026-06-07
+
+> 本节记录对象工作台阶段的已验证 checkpoint。它覆盖新对象树、右侧 SVC 链路、快捷键、左栏预览和保存修复，不替代下方历史 Phase 表。
+
+### 自动验证
+
+| # | 检验项 | 手段 | 结果 |
+|---|--------|------|------|
+| OW-A1 | `pnpm --filter client test` | 🤖 | ✅ 48 passed |
+| OW-A2 | `pnpm --filter client lint` | 🤖 | ✅ passed |
+| OW-A3 | `pnpm build` | 🤖 | ✅ passed；仅保留已知 `client/src/api/wav.ts` 动态/静态导入警告 |
+
+### 手动验证
+
+| # | 检验项 | 手段 | 结果 |
+|---|--------|------|------|
+| OW-M1 | 右侧 SVC：TrackObject/GroupObject 作为被变声音频 | ✋+🔊 | ✅ 合成成功，结果进入时间线 |
+| OW-M2 | 右侧 SVC：普通 AudioObject 作为 cond 音频 | ✋+🔊 | ✅ 不必先拖入时间线即可作为 cond |
+| OW-M3 | 右侧 SVC：结果回填 | ✋ | ✅ 输出写入 `renders/svc`，同时创建 `trackSources` 工作副本和 TrackObject |
+| OW-M4 | SVC 输出对齐 | ✋+🔊 | ✅ 新结果对齐被变声音频最早开始时间 |
+| OW-M5 | 右侧槽位“放入/清空/失效提示/模型下拉” | ✋ | ✅ 交互正常 |
+| OW-M6 | `Alt+N` 定位 TrackObject/时间线 | ✋ | ✅ 左栏到时间线、时间线到 L2 定位均可用 |
+| OW-M7 | `Alt+L` 定位 source AudioObject | ✋ | ✅ TrackObject 可追溯到绑定音频 |
+| OW-M8 | `Alt+M` / `Alt+K` 定位绑定 MIDI/Text 或给出提示 | ✋ | ✅ 无绑定时提示正常 |
+| OW-M9 | 左栏 AudioObject 小播放组件 | ✋+🔊 | ✅ 播放/停止/切换音频正常 |
+| OW-M10 | 长文件名 blob 保存 | ✋+🤖 | ✅ 保存不再因 Windows 文件名过长产生 500；服务端使用短 hash 文件名 + manifest |
+
+### 当前注意事项
+
+| # | 项目 | 说明 |
+|---|------|------|
+| OW-N1 | `projects/` 本地样本 | `projects/*.json` 可作为 smoke test 数据；手动验证产生的项目数据改动不默认纳入源码 checkpoint |
+| OW-N2 | HuggingFace 缓存 | SVC 子进程默认启用 HF/Transformers 离线模式；本机有缓存时可避免联网 HEAD 超时，缺缓存时会更快暴露错误 |
+| OW-N3 | SVS | 后端已有 `/api/svs/run` skeleton，但右侧 SVS 真实执行链路尚未接入 |
+
+---
+
 ## Phase 0 — 项目骨架 & 工程环境
 
 | # | 检验项 | 手段 | 预期结果 |

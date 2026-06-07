@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from '@/types'
-import { legacyProjectToObjectTree, makeRenderInputRef, validateRenderSlot } from './index'
+import { buildNodeIndex, legacyProjectToObjectTree, makeRenderInputRef, validateRenderSlot } from './index'
 
 describe('render input slot validation', () => {
   it('accepts audio TrackObject for SVC audio slots', () => {
@@ -17,6 +17,17 @@ describe('render input slot validation', () => {
 
     expect(validateRenderSlot(tree, 'svs.text', input)).toMatchObject({ ok: false, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svc.condAudio', { ...input, id: 'missing' })).toMatchObject({ ok: false, reason: '原对象不存在' })
+  })
+
+  it('accepts AudioObject only for SVC cond audio', () => {
+    const { tree, maps } = legacyProjectToObjectTree(makeProject())
+    const trackObject = buildNodeIndex(tree.root).nodes[maps.trackObjectIdBySegmentId.seg_a]
+    if (trackObject?.kind !== 'trackObject') throw new Error('expected TrackObject')
+    const input = makeRenderInputRef(tree, 'audioObject', trackObject.trackObject.sourceObjectId)
+
+    expect(validateRenderSlot(tree, 'svc.condAudio', input)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'svc.sourceAudio', input)).toMatchObject({ ok: false, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'svs.melody', input)).toMatchObject({ ok: false, mediaType: 'audio' })
   })
 })
 

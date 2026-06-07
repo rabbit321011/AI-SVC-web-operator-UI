@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AudioSegment, Project } from '@/types'
-import type { AudioObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TrackFolderNode, TrackObjectNode } from '@/object-workbench'
+import type { AudioObjectNode, FolderNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TrackFolderNode, TrackObjectNode, TreeNode } from '@/object-workbench'
 import {
   buildNodeIndex,
   canDragIntoTimeline,
@@ -242,6 +242,126 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true, trackId, segmentId: segment.id }
   }
 
+  async function addRenderedAudioToTimeline(options: {
+    blob: Blob
+    outputFileName: string
+    renderKind: 'svc' | 'svs'
+    timelineStart?: number
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    trackId?: string
+    segmentId?: string
+    renderObjectId?: NodeId
+    trackSourceObjectId?: NodeId
+    trackObjectId?: NodeId
+    outputFileName?: string
+  }> {
+    const tracksStore = useTracksStore()
+    const meta = await decodeAudioMeta(options.blob)
+    const timelineStart = options.timelineStart ?? 0
+    const renderFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.renders, options.renderKind)
+    const outputFileName = uniqueChildName(renderFolder, ensureWavFileName(options.outputFileName))
+
+    const renderAssetId = `asset:render:${options.renderKind}:${crypto.randomUUID()}`
+    const renderObjectId = `node:render:${options.renderKind}:audio:${crypto.randomUUID()}`
+    const renderBlobKey = `${renderObjectId}:${outputFileName}`
+    tree.value.assets[renderAssetId] = {
+      id: renderAssetId,
+      storage: 'projectBlob',
+      blobKey: renderBlobKey,
+      sampleRate: meta.sampleRate,
+      duration: meta.duration,
+      channels: meta.channels,
+    }
+    tracksStore.sourceBlobs.set(renderBlobKey, options.blob)
+    insertChild(renderFolder, {
+      id: renderObjectId,
+      kind: 'audio',
+      name: outputFileName,
+      audio: {
+        assetId: renderAssetId,
+        midiObjectId: null,
+        textObjectId: null,
+        tags: [options.renderKind],
+      },
+    })
+
+    const trackSourceAssetId = `asset:trackSource:${crypto.randomUUID()}`
+    const trackSourceObjectId = `node:trackSource:audio:${crypto.randomUUID()}`
+    const trackSourceBlobKey = `${trackSourceObjectId}:${outputFileName}`
+    tree.value.assets[trackSourceAssetId] = {
+      id: trackSourceAssetId,
+      storage: 'projectBlob',
+      blobKey: trackSourceBlobKey,
+      sampleRate: meta.sampleRate,
+      duration: meta.duration,
+      channels: meta.channels,
+    }
+    tracksStore.sourceBlobs.set(trackSourceBlobKey, options.blob)
+
+    const trackId = tracksStore.addTrack(trackSourceBlobKey, meta.sampleRate, meta.totalSamples, outputFileName, options.blob)
+    const segment = tracksStore.getTrackSegments(trackId)[0]
+    if (!segment) return { ok: false, reason: '创建时间线片段失败' }
+    segment.timelineStart = timelineStart
+    segment.timelineEnd = timelineStart + meta.duration
+    segment.srcEndSample = meta.totalSamples
+
+    const trackSourceObject: AudioObjectNode = {
+      id: trackSourceObjectId,
+      kind: 'audio',
+      name: outputFileName,
+      audio: {
+        assetId: trackSourceAssetId,
+        midiObjectId: null,
+        textObjectId: null,
+        tags: [options.renderKind],
+      },
+      legacy: { segmentId: segment.id, trackId },
+    }
+    insertChild(getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'audio'), trackSourceObject)
+
+    const trackObjectId = `node:trackObject:${segment.id}`
+    const trackFolder: TrackFolderNode = {
+      id: `node:trackFolder:${trackId}`,
+      kind: 'trackFolder',
+      name: outputFileName,
+      trackFolder: {
+        trackType: 'audio',
+        color: tracksStore.tracks[trackId]?.color,
+        muted: false,
+        solo: false,
+        volume: 1,
+      },
+      children: [{
+        id: trackObjectId,
+        kind: 'trackObject',
+        name: outputFileName,
+        trackObject: {
+          contentType: 'audio',
+          sourceObjectId: trackSourceObjectId,
+          timelineStart: segment.timelineStart,
+          timelineEnd: segment.timelineEnd,
+          ignored: false,
+        },
+        legacy: { segmentId: segment.id, trackId },
+      }],
+      legacy: { trackId },
+    }
+    insertIntoFirstFolder(TOP_LEVEL_IDS.tracks, trackFolder)
+    tracksStore.reconcileF0ForTrack(trackId)
+
+    return {
+      ok: true,
+      trackId,
+      segmentId: segment.id,
+      renderObjectId,
+      trackSourceObjectId,
+      trackObjectId,
+      outputFileName,
+    }
+  }
+
   function syncTrackFolderName(trackId: string, name: string): { ok: boolean; reason?: string } {
     const trackFolderId = `node:trackFolder:${trackId}`
     const trackFolder = index.value.nodes[trackFolderId]
@@ -311,10 +431,27 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     delete tree.value.assets[source.audio.assetId]
   }
 
-  function insertIntoFirstFolder(parentId: NodeId, child: AudioObjectNode | TrackFolderNode) {
+  function insertIntoFirstFolder(parentId: NodeId, child: TreeNode) {
     const parent = buildNodeIndex(tree.value.root).nodes[parentId]
     if (!parent || parent.kind !== 'folder') throw new Error(`Missing folder ${parentId}`)
     insertChild(parent, child)
+  }
+
+  function getOrCreateChildFolder(parentId: NodeId, name: string): FolderNode {
+    const currentIndex = buildNodeIndex(tree.value.root)
+    const parent = currentIndex.nodes[parentId]
+    if (!parent || parent.kind !== 'folder') throw new Error(`Missing folder ${parentId}`)
+    const existing = parent.children.find((child): child is FolderNode => child.kind === 'folder' && child.name === name)
+    if (existing) return existing
+    const preferredId = `${parentId}/${name}`
+    const folder: FolderNode = {
+      id: currentIndex.nodes[preferredId] ? `node:folder:${crypto.randomUUID()}` : preferredId,
+      kind: 'folder',
+      name,
+      children: [],
+    }
+    insertChild(parent, folder)
+    return folder
   }
 
   return {
@@ -334,6 +471,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     deleteNode,
     importFilesToFolder,
     dropAudioObjectToTimeline,
+    addRenderedAudioToTimeline,
     syncTrackFolderName,
     syncSplitSegment,
   }
@@ -357,4 +495,26 @@ async function decodeAudioMeta(blob: Blob): Promise<{ sampleRate: number; totalS
   } finally {
     audioCtx.close()
   }
+}
+
+function ensureWavFileName(name: string): string {
+  const clean = sanitizeFileName(name) || 'SVC_output'
+  return /\.wav$/i.test(clean) ? clean : `${clean}.wav`
+}
+
+function sanitizeFileName(name: string): string {
+  return name.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+}
+
+function uniqueChildName(parent: FolderNode, preferred: string): string {
+  const taken = new Set(parent.children.map(child => child.name))
+  if (!taken.has(preferred)) return preferred
+  const match = preferred.match(/^(.*?)(\.[^.]+)?$/)
+  const stem = match?.[1] || preferred
+  const ext = match?.[2] || ''
+  for (let index = 2; index < 10000; index++) {
+    const candidate = `${stem} (${index})${ext}`
+    if (!taken.has(candidate)) return candidate
+  }
+  return `${stem} (${crypto.randomUUID().slice(0, 8)})${ext}`
 }

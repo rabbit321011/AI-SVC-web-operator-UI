@@ -7,7 +7,6 @@ import ObjectTreeRows from './ObjectTreeRows.vue'
 
 const objectTree = useObjectTreeStore()
 const ui = useObjectTreeUiStore()
-const notice = ref('')
 const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
 const rootChildren = computed(() => objectTree.tree.root.children)
@@ -65,10 +64,7 @@ function allowTreeDrop(event: DragEvent) {
 }
 
 function flash(message: string) {
-  notice.value = message
-  window.setTimeout(() => {
-    if (notice.value === message) notice.value = ''
-  }, 1400)
+  ui.flashNotice(message)
 }
 
 function handleContextMenu(node: TreeNode, event: MouseEvent) {
@@ -170,7 +166,7 @@ function cssSafeId(id: NodeId) {
         />
       </div>
     </div>
-    <div class="tree-notice">{{ notice }}</div>
+    <div class="tree-notice">{{ ui.notice }}</div>
     <Teleport to="body">
       <div
         v-if="menu.visible"
@@ -245,7 +241,7 @@ function cssSafeId(id: NodeId) {
 <style>
 .tree-row {
   display: grid;
-  grid-template-columns: 12px 28px minmax(0, 1fr);
+  grid-template-columns: 12px 28px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 4px;
   height: 24px;
@@ -269,6 +265,22 @@ function cssSafeId(id: NodeId) {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.tree-play-btn {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #30363d;
+  border-radius: 3px;
+  background: #0d1117;
+  color: #8b949e;
+  font-size: 9px;
+  line-height: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+.tree-play-btn:hover {
+  border-color: #58a6ff;
+  color: #c9d1d9;
 }
 .tree-context-menu {
   position: fixed;

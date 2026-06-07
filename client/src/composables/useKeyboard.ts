@@ -1,11 +1,14 @@
-import { onMounted, onUnmounted } from 'vue'
+import { nextTick, onMounted, onUnmounted } from 'vue'
 import { useHistoryStore } from '@/stores/history'
 import { useSelectionStore } from '@/stores/selection'
 import { useClipboardStore } from '@/stores/clipboard'
 import { useTracksStore } from '@/stores/tracks'
 import { useCompGroupsStore } from '@/stores/compGroups'
 import { useProjectStore } from '@/stores/project'
+import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { float32ToWavBlob } from '@/api/wav'
+import type { AudioObjectNode, NodeId, TrackObjectNode } from '@/object-workbench'
 import type { AudioSegment, SegmentId, TrackId, DeepCopySegment, F0Frame } from '@/types'
 
 export function useKeyboard() {
@@ -15,10 +18,15 @@ export function useKeyboard() {
 
   function handler(e: KeyboardEvent) {
     const ctrl = e.ctrlKey || e.metaKey
+    const altLocate = e.altKey && !ctrl && !e.shiftKey
     const tag = (e.target as HTMLElement)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
     if (e.key === ' ') { e.preventDefault(); handleSpacebar(); return }
+    if (altLocate && e.key.toLowerCase() === 'n') { e.preventDefault(); locateTrackObjectShortcut(); return }
+    if (altLocate && e.key.toLowerCase() === 'l') { e.preventDefault(); locateAudioShortcut(); return }
+    if (altLocate && e.key.toLowerCase() === 'm') { e.preventDefault(); locateBoundObjectShortcut('midi'); return }
+    if (altLocate && e.key.toLowerCase() === 'k') { e.preventDefault(); locateBoundObjectShortcut('text'); return }
     if (ctrl && e.key === 'z' && !e.shiftKey) { e.preventDefault(); history.undo(); return }
     if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); history.redo(); return }
     if (ctrl && e.key === 's') { e.preventDefault(); saveProject(); return }
@@ -306,6 +314,107 @@ export function useKeyboard() {
 
   function loadProject() {
     ;(window as any).__loadProject?.()
+  }
+
+  function locateTrackObjectShortcut() {
+    const objectTree = useObjectTreeStore()
+    const ui = useObjectTreeUiStore()
+    const leftNodeId = singleObjectTreeSelection()
+    const leftNode = leftNodeId ? objectTree.node(leftNodeId) : null
+    if (leftNode?.kind === 'trackObject') {
+      const segmentId = leftNode.legacy?.segmentId
+      if (segmentId) {
+        ;(window as any).__timelineLocateSegment?.(segmentId)
+        return
+      }
+      ;(window as any).__playbackSeek?.(leftNode.trackObject.timelineStart)
+      ui.flashNotice('已定位到时间线起点')
+      return
+    }
+
+    const trackObjectId = trackObjectIdFromLegacySelection()
+    if (trackObjectId && objectTree.node(trackObjectId)) {
+      locateInL2(trackObjectId)
+      return
+    }
+    ui.flashNotice('请选择一个时间线对象')
+  }
+
+  function locateAudioShortcut() {
+    const ui = useObjectTreeUiStore()
+    const audio = currentAudioObject()
+    if (!audio) {
+      ui.flashNotice('当前选择无法定位音频')
+      return
+    }
+    locateInL2(audio.id)
+  }
+
+  function locateBoundObjectShortcut(kind: 'midi' | 'text') {
+    const ui = useObjectTreeUiStore()
+    const objectTree = useObjectTreeStore()
+    const audio = currentAudioObject()
+    if (!audio) {
+      ui.flashNotice('当前选择无法追溯音频')
+      return
+    }
+    const targetId = kind === 'midi' ? audio.audio.midiObjectId : audio.audio.textObjectId
+    if (!targetId || !objectTree.node(targetId)) {
+      ui.flashNotice(kind === 'midi' ? '该音频尚未生成 MIDI' : '该音频尚未关联歌词')
+      return
+    }
+    locateInL2(targetId)
+  }
+
+  function currentAudioObject(): AudioObjectNode | null {
+    const objectTree = useObjectTreeStore()
+    const selectedNodeId = singleObjectTreeSelection()
+    const selectedNode = selectedNodeId ? objectTree.node(selectedNodeId) : null
+    if (selectedNode?.kind === 'audio') return selectedNode
+    if (selectedNode?.kind === 'trackObject') return sourceAudioFromTrackObject(selectedNode)
+
+    const trackObjectId = trackObjectIdFromLegacySelection()
+    const trackObject = trackObjectId ? objectTree.node(trackObjectId) : null
+    if (trackObject?.kind === 'trackObject') return sourceAudioFromTrackObject(trackObject)
+    return null
+  }
+
+  function sourceAudioFromTrackObject(trackObject: TrackObjectNode): AudioObjectNode | null {
+    const objectTree = useObjectTreeStore()
+    const source = objectTree.node(trackObject.trackObject.sourceObjectId)
+    return source?.kind === 'audio' ? source : null
+  }
+
+  function singleObjectTreeSelection(): NodeId | null {
+    const ui = useObjectTreeUiStore()
+    return ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
+  }
+
+  function trackObjectIdFromLegacySelection(): NodeId | null {
+    if (selection.ids.length !== 1) return null
+    const objectTree = useObjectTreeStore()
+    const selected = selection.ids[0]
+    if (selected.startsWith('seg_')) {
+      return objectTree.legacyMaps?.trackObjectIdBySegmentId[selected] ?? `node:trackObject:${selected}`
+    }
+    return null
+  }
+
+  function locateInL2(id: NodeId) {
+    const objectTree = useObjectTreeStore()
+    const ui = useObjectTreeUiStore()
+    ui.locateInL2(objectTree.index.parentById, id)
+    nextTick(() => {
+      document.getElementById(rowDomId('L2', id))?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  function rowDomId(pane: 'L1' | 'L2', id: NodeId) {
+    return `tree-row-${pane}-${cssSafeId(id)}`
+  }
+
+  function cssSafeId(id: NodeId) {
+    return id.replace(/[^a-zA-Z0-9_-]/g, '_')
   }
 
   // ── F0 merge helpers ──
