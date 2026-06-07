@@ -26,15 +26,18 @@ export const useProjectStore = defineStore('project', () => {
     version.value = '1.0.0'
     createdAt.value = now
     modifiedAt.value = now
+    useObjectTreeStore().createEmpty()
   }
 
   function toJSON(): Project {
     const tracksStore = useTracksStore()
     const compGroupsStore = useCompGroupsStore()
+    const objectTreeStore = useObjectTreeStore()
     return {
       id: id.value,
       name: name.value,
       version: version.value,
+      objectTree: objectTreeStore.tree,
       tracks: { ...tracksStore.tracks },
       trackOrder: [...tracksStore.trackOrder],
       segments: { ...tracksStore.segmentsMap },
@@ -60,6 +63,7 @@ export const useProjectStore = defineStore('project', () => {
 
     const tracksStore = useTracksStore()
     const compGroupsStore = useCompGroupsStore()
+    const objectTreeStore = useObjectTreeStore()
 
     // Clear everything
     tracksStore.trackOrder.splice(0, tracksStore.trackOrder.length)
@@ -87,6 +91,11 @@ export const useProjectStore = defineStore('project', () => {
       compGroupsStore.compGroups[gid] = g as any
     }
     compGroupsStore.compGroupOrder.push(...project.compGroupOrder)
+    if (project.objectTree) {
+      objectTreeStore.loadObjectTree(project.objectTree)
+    } else {
+      objectTreeStore.loadFromLegacyProject(project)
+    }
 
     console.log('[load] tracks:', Object.keys(tracksStore.tracks).length,
       'segments:', Object.keys(tracksStore.segmentsMap).length,
@@ -108,3 +117,4 @@ export const useProjectStore = defineStore('project', () => {
 // circular import resolved by lazy access
 import { useTracksStore } from './tracks'
 import { useCompGroupsStore } from './compGroups'
+import { useObjectTreeStore } from './objectTree'

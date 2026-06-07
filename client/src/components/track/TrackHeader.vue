@@ -2,12 +2,14 @@
 import { computed, ref, nextTick } from 'vue'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import type { TrackId } from '@/types'
 
 const props = defineProps<{ trackId: TrackId }>()
 
 const tracks = useTracksStore()
 const selection = useSelectionStore()
+const objectTree = useObjectTreeStore()
 
 const track = computed(() => tracks.tracks[props.trackId])
 
@@ -45,6 +47,7 @@ function finishRename() {
   const name = editName.value.trim()
   if (name && track.value) {
     tracks.renameTrack(props.trackId, name)
+    objectTree.syncTrackFolderName(props.trackId, name)
   }
   editing.value = false
 }

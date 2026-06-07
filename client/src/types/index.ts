@@ -101,6 +101,8 @@ export interface Project {
   name: string
   version: string
 
+  objectTree?: import('@/object-workbench').ProjectObjectTree
+
   tracks: Record<TrackId, Track>
   trackOrder: TrackId[]
 

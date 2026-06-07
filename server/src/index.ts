@@ -11,6 +11,7 @@ import http from 'http'
 import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { runSvc } from './services/svc.service.js'
+import { buildSvsArgs, runSvs } from './services/svs.service.js'
 
 const app = express()
 app.use(cors())
@@ -349,6 +350,24 @@ app.post('/api/svc/run', (req, res) => {
       }
     }, 2000)
   }
+})
+
+app.post('/api/svs/run', (req, res) => {
+  const { refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device, dryRun } = req.body
+
+  if (!refAudio || !targetText || !output) {
+    res.status(400).json({ error: 'missing refAudio, targetText, or output' })
+    return
+  }
+
+  const svsReq = { refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device }
+  if (dryRun) {
+    res.json({ ok: true, dryRun: true, args: buildSvsArgs(svsReq) })
+    return
+  }
+
+  res.json({ ok: true, status: 'started' })
+  runSvs(svsReq)
 })
 
 app.get('/api/svc/result/:jobId.wav', (req, res) => {

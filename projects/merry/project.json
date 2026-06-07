@@ -2,6 +2,426 @@
   "id": "091f1931-bfa4-4431-a964-3076e1334528",
   "name": "merry",
   "version": "1.0.0",
+  "objectTree": {
+    "schemaVersion": "object-workbench.v1",
+    "root": {
+      "id": "project:/",
+      "kind": "folder",
+      "name": "project",
+      "children": [
+        {
+          "id": "project:/workspace",
+          "kind": "folder",
+          "name": "workspace",
+          "children": [
+            {
+              "id": "node:audio:7655a2e7-532a-4efb-a312-65497ba0af09",
+              "kind": "audio",
+              "name": "cfg490.wav",
+              "audio": {
+                "assetId": "asset:import:df11fece-9775-436d-90ee-a5c10404b724",
+                "midiObjectId": null,
+                "textObjectId": null
+              }
+            }
+          ]
+        },
+        {
+          "id": "project:/resource",
+          "kind": "folder",
+          "name": "resource",
+          "children": []
+        },
+        {
+          "id": "project:/trackSources",
+          "kind": "folder",
+          "name": "trackSources",
+          "children": [
+            {
+              "id": "project:/trackSources/audio",
+              "kind": "folder",
+              "name": "audio",
+              "children": [
+                {
+                  "id": "node:source:audio:seg_35a201bc",
+                  "kind": "audio",
+                  "name": "マリーの架空世界-vocal.wav",
+                  "audio": {
+                    "assetId": "asset:legacy:seg_35a201bc",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  },
+                  "legacy": {
+                    "segmentId": "seg_35a201bc",
+                    "trackId": "trk_87aecf26"
+                  }
+                },
+                {
+                  "id": "node:source:audio:seg_142ce240",
+                  "kind": "audio",
+                  "name": "マリーの架空世界-ins.wav",
+                  "audio": {
+                    "assetId": "asset:legacy:seg_142ce240",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  },
+                  "legacy": {
+                    "segmentId": "seg_142ce240",
+                    "trackId": "trk_a8c76d1e"
+                  }
+                },
+                {
+                  "id": "node:source:audio:seg_4c6297d6",
+                  "kind": "audio",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8049d79b\\花丸-平-voice_combined_0.wav",
+                  "audio": {
+                    "assetId": "asset:legacy:seg_4c6297d6",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  },
+                  "legacy": {
+                    "segmentId": "seg_4c6297d6",
+                    "trackId": "trk_927379b8"
+                  }
+                },
+                {
+                  "id": "node:source:audio:seg_ad9fb256",
+                  "kind": "audio",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8e65a388\\花丸-平-voice_combined_0.wav",
+                  "audio": {
+                    "assetId": "asset:legacy:seg_ad9fb256",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  },
+                  "legacy": {
+                    "segmentId": "seg_ad9fb256",
+                    "trackId": "trk_18271930"
+                  }
+                },
+                {
+                  "id": "node:source:audio:seg_71c45445",
+                  "kind": "audio",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_74d7e32f\\花丸-平-voice_combined_0.wav",
+                  "audio": {
+                    "assetId": "asset:legacy:seg_71c45445",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  },
+                  "legacy": {
+                    "segmentId": "seg_71c45445",
+                    "trackId": "trk_8bf35e1a"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "project:/tracks",
+          "kind": "folder",
+          "name": "tracks",
+          "children": [
+            {
+              "id": "node:trackFolder:trk_87aecf26",
+              "kind": "trackFolder",
+              "name": "マリーの架空世界-vocal.wav",
+              "trackFolder": {
+                "trackType": "audio",
+                "muted": false,
+                "solo": false,
+                "volume": 0.4,
+                "color": "#58a6ff"
+              },
+              "children": [
+                {
+                  "id": "node:trackObject:seg_35a201bc",
+                  "kind": "trackObject",
+                  "name": "マリーの架空世界-vocal.wav [45.58-130.44]",
+                  "trackObject": {
+                    "contentType": "audio",
+                    "sourceObjectId": "node:source:audio:seg_35a201bc",
+                    "timelineStart": 45.583333333333336,
+                    "timelineEnd": 130.4388916015625,
+                    "ignored": true
+                  },
+                  "legacy": {
+                    "segmentId": "seg_35a201bc",
+                    "trackId": "trk_87aecf26"
+                  }
+                }
+              ],
+              "legacy": {
+                "trackId": "trk_87aecf26"
+              }
+            },
+            {
+              "id": "node:trackFolder:trk_a8c76d1e",
+              "kind": "trackFolder",
+              "name": "ins.wav",
+              "trackFolder": {
+                "trackType": "audio",
+                "muted": false,
+                "solo": false,
+                "volume": 0.3,
+                "color": "#f78166"
+              },
+              "children": [
+                {
+                  "id": "node:trackObject:seg_142ce240",
+                  "kind": "trackObject",
+                  "name": "マリーの架空世界-ins.wav [0.00-216.70]",
+                  "trackObject": {
+                    "contentType": "audio",
+                    "sourceObjectId": "node:source:audio:seg_142ce240",
+                    "timelineStart": 0,
+                    "timelineEnd": 216.704,
+                    "ignored": false
+                  },
+                  "legacy": {
+                    "segmentId": "seg_142ce240",
+                    "trackId": "trk_a8c76d1e"
+                  }
+                }
+              ],
+              "legacy": {
+                "trackId": "trk_a8c76d1e"
+              }
+            },
+            {
+              "id": "node:trackFolder:trk_927379b8",
+              "kind": "trackFolder",
+              "name": "全曲合成组 (SVC)",
+              "trackFolder": {
+                "trackType": "audio",
+                "muted": false,
+                "solo": false,
+                "volume": 2,
+                "color": "#e94560"
+              },
+              "children": [
+                {
+                  "id": "node:trackObject:seg_4c6297d6",
+                  "kind": "trackObject",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8049d79b\\花丸-平-voice_combined_0.wav [0.00-216.70]",
+                  "trackObject": {
+                    "contentType": "audio",
+                    "sourceObjectId": "node:source:audio:seg_4c6297d6",
+                    "timelineStart": 0,
+                    "timelineEnd": 216.70020833333334,
+                    "ignored": false
+                  },
+                  "legacy": {
+                    "segmentId": "seg_4c6297d6",
+                    "trackId": "trk_927379b8"
+                  }
+                }
+              ],
+              "legacy": {
+                "trackId": "trk_927379b8"
+              }
+            },
+            {
+              "id": "node:trackFolder:trk_18271930",
+              "kind": "trackFolder",
+              "name": "有效合成组 (SVC)",
+              "trackFolder": {
+                "trackType": "audio",
+                "muted": false,
+                "solo": false,
+                "volume": 2,
+                "color": "#e94560"
+              },
+              "children": [
+                {
+                  "id": "node:trackObject:seg_ad9fb256",
+                  "kind": "trackObject",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8e65a388\\花丸-平-voice_combined_0.wav [45.58-130.43]",
+                  "trackObject": {
+                    "contentType": "audio",
+                    "sourceObjectId": "node:source:audio:seg_ad9fb256",
+                    "timelineStart": 45.583333333333336,
+                    "timelineEnd": 130.42904166666668,
+                    "ignored": true
+                  },
+                  "legacy": {
+                    "segmentId": "seg_ad9fb256",
+                    "trackId": "trk_18271930"
+                  }
+                }
+              ],
+              "legacy": {
+                "trackId": "trk_18271930"
+              }
+            },
+            {
+              "id": "node:trackFolder:trk_8bf35e1a",
+              "kind": "trackFolder",
+              "name": "有效合成组60k (SVC)",
+              "trackFolder": {
+                "trackType": "audio",
+                "muted": false,
+                "solo": false,
+                "volume": 2,
+                "color": "#e94560"
+              },
+              "children": [
+                {
+                  "id": "node:trackObject:seg_71c45445",
+                  "kind": "trackObject",
+                  "name": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_74d7e32f\\花丸-平-voice_combined_0.wav [45.58-130.43]",
+                  "trackObject": {
+                    "contentType": "audio",
+                    "sourceObjectId": "node:source:audio:seg_71c45445",
+                    "timelineStart": 45.583333333333336,
+                    "timelineEnd": 130.42904166666668,
+                    "ignored": true
+                  },
+                  "legacy": {
+                    "segmentId": "seg_71c45445",
+                    "trackId": "trk_8bf35e1a"
+                  }
+                }
+              ],
+              "legacy": {
+                "trackId": "trk_8bf35e1a"
+              }
+            }
+          ]
+        },
+        {
+          "id": "project:/groups",
+          "kind": "folder",
+          "name": "groups",
+          "children": [
+            {
+              "id": "node:group:cgrp_cb66f323",
+              "kind": "group",
+              "name": "全曲合成组",
+              "group": {
+                "mediaType": "audio",
+                "trackObjectIds": []
+              },
+              "legacy": {
+                "compGroupId": "cgrp_cb66f323"
+              }
+            },
+            {
+              "id": "node:group:cgrp_6715fb3c",
+              "kind": "group",
+              "name": "有效合成组",
+              "group": {
+                "mediaType": "audio",
+                "trackObjectIds": [
+                  "node:trackObject:seg_35a201bc"
+                ]
+              },
+              "legacy": {
+                "compGroupId": "cgrp_6715fb3c"
+              }
+            },
+            {
+              "id": "node:group:cgrp_2a461e23",
+              "kind": "group",
+              "name": "有效合成组60k",
+              "group": {
+                "mediaType": "audio",
+                "trackObjectIds": [
+                  "node:trackObject:seg_35a201bc"
+                ]
+              },
+              "legacy": {
+                "compGroupId": "cgrp_2a461e23"
+              }
+            }
+          ]
+        },
+        {
+          "id": "project:/renders",
+          "kind": "folder",
+          "name": "renders",
+          "children": []
+        }
+      ]
+    },
+    "assets": {
+      "asset:legacy:seg_35a201bc": {
+        "id": "asset:legacy:seg_35a201bc",
+        "storage": "projectBlob",
+        "blobKey": "マリーの架空世界-vocal.wav",
+        "sampleRate": 48000,
+        "duration": 84.85555826822915,
+        "channels": 1,
+        "legacy": {
+          "sourceFile": "マリーの架空世界-vocal.wav",
+          "trackId": "trk_87aecf26",
+          "segmentId": "seg_35a201bc"
+        }
+      },
+      "asset:legacy:seg_142ce240": {
+        "id": "asset:legacy:seg_142ce240",
+        "storage": "projectBlob",
+        "blobKey": "マリーの架空世界-ins.wav",
+        "sampleRate": 48000,
+        "duration": 216.704,
+        "channels": 1,
+        "legacy": {
+          "sourceFile": "マリーの架空世界-ins.wav",
+          "trackId": "trk_a8c76d1e",
+          "segmentId": "seg_142ce240"
+        }
+      },
+      "asset:legacy:seg_4c6297d6": {
+        "id": "asset:legacy:seg_4c6297d6",
+        "storage": "generatedFile",
+        "blobKey": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8049d79b\\花丸-平-voice_combined_0.wav",
+        "filePath": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8049d79b\\花丸-平-voice_combined_0.wav",
+        "sampleRate": 44100,
+        "duration": 216.70020833333334,
+        "channels": 1,
+        "legacy": {
+          "sourceFile": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8049d79b\\花丸-平-voice_combined_0.wav",
+          "trackId": "trk_927379b8",
+          "segmentId": "seg_4c6297d6"
+        }
+      },
+      "asset:legacy:seg_ad9fb256": {
+        "id": "asset:legacy:seg_ad9fb256",
+        "storage": "generatedFile",
+        "blobKey": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8e65a388\\花丸-平-voice_combined_0.wav",
+        "filePath": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8e65a388\\花丸-平-voice_combined_0.wav",
+        "sampleRate": 44100,
+        "duration": 84.84570833333333,
+        "channels": 1,
+        "legacy": {
+          "sourceFile": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_8e65a388\\花丸-平-voice_combined_0.wav",
+          "trackId": "trk_18271930",
+          "segmentId": "seg_ad9fb256"
+        }
+      },
+      "asset:legacy:seg_71c45445": {
+        "id": "asset:legacy:seg_71c45445",
+        "storage": "generatedFile",
+        "blobKey": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_74d7e32f\\花丸-平-voice_combined_0.wav",
+        "filePath": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_74d7e32f\\花丸-平-voice_combined_0.wav",
+        "sampleRate": 44100,
+        "duration": 84.84570833333333,
+        "channels": 1,
+        "legacy": {
+          "sourceFile": "E:\\AIscene\\AISVCs\\YingMusic-SVC\\outputs\\svc_74d7e32f\\花丸-平-voice_combined_0.wav",
+          "trackId": "trk_8bf35e1a",
+          "segmentId": "seg_71c45445"
+        }
+      },
+      "asset:import:df11fece-9775-436d-90ee-a5c10404b724": {
+        "id": "asset:import:df11fece-9775-436d-90ee-a5c10404b724",
+        "storage": "projectBlob",
+        "blobKey": "cfg490.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      }
+    }
+  },
   "tracks": {
     "trk_87aecf26": {
       "id": "trk_87aecf26",
@@ -15,7 +435,7 @@
       "totalSamples": 10401792,
       "f0Cache": null,
       "f0Pending": 0,
-      "f0Total": 1,
+      "f0Total": 0,
       "collapsed": false,
       "muted": false,
       "solo": false,
@@ -35,7 +455,7 @@
       "totalSamples": 10401792,
       "f0Cache": null,
       "f0Pending": 0,
-      "f0Total": 1,
+      "f0Total": 0,
       "collapsed": false,
       "muted": false,
       "solo": false,
@@ -55,7 +475,7 @@
       "totalSamples": 9556479,
       "f0Cache": null,
       "f0Pending": 0,
-      "f0Total": 1,
+      "f0Total": 0,
       "collapsed": false,
       "muted": false,
       "solo": false,
@@ -75,7 +495,7 @@
       "totalSamples": 3741696,
       "f0Cache": null,
       "f0Pending": 0,
-      "f0Total": 1,
+      "f0Total": 0,
       "collapsed": false,
       "muted": false,
       "solo": false,
@@ -95,7 +515,7 @@
       "totalSamples": 3741696,
       "f0Cache": null,
       "f0Pending": 0,
-      "f0Total": 1,
+      "f0Total": 0,
       "collapsed": false,
       "muted": false,
       "solo": false,
@@ -215445,5 +215865,5 @@
     "hopMs": 16
   },
   "createdAt": "2026-05-07T06:50:20.381Z",
-  "modifiedAt": "2026-05-07T07:13:41.665Z"
+  "modifiedAt": "2026-06-07T04:04:48.390Z"
 }

@@ -1,226 +1,291 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import { useCompGroupsStore } from '@/stores/compGroups'
-import { useSelectionStore } from '@/stores/selection'
-import { useTracksStore } from '@/stores/tracks'
-import { usePlaybackStore } from '@/stores/playback'
-import { NButton, NProgress, NTag } from 'naive-ui'
+import { computed, nextTick, ref } from 'vue'
+import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import type { NodeId, TreeNode } from '@/object-workbench'
+import ObjectTreeRows from './ObjectTreeRows.vue'
 
-const compGroups = useCompGroupsStore()
-const selection = useSelectionStore()
-const tracks = useTracksStore()
-const playback = usePlaybackStore()
+const objectTree = useObjectTreeStore()
+const ui = useObjectTreeUiStore()
+const notice = ref('')
+const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
-const editingGid = ref<string | null>(null)
-const editGroupName = ref('')
+const rootChildren = computed(() => objectTree.tree.root.children)
 
-function handleClick(groupId: string, e: MouseEvent) {
-  if (e.detail === 2) {
-    compGroups.toggleExpand(groupId)
+function hasChildren(node: TreeNode): node is Extract<TreeNode, { children: TreeNode[] }> {
+  return (node.kind === 'folder' || node.kind === 'trackFolder') && node.children.length > 0
+}
+
+function icon(node: TreeNode) {
+  if (node.kind === 'folder') return 'dir'
+  if (node.kind === 'trackFolder') return 'trk'
+  if (node.kind === 'trackObject') return 'obj'
+  if (node.kind === 'group') return 'grp'
+  return node.kind
+}
+
+function handleNodeClick(pane: 'L1' | 'L2', node: TreeNode, event: MouseEvent) {
+  if (node.kind === 'folder' || node.kind === 'trackFolder') {
+    ui.toggleExpanded(pane, node.id)
     return
   }
-  if (!selection.isSelected(groupId)) {
-    selection.select(groupId, false)
+  ui.selectNode(node, event.ctrlKey || event.metaKey)
+}
+
+function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer?.files?.length) {
+    importDroppedFiles(pane, target, Array.from(event.dataTransfer.files))
+    return
+  }
+  const sourceId = event.dataTransfer?.getData('application/x-aisvc-node-id') || event.dataTransfer?.getData('text/plain')
+  if (!sourceId) return
+  const result = objectTree.moveNode(sourceId, target.id)
+  if (result.ok) {
+    if (target.kind === 'folder' || target.kind === 'trackFolder') ui.expanded[pane].add(target.id)
+    flash('已移动')
+  } else {
+    flash(result.reason ?? '无法移动')
   }
 }
 
-function handleGroupDblClick(groupId: string) {
-  const group = compGroups.compGroups[groupId]
-  if (!group) return
-  editGroupName.value = group.name
-  editingGid.value = groupId
+async function importDroppedFiles(pane: 'L1' | 'L2', target: TreeNode, files: File[]) {
+  const result = await objectTree.importFilesToFolder(target.id, files)
+  if (result.ok) {
+    if (target.kind === 'folder' || target.kind === 'trackFolder') ui.expanded[pane].add(target.id)
+    flash(`已导入 ${result.ids?.length ?? 0} 个文件`)
+  } else {
+    flash(result.reason ?? '无法导入')
+  }
+}
+
+function allowTreeDrop(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+function flash(message: string) {
+  notice.value = message
+  window.setTimeout(() => {
+    if (notice.value === message) notice.value = ''
+  }, 1400)
+}
+
+function handleContextMenu(node: TreeNode, event: MouseEvent) {
+  event.preventDefault()
+  menu.value = { visible: true, x: event.clientX, y: event.clientY, node }
+  setTimeout(() => window.addEventListener('click', closeMenu, { once: true }), 0)
+}
+
+function closeMenu() {
+  menu.value.visible = false
+}
+
+function createFolderHere() {
+  const node = menu.value.node
+  closeMenu()
+  if (!node || (node.kind !== 'folder' && node.kind !== 'trackFolder')) return
+  const name = window.prompt('新建文件夹名称', '新建文件夹')
+  if (name == null) return
+  const result = objectTree.createFolder(node.id, name)
+  flash(result.ok ? '已新建文件夹' : result.reason ?? '无法新建文件夹')
+}
+
+function renameFolder() {
+  const node = menu.value.node
+  closeMenu()
+  if (!node) return
+  const name = window.prompt('重命名文件夹', node.name)
+  if (name == null) return
+  const result = objectTree.renameNode(node.id, name)
+  flash(result.ok ? '已重命名' : result.reason ?? '无法重命名')
+}
+
+function deleteFolder() {
+  const node = menu.value.node
+  closeMenu()
+  if (!node) return
+  if (!window.confirm(`删除 "${node.name}"？`)) return
+  const result = objectTree.deleteNode(node.id)
+  flash(result.ok ? '已删除' : result.reason ?? '无法删除')
+}
+
+function locateInL2(id: NodeId) {
+  ui.locateInL2(objectTree.index.parentById, id)
   nextTick(() => {
-    const el = document.querySelector('.group-name-input') as HTMLInputElement
-    el?.focus()
-    el?.select()
+    document.getElementById(rowDomId('L2', id))?.scrollIntoView({ block: 'nearest' })
   })
 }
 
-function finishGroupRename() {
-  const name = editGroupName.value.trim()
-  const gid = editingGid.value
-  if (name && gid) {
-    compGroups.rename(gid, name)
-    // Sync bound result track name if any
-    const group = compGroups.compGroups[gid]
-    if (group?.svcResult?.trackId) {
-      tracks.renameTrack(group.svcResult.trackId, `${name} (SVC)`)
-    }
-  }
-  editingGid.value = null
+function rowDomId(pane: 'L1' | 'L2', id: NodeId) {
+  return `tree-row-${pane}-${cssSafeId(id)}`
 }
 
-function cancelGroupRename() {
-  editingGid.value = null
-}
-
-function handleLocate(groupId: string) {
-  const group = compGroups.compGroups[groupId]
-  if (!group) return
-  const firstStart = Math.min(...group.elements.map(e => e.startTime))
-  if (firstStart < Infinity) {
-    playback.setCurrentTime(firstStart)
-  }
-}
-
-function handleSpaceClick(groupId: string) {
-  const ok = compGroups.checkIntegrity(groupId)
-  if (ok) {
-    const group = compGroups.compGroups[groupId]
-    if (!group) return
-    const ids = group.elements.map(e => e.id)
-    selection.selectAll(ids, 'segments')
-  }
-}
-
-function getStatusTag(gid: string) {
-  const svc = compGroups.compGroups[gid]?.svcResult
-  if (!svc) return null
-  switch (svc.status) {
-    case 'running': return { type: 'warning' as const, text: '合成中' }
-    case 'done': return { type: 'success' as const, text: '✅ 完成' }
-    case 'failed': return { type: 'error' as const, text: '❌ 失败' }
-    default: return { type: 'default' as const, text: svc.status }
-  }
+function cssSafeId(id: NodeId) {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '_')
 }
 </script>
 
 <template>
-  <div class="sidebar" :class="{ collapsed: false }">
-    <div class="sidebar-header">
-      <span class="sidebar-title">合成组</span>
+  <div class="sidebar">
+    <div class="tree-pane">
+      <div class="pane-header">
+        <span>L1</span>
+        <button class="mini-btn" :disabled="ui.selectedIds.length !== 1" @click="locateInL2(ui.selectedIds[0])">→L2</button>
+      </div>
+      <div class="tree-scroll">
+        <ObjectTreeRows
+          v-for="node in rootChildren"
+          :key="'l1-' + node.id"
+          pane="L1"
+          :node="node"
+          :depth="0"
+          :has-children="hasChildren"
+          :icon="icon"
+          :handle-node-click="handleNodeClick"
+          :handle-node-drop="handleNodeDrop"
+          :allow-tree-drop="allowTreeDrop"
+          :handle-context-menu="handleContextMenu"
+          :row-dom-id="rowDomId"
+        />
+      </div>
     </div>
-    <div class="group-list">
+
+    <div class="tree-pane">
+      <div class="pane-header"><span>L2</span></div>
+      <div class="tree-scroll">
+        <ObjectTreeRows
+          v-for="node in rootChildren"
+          :key="'l2-' + node.id"
+          pane="L2"
+          :node="node"
+          :depth="0"
+          :has-children="hasChildren"
+          :icon="icon"
+          :handle-node-click="handleNodeClick"
+          :handle-node-drop="handleNodeDrop"
+          :allow-tree-drop="allowTreeDrop"
+          :handle-context-menu="handleContextMenu"
+          :row-dom-id="rowDomId"
+        />
+      </div>
+    </div>
+    <div class="tree-notice">{{ notice }}</div>
+    <Teleport to="body">
       <div
-        v-for="gid in compGroups.compGroupOrder"
-        :key="gid"
-        class="group-item"
-        :class="{
-          selected: selection.isSelected(gid),
-          expanded: compGroups.compGroups[gid]?.expanded,
-        }"
-        @click="handleClick(gid, $event)"
+        v-if="menu.visible"
+        class="tree-context-menu"
+        :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
+        @click.stop
       >
-        <div class="group-row">
-          <span
-            v-if="editingGid !== gid"
-            class="group-name"
-            :title="compGroups.compGroups[gid]?.name ?? ''"
-            @dblclick.stop="handleGroupDblClick(gid)"
-          >{{ compGroups.compGroups[gid]?.name }}</span>
-          <input
-            v-else
-            v-model="editGroupName"
-            class="group-name-input"
-            maxlength="40"
-            @keyup.enter="finishGroupRename"
-            @keyup.escape="cancelGroupRename"
-            @blur="finishGroupRename"
-            @click.stop
-          />
-          <button
-            class="locate-btn"
-            title="定位到合成组"
-            @click.stop="handleLocate(gid)"
-          >●</button>
-          <button
-            class="delete-group-btn"
-            title="删除合成组"
-            @click.stop="compGroups.remove(gid)"
-          >×</button>
-        </div>
-        <div class="group-meta">
-          <span class="elem-count">{{ compGroups.compGroups[gid]?.elements?.length ?? 0 }} 元素</span>
-        </div>
-        <div
-          v-if="compGroups.compGroups[gid]?.svcResult"
-          class="svc-info"
-        >
-          <div class="svc-row">
-            <n-tag
-              v-if="getStatusTag(gid)"
-              size="tiny"
-              :type="getStatusTag(gid)!.type"
-              :bordered="false"
-            >{{ getStatusTag(gid)!.text }}</n-tag>
-            <span v-if="compGroups.compGroups[gid]?.svcResult?.progress === 100" class="svc-model">
-              {{ compGroups.compGroups[gid]?.svcResult?.modelName }}
-            </span>
-          </div>
-          <n-progress
-            v-if="compGroups.compGroups[gid]?.svcResult?.status === 'running'"
-            type="line"
-            :percentage="compGroups.compGroups[gid]?.svcResult?.progress ?? 0"
-            :height="4"
-            :indicator-placement="'inside'"
-            processing
-          />
-        </div>
+        <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="createFolderHere">新建文件夹</div>
+        <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="renameFolder">重命名文件夹</div>
+        <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除文件夹</div>
+        <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
       </div>
-      <div v-if="compGroups.compGroupOrder.length === 0" class="empty-hint">
-        选中片段后按 Enter 创建合成组
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .sidebar {
-  width: 180px;
+  width: 260px;
   background: #161b22;
   border-right: 1px solid #21262d;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr auto;
+  flex-shrink: 0;
+  min-width: 240px;
+}
+.tree-notice {
+  grid-column: 1 / -1;
+  min-height: 18px;
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  color: #f0b72f;
+  border-top: 1px solid #21262d;
+}
+.tree-pane {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  border-right: 1px solid #21262d;
 }
-.sidebar.collapsed { width: 40px; }
-.sidebar-header {
-  padding: 10px 12px;
+.tree-pane:last-child { border-right: 0; }
+.pane-header {
+  height: 34px;
+  padding: 0 8px;
   border-bottom: 1px solid #21262d;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #8b949e;
+  font-weight: 600;
 }
-.sidebar-title { font-size: 12px; font-weight: 600; color: #8b949e; text-transform: uppercase; }
-.group-list { flex: 1; overflow-y: auto; padding: 6px; }
-.group-item {
-  padding: 8px 10px;
-  border-radius: 6px;
+.tree-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+.mini-btn {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #8b949e;
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 1px 4px;
+}
+.mini-btn:disabled {
+  opacity: 0.35;
+}
+</style>
+
+<style>
+.tree-row {
+  display: grid;
+  grid-template-columns: 12px 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  font-size: 12px;
+  color: #c9d1d9;
+  cursor: default;
+  user-select: none;
+}
+.tree-row:hover { background: #21262d; }
+.tree-row.selected { background: #1f3a5f; outline: 1px solid #58a6ff; }
+.tree-row.located { background: #3a2f14; }
+.tree-row.folder { color: #8b949e; }
+.tree-row.virtual-member { color: #8b949e; font-size: 11px; }
+.twisty { color: #8b949e; text-align: center; font-size: 13px; }
+.kind {
+  font-size: 9px;
+  color: #6e7681;
+  text-transform: uppercase;
+}
+.name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tree-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 130px;
+  padding: 4px 0;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.tree-menu-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #c9d1d9;
   cursor: pointer;
-  margin-bottom: 4px;
-  transition: background 0.15s;
 }
-.group-item:hover { background: #21262d; }
-.group-item.selected { background: #1f3a5f; border: 1px solid #58a6ff; }
-.group-item.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-.group-row { display: flex; align-items: center; gap: 4px; }
-.group-name { font-size: 13px; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; cursor: default; }
-.group-name-input {
-  font-size: 13px; background: #0d1117; border: 1px solid #58a6ff;
-  border-radius: 3px; color: #c9d1d9; padding: 2px 4px;
-  outline: none; flex: 1; width: 100%;
-}
-.locate-btn {
-  width: 16px; height: 16px; font-size: 8px;
-  border: none; background: #0d1117; color: #58a6ff;
-  border-radius: 50%; cursor: pointer; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.group-item:hover .locate-btn { opacity: 1; }
-.group-item:hover .delete-group-btn { opacity: 0.6; }
-.delete-group-btn {
-  width: 16px; height: 16px; font-size: 14px; line-height: 14px;
-  border: none; background: transparent; color: #484f58;
-  cursor: pointer; padding: 0; opacity: 0;
-  transition: opacity 0.15s;
-}
-.delete-group-btn:hover { color: #f85149 !important; opacity: 1 !important; }
-.group-meta { margin-top: 2px; }
-.elem-count { font-size: 10px; color: #484f58; }
-.svc-info { margin-top: 4px; }
-.svc-row { display: flex; align-items: center; gap: 4px; }
-.svc-model { font-size: 10px; color: #6e7681; }
-.empty-hint { font-size: 12px; color: #484f58; text-align: center; padding: 20px 8px; }
+.tree-menu-item:hover { background: #21262d; }
+.tree-menu-item.danger { color: #f85149; }
 </style>

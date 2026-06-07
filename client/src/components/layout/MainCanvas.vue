@@ -3,13 +3,16 @@ import { computed, ref } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import { useMarqueeSelect } from '@/composables/useMarqueeSelect'
 import TrackRow from '@/components/track/TrackRow.vue'
 
 const project = useProjectStore()
 const tracks = useTracksStore()
 const selection = useSelectionStore()
+const objectTree = useObjectTreeStore()
 const marquee = useMarqueeSelect()
+const notice = ref('')
 
 const scrollRef = ref<HTMLElement | null>(null)
 
@@ -54,11 +57,37 @@ function handleWheel(e: WheelEvent) {
 
   e.preventDefault()
 }
+
+function allowDrop(e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+async function handleDrop(e: DragEvent) {
+  e.preventDefault()
+  const nodeId = e.dataTransfer?.getData('application/x-aisvc-node-id') || e.dataTransfer?.getData('text/plain')
+  if (!nodeId) return
+  const el = scrollRef.value
+  const rect = el?.getBoundingClientRect()
+  const timelineStart = rect ? Math.max(0, (e.clientX - rect.left + (el?.scrollLeft ?? 0) - 52) / project.pxPerSec) : 0
+  const result = await objectTree.dropAudioObjectToTimeline(nodeId, timelineStart)
+  flash(result.ok ? '已加入时间线' : result.reason ?? '无法加入时间线')
+  if (result.ok) {
+    ;(window as any).__syncProject?.()
+  }
+}
+
+function flash(message: string) {
+  notice.value = message
+  window.setTimeout(() => {
+    if (notice.value === message) notice.value = ''
+  }, 1400)
+}
 </script>
 
 <template>
   <div class="main-canvas" @mousedown.self="handleCanvasClick">
-    <div ref="scrollRef" class="track-scroll" @mousedown.self="handleCanvasClick" @wheel.prevent="handleWheel">
+    <div ref="scrollRef" class="track-scroll" @mousedown.self="handleCanvasClick" @wheel.prevent="handleWheel" @dragover="allowDrop" @drop="handleDrop">
       <div class="marquee-overlay" :style="marqueeStyle" />
       <div class="track-list-inner">
         <TrackRow
@@ -72,6 +101,7 @@ function handleWheel(e: WheelEvent) {
         <div class="empty-text">导入 WAV 文件开始编辑</div>
         <div class="empty-hint">文件 → 导入 WAV，或拖拽音频文件到此处</div>
       </div>
+      <div class="canvas-notice">{{ notice }}</div>
     </div>
   </div>
 </template>
@@ -111,4 +141,15 @@ function handleWheel(e: WheelEvent) {
 .empty-icon { font-size: 48px; opacity: 0.3; }
 .empty-text { font-size: 16px; color: #8b949e; }
 .empty-hint { font-size: 13px; color: #484f58; }
+.canvas-notice {
+  position: sticky;
+  left: 12px;
+  bottom: 10px;
+  width: fit-content;
+  min-height: 20px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #f0b72f;
+  pointer-events: none;
+}
 </style>

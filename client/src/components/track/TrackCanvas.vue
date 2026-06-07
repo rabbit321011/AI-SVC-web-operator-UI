@@ -5,6 +5,7 @@ import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { useHistoryStore } from '@/stores/history'
 import { usePlaybackStore } from '@/stores/playback'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import type { TrackId, AudioSegment, F0Frame } from '@/types'
 import { buildSplitCommand } from '@/commands/split'
 
@@ -14,6 +15,7 @@ const project = useProjectStore()
 const tracks = useTracksStore()
 const selection = useSelectionStore()
 const playback = usePlaybackStore()
+const objectTree = useObjectTreeStore()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const playheadRef = ref<HTMLCanvasElement | null>(null)
@@ -316,6 +318,7 @@ function handleSplit(cutTime: number) {
       const oldSegSnapshot = { ...seg }
 
       tstore.replaceSegments(props.trackId, [seg.id], [segA, segB])
+      objectTree.syncSplitSegment(oldSegSnapshot, [segA, segB])
 
       const cmd = buildSplitCommand(
         { trackId: props.trackId, segment: oldSegSnapshot, cutTime, sampleRate: track.value?.sampleRate ?? 44100 },

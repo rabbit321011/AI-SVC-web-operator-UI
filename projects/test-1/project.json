@@ -1,0 +1,20 @@
+{
+  "id": "7b783209-1728-4ec2-9f25-0d3ac7e8aa27",
+  "name": "test-1",
+  "version": "1.0.0",
+  "tracks": {},
+  "trackOrder": [],
+  "segments": {},
+  "compGroups": {},
+  "compGroupOrder": [],
+  "timelineOffset": 0,
+  "pxPerSec": 60,
+  "f0Settings": {
+    "fmin": 65.4,
+    "fmax": 2093,
+    "algorithm": "pyin",
+    "hopMs": 16
+  },
+  "createdAt": "2026-06-07T02:38:46.983Z",
+  "modifiedAt": "2026-06-07T02:38:46.983Z"
+}
