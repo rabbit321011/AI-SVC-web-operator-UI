@@ -2,11 +2,13 @@
 import { computed, nextTick, ref } from 'vue'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useSelectionStore } from '@/stores/selection'
 import type { NodeId, TreeNode } from '@/object-workbench'
 import ObjectTreeRows from './ObjectTreeRows.vue'
 
 const objectTree = useObjectTreeStore()
 const ui = useObjectTreeUiStore()
+const selection = useSelectionStore()
 const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
 const rootChildren = computed(() => objectTree.tree.root.children)
@@ -24,6 +26,7 @@ function icon(node: TreeNode) {
 }
 
 function handleNodeClick(pane: 'L1' | 'L2', node: TreeNode, event: MouseEvent) {
+  selection.clear()
   if (node.kind === 'folder' || node.kind === 'trackFolder') {
     ui.toggleExpanded(pane, node.id)
     return

@@ -20,8 +20,9 @@ app.use(express.json({ limit: '500mb' }))
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws/svc' })
 
-// Store active SVC jobs
+// Store active render jobs
 const svcJobs = new Map<string, WebSocket>()
+const svsJobs = new Map<string, WebSocket>()
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WS] client connected')
@@ -31,6 +32,7 @@ wss.on('connection', (ws: WebSocket) => {
       console.log('[WS] message:', msg)
       if (msg.type === 'register' && msg.jobId) {
         svcJobs.set(msg.jobId, ws)
+        svsJobs.set(msg.jobId, ws)
         console.log(`[WS] registered job ${msg.jobId}`)
       }
     } catch {}
@@ -353,7 +355,7 @@ app.post('/api/svc/run', (req, res) => {
 })
 
 app.post('/api/svs/run', (req, res) => {
-  const { refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device, dryRun } = req.body
+  const { jobId: clientJobId, refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device, dryRun } = req.body
 
   if (!refAudio || !targetText || !output) {
     res.status(400).json({ error: 'missing refAudio, targetText, or output' })
@@ -366,8 +368,46 @@ app.post('/api/svs/run', (req, res) => {
     return
   }
 
-  res.json({ ok: true, status: 'started' })
-  runSvs(svsReq)
+  const jobId = clientJobId || crypto.randomUUID().slice(0, 8)
+  res.json({ ok: true, jobId, status: 'started' })
+
+  function tryRun() {
+    const ws = svsJobs.get(jobId)
+    if (ws) {
+      console.log(`[SVS] job ${jobId} started, WS found`)
+      runSvs(svsReq, ws)
+      return true
+    }
+    return false
+  }
+
+  if (!tryRun()) {
+    console.log(`[SVS] job ${jobId} waiting for WS registration...`)
+    setTimeout(() => {
+      if (!tryRun()) {
+        console.error(`[SVS] job ${jobId} WS never connected`)
+      }
+    }, 2000)
+  }
+})
+
+app.get('/api/svs/result/:jobId.wav', (req, res) => {
+  const outDir = path.resolve(PROJECT_ROOT, 'data', `render_${req.params.jobId}_svs_timbre`)
+  if (!fs.existsSync(outDir)) {
+    res.status(404).json({ error: 'output not found' })
+    return
+  }
+  const files = fs.readdirSync(outDir)
+    .filter(f => f.toLowerCase().endsWith('.wav') && f.toLowerCase() !== 'combined.wav')
+    .map(f => ({ file: f, mtimeMs: fs.statSync(path.join(outDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+  if (files.length === 0) {
+    res.status(404).json({ error: 'no wav output' })
+    return
+  }
+  const outPath = path.join(outDir, files[0].file)
+  res.setHeader('Content-Type', 'audio/wav')
+  fs.createReadStream(outPath).pipe(res)
 })
 
 app.get('/api/svc/result/:jobId.wav', (req, res) => {

@@ -362,6 +362,82 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     }
   }
 
+  function syncPastedTrack(trackId: string, segments: AudioSegment[]): { ok: boolean; reason?: string; trackObjectIds?: NodeId[] } {
+    const tracksStore = useTracksStore()
+    const track = tracksStore.tracks[trackId]
+    if (!track) return { ok: false, reason: '时间线音轨不存在' }
+    if (segments.length === 0) return { ok: false, reason: '没有可同步的片段' }
+
+    const currentIndex = buildNodeIndex(tree.value.root)
+    if (currentIndex.nodes[`node:trackFolder:${trackId}`]) {
+      return { ok: false, reason: '对象树中已存在对应 TrackFolder' }
+    }
+
+    const trackObjectIds: NodeId[] = []
+    const audioFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'audio')
+    const trackFolder: TrackFolderNode = {
+      id: `node:trackFolder:${trackId}`,
+      kind: 'trackFolder',
+      name: track.name,
+      trackFolder: {
+        trackType: 'audio',
+        color: track.color,
+        muted: track.muted,
+        solo: track.solo,
+        volume: track.volume,
+      },
+      children: [],
+      legacy: { trackId },
+    }
+
+    for (const seg of [...segments].sort((a, b) => a.timelineStart - b.timelineStart)) {
+      const assetId = `asset:trackSource:${seg.id}`
+      const sourceObjectId = `node:trackSource:audio:${seg.id}`
+      const sourceName = `${track.name}-${seg.id}.wav`
+      const sampleRate = track.sampleRate || inferSampleRate(seg)
+      const duration = Math.max(0.001, seg.timelineEnd - seg.timelineStart)
+      tree.value.assets[assetId] = {
+        id: assetId,
+        storage: 'projectBlob',
+        blobKey: seg.sourceFile,
+        sampleRate,
+        duration,
+        channels: 1,
+      }
+      insertChild(audioFolder, {
+        id: sourceObjectId,
+        kind: 'audio',
+        name: sourceName,
+        audio: {
+          assetId,
+          midiObjectId: null,
+          textObjectId: null,
+          tags: ['paste'],
+        },
+        legacy: { segmentId: seg.id, trackId },
+      })
+
+      const trackObjectId = `node:trackObject:${seg.id}`
+      trackObjectIds.push(trackObjectId)
+      trackFolder.children.push({
+        id: trackObjectId,
+        kind: 'trackObject',
+        name: sourceName,
+        trackObject: {
+          contentType: 'audio',
+          sourceObjectId,
+          timelineStart: seg.timelineStart,
+          timelineEnd: seg.timelineEnd,
+          ignored: seg.ignored,
+        },
+        legacy: { segmentId: seg.id, trackId },
+      })
+    }
+
+    insertIntoFirstFolder(TOP_LEVEL_IDS.tracks, trackFolder)
+    return { ok: true, trackObjectIds }
+  }
+
   function syncTrackFolderName(trackId: string, name: string): { ok: boolean; reason?: string } {
     const trackFolderId = `node:trackFolder:${trackId}`
     const trackFolder = index.value.nodes[trackFolderId]
@@ -472,6 +548,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     importFilesToFolder,
     dropAudioObjectToTimeline,
     addRenderedAudioToTimeline,
+    syncPastedTrack,
     syncTrackFolderName,
     syncSplitSegment,
   }

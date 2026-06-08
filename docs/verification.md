@@ -53,6 +53,43 @@
 
 ---
 
+## SVS Execution Checkpoint — 2026-06-08
+
+> 本节记录 SVS 从 dryRun 进入真实执行链路后的验证。它覆盖后端真实模型启动、WebSocket 完成通知、结果下载接口和本机环境修复；UI 内回填仍建议由用户手动点一次确认。
+
+### 自动验证
+
+| # | 检验项 | 手段 | 结果 |
+|---|--------|------|------|
+| SVS-A1 | `pnpm --filter client test` | 🤖 | ✅ 53 passed |
+| SVS-A2 | `pnpm --filter client lint` | 🤖 | ✅ passed |
+| SVS-A3 | `pnpm --filter server build` | 🤖 | ✅ passed |
+| SVS-A4 | `pnpm build` | 🤖 | ✅ passed；仅保留已知 `client/src/api/wav.ts` 动态/静态导入警告 |
+| SVS-A5 | `/api/svs/run` dryRun | 🤖 | ✅ 返回 args，包含 `--ref_audio` / `--melody_audio` / `--target_text` / `--output` |
+| SVS-A6 | `/api/svs/run` real smoke | 🤖 | ✅ `steps=1` 真实推理完成，WebSocket 收到 `done` |
+| SVS-A7 | `/api/svs/result/:jobId.wav` | 🤖 | ✅ 返回 `200 audio/wav` |
+
+### Smoke 输入
+
+| 字段 | 值 |
+|---|---|
+| refAudio | `E:/AIscene/AISVC-midi-web/data/cgrp_31506a33/combined.wav` |
+| melodyAudio | `E:/AIscene/AISVC-midi-web/data/cgrp_8abb0842/combined.wav` |
+| targetText | `あ` |
+| steps / cfg / seed / device | `1 / 1 / 42 / cuda:0` |
+| output | `E:/AIscene/AISVC-midi-web/data/render_codex_svs_mq4msgrt_svs_timbre/svs_smoke.wav` |
+
+### 当前注意事项
+
+| # | 项目 | 说明 |
+|---|------|------|
+| SVS-N1 | eSpeak NG | SVS 子进程需要 `PHONEMIZER_ESPEAK_LIBRARY=C:\Program Files\eSpeak NG\libespeak-ng.dll` |
+| SVS-N2 | torchcodec / FFmpeg shared DLL | SVS 子进程 `PATH` 需要包含 `C:\ffmpeg-shared\ffmpeg-8.1.1-full_build-shared\bin` |
+| SVS-N3 | MIDI melody | 真实 SVS 暂未接入 MIDI 旋律转 `melody_audio`，当前真实合成要求 audio TrackObject/GroupObject |
+| SVS-N4 | UI 手动验证 | 下一步需要用户从右侧 SVS 面板点 `dryRun` 和 `合成`，确认 `renders/svs`、`trackSources/audio`、时间线回填和听感 |
+
+---
+
 ## Phase 0 — 项目骨架 & 工程环境
 
 | # | 检验项 | 手段 | 预期结果 |

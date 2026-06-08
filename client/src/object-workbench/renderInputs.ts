@@ -56,7 +56,13 @@ export function validateRenderSlot(tree: ProjectObjectTree, slotId: RenderSlotId
       : { ok: false, mediaType, reason: 'cond音频只接受 audio 对象' }
   }
 
-  if (slotId === 'svc.sourceAudio' || slotId === 'svs.timbreAudio') {
+  if (slotId === 'svs.timbreAudio') {
+    return mediaType === 'audio'
+      ? { ok: true, mediaType }
+      : { ok: false, mediaType, reason: '音色音频只接受 audio 对象' }
+  }
+
+  if (slotId === 'svc.sourceAudio') {
     if (input.kind === 'audioObject') return { ok: false, mediaType, reason: '该槽位只接受 audio TrackObject/GroupObject' }
     return mediaType === 'audio'
       ? { ok: true, mediaType }

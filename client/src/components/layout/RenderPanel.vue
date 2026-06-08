@@ -7,6 +7,7 @@ import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useSvcConfigStore } from '@/stores/svcConfig'
 import { useRenderSvcPipeline } from '@/composables/useRenderSvcPipeline'
+import { useRenderSvsPipeline } from '@/composables/useRenderSvsPipeline'
 import { validateRenderSlot, type RenderInputRef, type RenderSlotId } from '@/object-workbench'
 
 const renderPanel = useRenderPanelStore()
@@ -15,6 +16,7 @@ const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
 const svcConfig = useSvcConfigStore()
 const renderSvcPipeline = useRenderSvcPipeline()
+const renderSvsPipeline = useRenderSvsPipeline()
 const notice = ref('')
 
 const selectedObjectNodeId = computed(() => {
@@ -29,8 +31,8 @@ const selectedObjectNodeId = computed(() => {
 const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
 
 function pickSelected(slotId: RenderSlotId) {
-  if (renderPanel.svcStatus === 'running') {
-    flash('SVC 运行中')
+  if (isSlotLocked(slotId)) {
+    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
     return
   }
   const id = selectedObjectNodeId.value
@@ -44,8 +46,8 @@ function pickSelected(slotId: RenderSlotId) {
 
 function handleDrop(slotId: RenderSlotId, event: DragEvent) {
   event.preventDefault()
-  if (renderPanel.svcStatus === 'running') {
-    flash('SVC 运行中')
+  if (isSlotLocked(slotId)) {
+    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
     return
   }
   const id = event.dataTransfer?.getData('application/x-aisvc-node-id') || event.dataTransfer?.getData('text/plain')
@@ -79,16 +81,32 @@ function slotReason(slotId: RenderSlotId, input: RenderInputRef | null) {
 }
 
 function clearSlot(slotId: RenderSlotId) {
-  if (renderPanel.svcStatus === 'running') {
-    flash('SVC 运行中')
+  if (isSlotLocked(slotId)) {
+    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
     return
   }
   renderPanel.clearSlot(slotId)
 }
 
+function isSlotLocked(slotId: RenderSlotId) {
+  return slotId.startsWith('svc.')
+    ? renderPanel.svcStatus === 'running'
+    : renderPanel.svsStatus === 'running'
+}
+
 async function runSvc() {
   await renderSvcPipeline.startSvc()
   if (renderPanel.svcStatus === 'failed') flash(renderPanel.svcMessage || 'SVC 执行失败')
+}
+
+async function runSvsDryRun() {
+  await renderSvsPipeline.dryRunSvs()
+  if (renderPanel.svsStatus === 'failed') flash(renderPanel.svsMessage || 'SVS dryRun 失败')
+}
+
+async function runSvs() {
+  await renderSvsPipeline.startSvs()
+  if (renderPanel.svsStatus === 'failed') flash(renderPanel.svsMessage || 'SVS 执行失败')
 }
 </script>
 
@@ -162,26 +180,73 @@ async function runSvc() {
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.timbreAudio', $event)">
         <div class="slot-title">音色音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.timbreAudio) }}</n-tag>
-        <n-button size="tiny" @click="pickSelected('svs.timbreAudio')">放入</n-button>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.timbreAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.timbreAudio || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.timbreAudio')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svs.timbreAudio && slotReason('svs.timbreAudio', renderPanel.svs.timbreAudio)" class="slot-error">
+          {{ slotReason('svs.timbreAudio', renderPanel.svs.timbreAudio) }}
+        </div>
       </div>
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.melody', $event)">
         <div class="slot-title">旋律音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.melody) }}</n-tag>
-        <n-button size="tiny" @click="pickSelected('svs.melody')">放入</n-button>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.melody')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.melody || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.melody')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svs.melody && slotReason('svs.melody', renderPanel.svs.melody)" class="slot-error">
+          {{ slotReason('svs.melody', renderPanel.svs.melody) }}
+        </div>
       </div>
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.text', $event)">
         <div class="slot-title">target text</div>
         <n-tag size="small" :bordered="false">{{ renderPanel.svs.textMode === 'ref' ? slotLabel(renderPanel.svs.textRef) : '手写' }}</n-tag>
-        <n-button size="tiny" @click="pickSelected('svs.text')">引用</n-button>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.text')">引用</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.textRef || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.text')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svs.textMode === 'ref' && renderPanel.svs.textRef && slotReason('svs.text', renderPanel.svs.textRef)" class="slot-error">
+          {{ slotReason('svs.text', renderPanel.svs.textRef) }}
+        </div>
       </div>
       <n-space vertical :size="8">
+        <label class="field-label">输出名</label>
+        <n-input v-model:value="renderPanel.svs.outputName" size="small" placeholder="SVS_output" />
         <n-input v-model:value="renderPanel.svs.manualText" type="textarea" size="small" placeholder="假名歌词" @focus="renderPanel.svs.textMode = 'manual'" />
         <label class="field-label">cfg</label>
         <n-input-number v-model:value="renderPanel.svs.cfg" size="small" :min="0" :max="10" :step="0.1" />
         <label class="field-label">step</label>
         <n-input-number v-model:value="renderPanel.svs.steps" size="small" :min="1" :max="200" :step="1" />
       </n-space>
-      <n-button type="primary" size="small" :disabled="!renderPanel.canRunSvs" block>合成</n-button>
+      <div v-if="renderPanel.svsStatus !== 'idle'" class="run-status">
+        <div class="status-line">
+          <span>{{ renderPanel.svsMessage }}</span>
+          <span>{{ renderPanel.svsProgress }}%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" :style="{ width: `${renderPanel.svsProgress}%` }" />
+        </div>
+      </div>
+      <div class="run-actions">
+        <n-button
+          size="small"
+          :disabled="!renderPanel.canRunSvs"
+          :loading="renderPanel.svsStatus === 'running'"
+          @click="runSvsDryRun"
+        >
+          dryRun
+        </n-button>
+        <n-button
+          type="primary"
+          size="small"
+          :disabled="!renderPanel.canRunSvs"
+          :loading="renderPanel.svsStatus === 'running'"
+          @click="runSvs"
+        >
+          合成
+        </n-button>
+      </div>
     </div>
 
     <div class="notice">{{ notice }}</div>
@@ -257,6 +322,11 @@ async function runSvc() {
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+.run-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 .status-line {
   display: flex;

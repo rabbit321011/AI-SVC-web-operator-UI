@@ -4,6 +4,7 @@ import type { AudioSegment } from '@/types'
 import { TOP_LEVEL_IDS, createEmptyProjectObjectTree } from '@/object-workbench'
 import type { AudioObjectNode, TrackFolderNode } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
+import { useTracksStore } from './tracks'
 
 describe('object tree sync from legacy timeline edits', () => {
   it('syncs TrackFolder name from track rename', () => {
@@ -42,6 +43,46 @@ describe('object tree sync from legacy timeline edits', () => {
     expect(store.node('node:trackSource:audio:seg_a')?.kind).toBe('audio')
     expect(store.node('node:trackSource:audio:seg_b')?.kind).toBe('audio')
     expect(store.tree.assets.asset_old).toBeUndefined()
+  })
+
+  it('syncs a pasted timeline track into trackSources and tracks folders', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    objectTree.loadObjectTree(createEmptyProjectObjectTree())
+    tracks.tracks.trk_paste = {
+      id: 'trk_paste',
+      name: '粘贴 1',
+      color: '#58a6ff',
+      segments: ['seg_a', 'seg_b'],
+      sourceFile: 'voice.wav',
+      sampleRate: 48000,
+      totalSamples: 96000,
+      f0Cache: null,
+      f0Pending: 0,
+      f0Total: 0,
+      collapsed: false,
+      muted: false,
+      solo: false,
+      volume: 1,
+      ignored: false,
+      boundCompGroupId: null,
+    }
+
+    const result = objectTree.syncPastedTrack('trk_paste', [
+      segment('seg_b', 2, 3),
+      segment('seg_a', 0, 1),
+    ])
+
+    expect(result.ok).toBe(true)
+    const trackFolder = objectTree.node('node:trackFolder:trk_paste')
+    expect(trackFolder?.kind).toBe('trackFolder')
+    if (trackFolder?.kind !== 'trackFolder') throw new Error('expected track folder')
+    expect(trackFolder.children.map(child => child.id)).toEqual(['node:trackObject:seg_a', 'node:trackObject:seg_b'])
+    expect(objectTree.node('node:trackSource:audio:seg_a')?.kind).toBe('audio')
+    expect(objectTree.node('node:trackSource:audio:seg_b')?.kind).toBe('audio')
+    expect(objectTree.tree.assets['asset:trackSource:seg_a']?.blobKey).toBe('old.wav')
+    expect(objectTree.tree.assets['asset:trackSource:seg_b']?.blobKey).toBe('old.wav')
   })
 })
 

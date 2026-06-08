@@ -51,6 +51,8 @@ export function useKeyboard() {
   function pasteFromClipboard() {
     if (!clipboard.hasContent) return
     const tracks = useTracksStore()
+    const objectTree = useObjectTreeStore()
+    const objectTreeUi = useObjectTreeUiStore()
     const newSegs: AudioSegment[] = []
 
     // always paste to a new track
@@ -95,6 +97,8 @@ export function useKeyboard() {
       history.push(m.buildPasteCommand({ items: clipboard.items, newSegments: newSegs }))
     })
 
+    objectTree.syncPastedTrack(pasteTrackId, newSegs)
+    objectTreeUi.clearSelection()
     selection.selectAll(newSegs.map(s => s.id), 'segments')
   }
 
@@ -319,6 +323,12 @@ export function useKeyboard() {
   function locateTrackObjectShortcut() {
     const objectTree = useObjectTreeStore()
     const ui = useObjectTreeUiStore()
+    const trackObjectId = trackObjectIdFromLegacySelection()
+    if (trackObjectId && objectTree.node(trackObjectId)) {
+      locateInL2(trackObjectId)
+      return
+    }
+
     const leftNodeId = singleObjectTreeSelection()
     const leftNode = leftNodeId ? objectTree.node(leftNodeId) : null
     if (leftNode?.kind === 'trackObject') {
@@ -332,11 +342,6 @@ export function useKeyboard() {
       return
     }
 
-    const trackObjectId = trackObjectIdFromLegacySelection()
-    if (trackObjectId && objectTree.node(trackObjectId)) {
-      locateInL2(trackObjectId)
-      return
-    }
     ui.flashNotice('请选择一个时间线对象')
   }
 

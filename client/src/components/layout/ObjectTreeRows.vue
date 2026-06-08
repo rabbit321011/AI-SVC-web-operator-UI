@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useSelectionStore } from '@/stores/selection'
 import { useObjectAudioPreview } from '@/composables/useObjectAudioPreview'
 import type { TreeNode } from '@/object-workbench'
 
@@ -18,6 +19,7 @@ const props = defineProps<{
 }>()
 
 const ui = useObjectTreeUiStore()
+const selection = useSelectionStore()
 const audioPreview = useObjectAudioPreview()
 const expandable = computed(() => props.hasChildren(props.node) || (props.node.kind === 'group' && props.node.group.trackObjectIds.length > 0))
 const expanded = computed(() => ui.isExpanded(props.pane, props.node.id))
@@ -36,6 +38,7 @@ function handleDragStart(event: DragEvent) {
 }
 
 function handleVirtualMemberClick(trackObjectId: string, event: MouseEvent) {
+  selection.clear()
   ui.selectById(trackObjectId, event.ctrlKey || event.metaKey)
   ui.locateHighlight[props.pane] = trackObjectId
   window.setTimeout(() => {

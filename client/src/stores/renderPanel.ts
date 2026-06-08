@@ -1,10 +1,11 @@
 import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { RenderInputRef, RenderPanelMode, RenderSlotId } from '@/object-workbench'
-import { makeRenderInputRef, validateRenderSlot } from '@/object-workbench'
+import { makeRenderInputRef, normalizeSvsText, validateRenderSlot } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 
 export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed'
+export type SvsRenderStatus = 'idle' | 'running' | 'done' | 'failed'
 
 export const useRenderPanelStore = defineStore('renderPanel', () => {
   const mode = ref<RenderPanelMode>('svc')
@@ -12,6 +13,10 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
   const svcProgress = ref(0)
   const svcMessage = ref('')
   const currentJobId = ref<string | null>(null)
+  const svsStatus = ref<SvsRenderStatus>('idle')
+  const svsProgress = ref(0)
+  const svsMessage = ref('')
+  const currentSvsJobId = ref<string | null>(null)
   const svc = reactive({
     condAudio: null as RenderInputRef | null,
     sourceAudio: null as RenderInputRef | null,
@@ -42,9 +47,10 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
   const canRunSvs = computed(() => {
     const objectTree = useObjectTreeStore()
     const textOk = svs.textMode === 'manual'
-      ? svs.manualText.trim().length > 0
+      ? normalizeSvsText(svs.manualText).length > 0
       : validateRenderSlot(objectTree.tree, 'svs.text', svs.textRef).ok
-    return validateRenderSlot(objectTree.tree, 'svs.timbreAudio', svs.timbreAudio).ok
+    return svsStatus.value !== 'running'
+      && validateRenderSlot(objectTree.tree, 'svs.timbreAudio', svs.timbreAudio).ok
       && validateRenderSlot(objectTree.tree, 'svs.melody', svs.melody).ok
       && textOk
   })
@@ -73,8 +79,9 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     const objectTree = useObjectTreeStore()
     const node = objectTree.node(id)
     if (!node) return { ok: false, reason: '原对象不存在' }
-    if (node.kind !== 'trackObject' && node.kind !== 'group' && !(slotId === 'svc.condAudio' && node.kind === 'audio')) {
-      return { ok: false, reason: slotId === 'svc.condAudio' ? 'cond音频只接受 AudioObject/TrackObject/GroupObject' : '槽位只接受 TrackObject 或 GroupObject' }
+    const acceptsAudioObject = slotId === 'svc.condAudio' || slotId === 'svs.timbreAudio'
+    if (node.kind !== 'trackObject' && node.kind !== 'group' && !(acceptsAudioObject && node.kind === 'audio')) {
+      return { ok: false, reason: acceptsAudioObject ? '该槽位只接受 AudioObject/TrackObject/GroupObject' : '槽位只接受 TrackObject 或 GroupObject' }
     }
     const kind = node.kind === 'group' ? 'group' : node.kind === 'audio' ? 'audioObject' : 'trackObject'
     return setSlot(slotId, makeRenderInputRef(objectTree.tree, kind, id))
@@ -111,12 +118,39 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     svcMessage.value = message
   }
 
+  function setSvsRunning(jobId: string, message = '准备 SVS') {
+    currentSvsJobId.value = jobId
+    svsStatus.value = 'running'
+    svsProgress.value = 0
+    svsMessage.value = message
+  }
+
+  function updateSvsProgress(progress: number, message?: string) {
+    svsProgress.value = Math.max(0, Math.min(100, Math.round(progress)))
+    if (message !== undefined) svsMessage.value = message
+  }
+
+  function setSvsDone(message = 'SVS dryRun 完成') {
+    svsStatus.value = 'done'
+    svsProgress.value = 100
+    svsMessage.value = message
+  }
+
+  function setSvsFailed(message: string) {
+    svsStatus.value = 'failed'
+    svsMessage.value = message
+  }
+
   return {
     mode,
     svcStatus,
     svcProgress,
     svcMessage,
     currentJobId,
+    svsStatus,
+    svsProgress,
+    svsMessage,
+    currentSvsJobId,
     svc,
     svs,
     canRunSvc,
@@ -129,5 +163,9 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     updateSvcProgress,
     setSvcDone,
     setSvcFailed,
+    setSvsRunning,
+    updateSvsProgress,
+    setSvsDone,
+    setSvsFailed,
   }
 })

@@ -3,6 +3,7 @@ import { computed, ref, nextTick } from 'vue'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import type { TrackId } from '@/types'
 
 const props = defineProps<{ trackId: TrackId }>()
@@ -10,6 +11,7 @@ const props = defineProps<{ trackId: TrackId }>()
 const tracks = useTracksStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
+const objectTreeUi = useObjectTreeUiStore()
 
 const track = computed(() => tracks.tracks[props.trackId])
 
@@ -26,8 +28,10 @@ function handleClick(e: MouseEvent) {
     return
   }
   if (e.ctrlKey || e.metaKey) {
+    objectTreeUi.clearSelection()
     selection.select(props.trackId, true)
   } else {
+    objectTreeUi.clearSelection()
     selection.select(props.trackId, false)
   }
 }

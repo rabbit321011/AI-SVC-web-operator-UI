@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { TrackId, SegmentId, CompGroupId, SelectionType } from '@/types'
+import type { SelectionType } from '@/types'
+import { useObjectTreeUiStore } from './objectTreeUi'
 
 export const useSelectionStore = defineStore('selection', () => {
   const selected = ref<Set<string>>(new Set())
   const type = ref<SelectionType>('none')
 
   function select(id: string, additive = false) {
+    clearObjectTreeSelection()
     if (!additive) {
       selected.value = new Set([id])
     } else {
@@ -22,6 +24,7 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function selectAll(items: string[], t: 'tracks' | 'segments' | 'compGroups') {
+    clearObjectTreeSelection()
     selected.value = new Set(items)
     type.value = t
   }
@@ -61,6 +64,10 @@ export const useSelectionStore = defineStore('selection', () => {
     } else if (hasCgrp) {
       type.value = 'compGroups'
     }
+  }
+
+  function clearObjectTreeSelection() {
+    useObjectTreeUiStore().clearSelection()
   }
 
   const isMixed = computed(() => type.value === 'mixed')

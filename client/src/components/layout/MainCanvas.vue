@@ -4,6 +4,7 @@ import { useProjectStore } from '@/stores/project'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useMarqueeSelect } from '@/composables/useMarqueeSelect'
 import TrackRow from '@/components/track/TrackRow.vue'
 
@@ -11,6 +12,7 @@ const project = useProjectStore()
 const tracks = useTracksStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
+const objectTreeUi = useObjectTreeUiStore()
 const marquee = useMarqueeSelect()
 const notice = ref('')
 
@@ -28,6 +30,7 @@ const marqueeStyle = computed(() => {
 })
 
 function handleCanvasClick() {
+  objectTreeUi.clearSelection()
   selection.clear()
 }
 
@@ -90,6 +93,7 @@ function locateSegment(segmentId: string) {
     flash('时间线对象不存在')
     return
   }
+  objectTreeUi.clearSelection()
   selection.select(segmentId, false)
   ;(window as any).__playbackSeek?.(seg.timelineStart)
 
