@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Patch, Command } from '@/types'
+import type { ProjectObjectTree } from '@/object-workbench'
+import type { SplitSegmentObjectTreeSnapshot } from './objectTree'
 
 const MAX_HISTORY = 200
 
@@ -40,6 +42,9 @@ export const useHistoryStore = defineStore('history', () => {
         return { obj: tracksStore.tracks, field: parts[1] }
       }
       return { obj: track, field: parts[2] }
+    }
+    if (parts[0] === 'trackOrder') {
+      return { obj: tracksStore, field: 'trackOrder' }
     }
     if (parts[0] === 'segments' && parts[1]) {
       if (parts.length === 2) {
@@ -109,6 +114,7 @@ export const useHistoryStore = defineStore('history', () => {
     if (!canUndo.value) return
     const cmd = stack.value[pointer.value]
     applyPatches(cmd.inversePatches)
+    applyObjectTreeUndo(cmd)
     pointer.value--
   }
 
@@ -117,6 +123,26 @@ export const useHistoryStore = defineStore('history', () => {
     pointer.value++
     const cmd = stack.value[pointer.value]
     applyPatches(cmd.patches)
+    applyObjectTreeRedo(cmd)
+  }
+
+  function applyObjectTreeUndo(command: Command) {
+    if (command.objectTree?.kind === 'snapshot') {
+      useObjectTreeStore().restoreTree(command.objectTree.before as ProjectObjectTree)
+      return
+    }
+    if (command.objectTree?.kind !== 'splitSegment' || !command.objectTree.splitSnapshot) return
+    useObjectTreeStore().syncUndoSplitSegment(command.objectTree.splitSnapshot as SplitSegmentObjectTreeSnapshot)
+  }
+
+  function applyObjectTreeRedo(command: Command) {
+    if (command.objectTree?.kind === 'snapshot') {
+      useObjectTreeStore().restoreTree(command.objectTree.after as ProjectObjectTree)
+      return
+    }
+    if (command.objectTree?.kind !== 'splitSegment') return
+    const result = useObjectTreeStore().syncSplitSegment(command.objectTree.oldSegment, command.objectTree.newSegments)
+    if (result.snapshot) command.objectTree.splitSnapshot = result.snapshot
   }
 
   function clear() {
@@ -130,3 +156,4 @@ export const useHistoryStore = defineStore('history', () => {
 import { useTracksStore } from './tracks'
 import { useSelectionStore } from './selection'
 import { useCompGroupsStore } from './compGroups'
+import { useObjectTreeStore } from './objectTree'

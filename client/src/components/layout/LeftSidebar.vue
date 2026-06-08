@@ -90,11 +90,11 @@ function createFolderHere() {
   flash(result.ok ? '已新建文件夹' : result.reason ?? '无法新建文件夹')
 }
 
-function renameFolder() {
+function renameNode() {
   const node = menu.value.node
   closeMenu()
   if (!node) return
-  const name = window.prompt('重命名文件夹', node.name)
+  const name = window.prompt('重命名', node.name)
   if (name == null) return
   const result = objectTree.renameNode(node.id, name)
   flash(result.ok ? '已重命名' : result.reason ?? '无法重命名')
@@ -178,7 +178,7 @@ function cssSafeId(id: NodeId) {
         @click.stop
       >
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="createFolderHere">新建文件夹</div>
-        <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="renameFolder">重命名文件夹</div>
+        <div v-if="menu.node && !menu.node.id.startsWith('project:/')" class="tree-menu-item" @click="renameNode">重命名</div>
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除文件夹</div>
         <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
       </div>

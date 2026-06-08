@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { AudioSegment, Project } from '@/types'
-import type { AudioObjectNode, FolderNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TrackFolderNode, TrackObjectNode, TreeNode } from '@/object-workbench'
+import type { AudioSegment, GroupElementSnapshot, Project } from '@/types'
+import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TrackFolderNode, TrackObjectNode, TreeNode } from '@/object-workbench'
 import {
   buildNodeIndex,
   canDragIntoTimeline,
@@ -10,6 +10,7 @@ import {
   canImportFilesInto,
   canTransferTreeNode,
   createEmptyProjectObjectTree,
+  findNodeLocation,
   getNode,
   getParent,
   insertChild,
@@ -20,6 +21,21 @@ import {
   TOP_LEVEL_IDS,
 } from '@/object-workbench'
 import { useTracksStore } from './tracks'
+import { useCompGroupsStore } from './compGroups'
+
+export interface SplitSegmentObjectTreeSnapshot {
+  oldTrackObject: TrackObjectNode
+  oldSource: AudioObjectNode
+  oldAsset: ProjectObjectTree['assets'][string] | undefined
+  oldTrackParentId: NodeId
+  oldTrackIndex: number
+  oldSourceParentId: NodeId
+  oldSourceIndex: number
+  newTrackObjectIds: [NodeId, NodeId]
+  newSourceIds: [NodeId, NodeId]
+  newAssetIds: [string, string]
+  groups: Array<{ groupId: NodeId; trackObjectIds: NodeId[] }>
+}
 
 export const useObjectTreeStore = defineStore('objectTree', () => {
   const tree = ref<ProjectObjectTree>(createEmptyProjectObjectTree())
@@ -45,6 +61,14 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     tree.value = nextTree
     legacyWarnings.value = []
     legacyMaps.value = null
+  }
+
+  function snapshotTree(): ProjectObjectTree {
+    return clonePlain(tree.value)
+  }
+
+  function restoreTree(snapshot: ProjectObjectTree) {
+    tree.value = clonePlain(snapshot)
   }
 
   function node(id: NodeId) {
@@ -104,6 +128,12 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     const trimmed = name.trim()
     if (!trimmed) return { ok: false, reason: '名称不能为空' }
     nodeToRename.name = trimmed
+    if (nodeToRename.kind === 'trackFolder' && nodeToRename.legacy?.trackId) {
+      useTracksStore().renameTrack(nodeToRename.legacy.trackId, trimmed)
+    }
+    if (nodeToRename.kind === 'group' && nodeToRename.legacy?.compGroupId) {
+      useCompGroupsStore().rename(nodeToRename.legacy.compGroupId, trimmed)
+    }
     return { ok: true }
   }
 
@@ -446,13 +476,195 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
-  function syncSplitSegment(oldSegment: AudioSegment, newSegments: [AudioSegment, AudioSegment]): { ok: boolean; reason?: string } {
+  function createGroupFromLegacyElements(groupId: string, name: string, elements: GroupElementSnapshot[]): { ok: boolean; reason?: string; groupObjectId?: NodeId } {
+    const trackObjectIds: NodeId[] = []
+    const tracksStore = useTracksStore()
+    for (const element of elements) {
+      if (element.type === 'segment') {
+        trackObjectIds.push(`node:trackObject:${element.id}`)
+      } else {
+        const track = tracksStore.tracks[element.id]
+        if (track) trackObjectIds.push(...track.segments.map(segmentId => `node:trackObject:${segmentId}`))
+      }
+    }
+
+    const uniqueIds = [...new Set(trackObjectIds)].filter(id => index.value.nodes[id]?.kind === 'trackObject')
+    if (uniqueIds.length === 0) return { ok: false, reason: '没有可加入 GroupObject 的 TrackObject' }
+
+    const trackObjects = uniqueIds.map(id => index.value.nodes[id]).filter((node): node is TrackObjectNode => node?.kind === 'trackObject')
+    const mediaType = trackObjects[0].trackObject.contentType
+    if (trackObjects.some(node => node.trackObject.contentType !== mediaType)) return { ok: false, reason: 'GroupObject 只能包含同类型 TrackObject' }
+
+    const groupObjectId = `node:group:${groupId}`
+    if (index.value.nodes[groupObjectId]) return { ok: true, groupObjectId }
+    const group: GroupObjectNode = {
+      id: groupObjectId,
+      kind: 'group',
+      name,
+      group: {
+        mediaType,
+        trackObjectIds: trackObjects
+          .sort((a, b) => a.trackObject.timelineStart - b.trackObject.timelineStart || a.id.localeCompare(b.id))
+          .map(node => node.id),
+      },
+      legacy: { compGroupId: groupId },
+    }
+    insertIntoFirstFolder(TOP_LEVEL_IDS.groups, group)
+    return { ok: true, groupObjectId }
+  }
+
+  function syncMovedSegments(segments: AudioSegment[]): { ok: boolean; reason?: string } {
+    for (const seg of segments) {
+      const result = syncMovedSegment(seg)
+      if (!result.ok) return result
+    }
+    return { ok: true }
+  }
+
+  function syncMovedSegment(seg: AudioSegment): { ok: boolean; reason?: string } {
+    const trackObjectId = `node:trackObject:${seg.id}`
+    const trackObject = index.value.nodes[trackObjectId]
+    if (!trackObject || trackObject.kind !== 'trackObject') return { ok: false, reason: '对象树中没有对应 TrackObject' }
+
+    trackObject.trackObject.timelineStart = seg.timelineStart
+    trackObject.trackObject.timelineEnd = seg.timelineEnd
+    trackObject.trackObject.ignored = seg.ignored
+    trackObject.legacy = { ...(trackObject.legacy ?? {}), segmentId: seg.id, trackId: seg.trackId }
+
+    const source = index.value.nodes[trackObject.trackObject.sourceObjectId]
+    if (source?.kind === 'audio') {
+      source.legacy = { ...(source.legacy ?? {}), segmentId: seg.id, trackId: seg.trackId }
+    }
+
+    const parentId = index.value.parentById[trackObjectId]
+    const targetFolderId = `node:trackFolder:${seg.trackId}`
+    if (parentId === targetFolderId) return { ok: true }
+
+    const targetFolder = getOrCreateTrackFolderForLegacyTrack(seg.trackId)
+    if (!targetFolder) return { ok: false, reason: '对象树中没有目标 TrackFolder' }
+    if (targetFolder.trackFolder.trackType !== trackObject.trackObject.contentType) return { ok: false, reason: '目标 TrackFolder 类型不匹配' }
+
+    const removed = removeNode(tree.value.root, trackObjectId)
+    if (!removed || removed.kind !== 'trackObject') return { ok: false, reason: '移动 TrackObject 失败' }
+    insertChild(targetFolder, removed)
+    sortTrackFolderChildren(targetFolder)
+    return { ok: true }
+  }
+
+  function syncDeletedSegment(seg: AudioSegment): { ok: boolean; reason?: string } {
+    return syncDeletedSegments([seg])
+  }
+
+  function syncDeletedTrack(trackId: string): { ok: boolean; reason?: string } {
+    const trackFolderId = `node:trackFolder:${trackId}`
+    const trackFolder = index.value.nodes[trackFolderId]
+    if (!trackFolder || trackFolder.kind !== 'trackFolder') return { ok: false, reason: '对象树中没有对应 TrackFolder' }
+    return syncDeletedSegments(trackFolder.children.map(child => child.legacy?.segmentId).filter((id): id is string => Boolean(id)), trackId)
+  }
+
+  function syncDeletedSegments(segmentsOrIds: Array<AudioSegment | string>, trackId?: string): { ok: boolean; reason?: string } {
+    for (const item of segmentsOrIds) {
+      const segmentId = typeof item === 'string' ? item : item.id
+      const trackObjectId = `node:trackObject:${segmentId}`
+      const trackObject = index.value.nodes[trackObjectId]
+      if (!trackObject || trackObject.kind !== 'trackObject') continue
+      const sourceId = trackObject.trackObject.sourceObjectId
+      const source = index.value.nodes[sourceId]
+      if (source?.kind === 'audio') deleteStaleAssetForSource(source)
+      removeNode(tree.value.root, trackObjectId)
+      removeNode(tree.value.root, sourceId)
+      removeTrackObjectFromGroups(trackObjectId)
+    }
+
+    if (trackId) removeNode(tree.value.root, `node:trackFolder:${trackId}`)
+    pruneEmptyGroups()
+    return { ok: true }
+  }
+
+  function syncMergedSegments(oldSegments: AudioSegment[], newSegment: AudioSegment): { ok: boolean; reason?: string } {
+    if (oldSegments.length === 0) return { ok: false, reason: '没有可合并的旧片段' }
+    const currentIndex = index.value
+    const firstOldTrackObject = currentIndex.nodes[`node:trackObject:${oldSegments[0].id}`]
+    if (!firstOldTrackObject || firstOldTrackObject.kind !== 'trackObject') return { ok: false, reason: '对象树中没有旧 TrackObject' }
+    const firstOldSource = currentIndex.nodes[firstOldTrackObject.trackObject.sourceObjectId]
+    if (!firstOldSource || firstOldSource.kind !== 'audio') return { ok: false, reason: '对象树中没有旧源对象' }
+    const sourceLocation = findNodeLocation(tree.value.root, firstOldSource.id)
+    const trackLocation = findNodeLocation(tree.value.root, firstOldTrackObject.id)
+    if (!sourceLocation || !trackLocation) return { ok: false, reason: '对象树位置缺失' }
+
+    const oldTrackObjectIds = oldSegments.map(seg => `node:trackObject:${seg.id}`)
+    const partialGroup = findPartiallyContainingGroup(oldTrackObjectIds)
+    if (partialGroup) return { ok: false, reason: `Group ${partialGroup} 只包含部分合并对象` }
+
+    const sourceObjectId = `node:trackSource:audio:${newSegment.id}`
+    const assetId = `asset:trackSource:${newSegment.id}`
+    tree.value.assets[assetId] = {
+      id: assetId,
+      storage: 'projectBlob',
+      blobKey: newSegment.sourceFile,
+      sampleRate: inferSampleRate(newSegment),
+      duration: Math.max(0.001, newSegment.timelineEnd - newSegment.timelineStart),
+      channels: 1,
+    }
+    const sourceName = `${firstOldSource.name}-${newSegment.id}`
+    const newSource: AudioObjectNode = {
+      id: sourceObjectId,
+      kind: 'audio',
+      name: sourceName,
+      audio: {
+        assetId,
+        midiObjectId: firstOldSource.audio.midiObjectId,
+        textObjectId: firstOldSource.audio.textObjectId,
+      },
+      legacy: { segmentId: newSegment.id, trackId: newSegment.trackId },
+    }
+    const newTrackObject: TrackObjectNode = {
+      id: `node:trackObject:${newSegment.id}`,
+      kind: 'trackObject',
+      name: sourceName,
+      trackObject: {
+        contentType: 'audio',
+        sourceObjectId,
+        timelineStart: newSegment.timelineStart,
+        timelineEnd: newSegment.timelineEnd,
+        ignored: newSegment.ignored,
+      },
+      legacy: { segmentId: newSegment.id, trackId: newSegment.trackId },
+    }
+
+    const oldSourceIds: string[] = []
+    for (const seg of oldSegments) {
+      const oldTrackObject = index.value.nodes[`node:trackObject:${seg.id}`]
+      if (oldTrackObject?.kind === 'trackObject') oldSourceIds.push(oldTrackObject.trackObject.sourceObjectId)
+    }
+    for (const id of oldTrackObjectIds) removeNode(tree.value.root, id)
+    for (const id of oldSourceIds) {
+      const source = index.value.nodes[id]
+      if (source?.kind === 'audio') deleteStaleAssetForSource(source)
+      removeNode(tree.value.root, id)
+    }
+
+    insertChild(sourceLocation.parent, newSource, sourceLocation.index)
+    const targetTrackFolder = index.value.nodes[`node:trackFolder:${newSegment.trackId}`]
+    const trackParent = targetTrackFolder?.kind === 'trackFolder' ? targetTrackFolder : trackLocation.parent
+    insertChild(trackParent, newTrackObject, trackLocation.index)
+    if (trackParent.kind === 'trackFolder') sortTrackFolderChildren(trackParent)
+    replaceTrackObjectsInGroups(oldTrackObjectIds, [newTrackObject.id])
+    return { ok: true }
+  }
+
+  function syncSplitSegment(oldSegment: AudioSegment, newSegments: [AudioSegment, AudioSegment]): { ok: boolean; reason?: string; snapshot?: SplitSegmentObjectTreeSnapshot } {
     const oldTrackObjectId = `node:trackObject:${oldSegment.id}`
     const oldTrackObject = index.value.nodes[oldTrackObjectId]
     if (!oldTrackObject || oldTrackObject.kind !== 'trackObject') return { ok: false, reason: '对象树中没有对应 TrackObject' }
     const oldSourceId = oldTrackObject.trackObject.sourceObjectId
     const oldSource = index.value.nodes[oldSourceId]
     if (!oldSource || oldSource.kind !== 'audio') return { ok: false, reason: '对象树中没有对应源对象' }
+    const oldTrackLocation = findNodeLocation(tree.value.root, oldTrackObjectId)
+    const oldSourceLocation = findNodeLocation(tree.value.root, oldSourceId)
+    if (!oldTrackLocation || !oldSourceLocation) return { ok: false, reason: '对象树位置缺失' }
+    const oldAsset = tree.value.assets[oldSource.audio.assetId]
+    const groupSnapshot = snapshotGroups()
 
     const newSources: AudioObjectNode[] = newSegments.map(seg => {
       const assetId = `asset:trackSource:${seg.id}`
@@ -493,8 +705,118 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
     replaceNode(tree.value.root, oldTrackObjectId, newTrackObjects)
     replaceNode(tree.value.root, oldSourceId, newSources)
+    replaceTrackObjectsInGroups([oldTrackObjectId], newTrackObjects.map(node => node.id))
     deleteStaleAssetForSource(oldSource)
+    return {
+      ok: true,
+      snapshot: {
+        oldTrackObject: clonePlain(oldTrackObject),
+        oldSource: clonePlain(oldSource),
+        oldAsset: oldAsset ? clonePlain(oldAsset) : undefined,
+        oldTrackParentId: oldTrackLocation.parent.id,
+        oldTrackIndex: oldTrackLocation.index,
+        oldSourceParentId: oldSourceLocation.parent.id,
+        oldSourceIndex: oldSourceLocation.index,
+        newTrackObjectIds: [newTrackObjects[0].id, newTrackObjects[1].id],
+        newSourceIds: [newSources[0].id, newSources[1].id],
+        newAssetIds: [newSources[0].audio.assetId, newSources[1].audio.assetId],
+        groups: groupSnapshot,
+      },
+    }
+  }
+
+  function syncUndoSplitSegment(snapshot: SplitSegmentObjectTreeSnapshot): { ok: boolean; reason?: string } {
+    for (const id of snapshot.newTrackObjectIds) removeNode(tree.value.root, id)
+    for (const id of snapshot.newSourceIds) removeNode(tree.value.root, id)
+    for (const id of snapshot.newAssetIds) delete tree.value.assets[id]
+
+    const currentIndex = buildNodeIndex(tree.value.root)
+    const trackParent = currentIndex.nodes[snapshot.oldTrackParentId]
+    const sourceParent = currentIndex.nodes[snapshot.oldSourceParentId]
+    if (!trackParent || (trackParent.kind !== 'folder' && trackParent.kind !== 'trackFolder')) return { ok: false, reason: '旧 TrackObject 父节点不存在' }
+    if (!sourceParent || (sourceParent.kind !== 'folder' && sourceParent.kind !== 'trackFolder')) return { ok: false, reason: '旧源对象父节点不存在' }
+
+    if (snapshot.oldAsset) tree.value.assets[snapshot.oldAsset.id] = clonePlain(snapshot.oldAsset)
+    insertChild(trackParent, clonePlain(snapshot.oldTrackObject), snapshot.oldTrackIndex)
+    insertChild(sourceParent, clonePlain(snapshot.oldSource), snapshot.oldSourceIndex)
+    restoreGroups(snapshot.groups)
     return { ok: true }
+  }
+
+  function snapshotGroups() {
+    return collectGroups().map(group => ({
+      groupId: group.id,
+      trackObjectIds: [...group.group.trackObjectIds],
+    }))
+  }
+
+  function restoreGroups(snapshots: Array<{ groupId: NodeId; trackObjectIds: NodeId[] }>) {
+    const byId = new Map(snapshots.map(snapshot => [snapshot.groupId, snapshot.trackObjectIds]))
+    for (const group of collectGroups()) {
+      const ids = byId.get(group.id)
+      if (ids) group.group.trackObjectIds = [...ids]
+    }
+  }
+
+  function removeTrackObjectFromGroups(trackObjectId: NodeId) {
+    for (const group of collectGroups()) {
+      group.group.trackObjectIds = group.group.trackObjectIds.filter(id => id !== trackObjectId)
+    }
+  }
+
+  function replaceTrackObjectsInGroups(oldIds: NodeId[], newIds: NodeId[]) {
+    const oldSet = new Set(oldIds)
+    for (const group of collectGroups()) {
+      const next: NodeId[] = []
+      let inserted = false
+      for (const id of group.group.trackObjectIds) {
+        if (!oldSet.has(id)) {
+          next.push(id)
+          continue
+        }
+        if (!inserted) {
+          next.push(...newIds)
+          inserted = true
+        }
+      }
+      group.group.trackObjectIds = [...new Set(next)]
+    }
+  }
+
+  function findPartiallyContainingGroup(oldIds: NodeId[]): NodeId | null {
+    const oldSet = new Set(oldIds)
+    for (const group of collectGroups()) {
+      const contained = group.group.trackObjectIds.filter(id => oldSet.has(id)).length
+      if (contained > 0 && contained < oldSet.size) return group.id
+    }
+    return null
+  }
+
+  function pruneEmptyGroups() {
+    for (const group of collectGroups()) {
+      if (group.group.trackObjectIds.length === 0) removeNode(tree.value.root, group.id)
+    }
+  }
+
+  function collectGroups() {
+    const groups: Extract<TreeNode, { kind: 'group' }>[] = []
+    function visit(node: TreeNode) {
+      if (node.kind === 'group') groups.push(node)
+      if (node.kind === 'folder' || node.kind === 'trackFolder') node.children.forEach(visit)
+    }
+    visit(tree.value.root)
+    return groups
+  }
+
+  function sortTrackFolderChildren(trackFolder: TrackFolderNode) {
+    trackFolder.children.sort((a, b) => {
+      const byStart = a.trackObject.timelineStart - b.trackObject.timelineStart
+      return byStart !== 0 ? byStart : a.id.localeCompare(b.id)
+    })
+  }
+
+  function clonePlain<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T
   }
 
   function inferSampleRate(seg: AudioSegment): number {
@@ -530,6 +852,30 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return folder
   }
 
+  function getOrCreateTrackFolderForLegacyTrack(trackId: string): TrackFolderNode | null {
+    const existing = buildNodeIndex(tree.value.root).nodes[`node:trackFolder:${trackId}`]
+    if (existing?.kind === 'trackFolder') return existing
+    const tracksStore = useTracksStore()
+    const track = tracksStore.tracks[trackId]
+    if (!track) return null
+    const folder: TrackFolderNode = {
+      id: `node:trackFolder:${trackId}`,
+      kind: 'trackFolder',
+      name: track.name,
+      trackFolder: {
+        trackType: 'audio',
+        color: track.color,
+        muted: track.muted,
+        solo: track.solo,
+        volume: track.volume,
+      },
+      children: [],
+      legacy: { trackId },
+    }
+    insertIntoFirstFolder(TOP_LEVEL_IDS.tracks, folder)
+    return folder
+  }
+
   return {
     tree,
     legacyWarnings,
@@ -538,6 +884,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     createEmpty,
     loadFromLegacyProject,
     loadObjectTree,
+    snapshotTree,
+    restoreTree,
     node,
     parent,
     isDescendant,
@@ -550,7 +898,15 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     addRenderedAudioToTimeline,
     syncPastedTrack,
     syncTrackFolderName,
+    createGroupFromLegacyElements,
+    syncMovedSegments,
+    syncMovedSegment,
+    syncDeletedSegment,
+    syncDeletedTrack,
+    syncDeletedSegments,
+    syncMergedSegments,
     syncSplitSegment,
+    syncUndoSplitSegment,
   }
 })
 

@@ -41,7 +41,8 @@ export function useKeyboard() {
       const compGroups = useCompGroupsStore()
       const elements = compGroups.buildElementsFromSelection()
       if (elements.length > 0) {
-        compGroups.create(elements)
+        const groupId = compGroups.create(elements)
+        useObjectTreeStore().createGroupFromLegacyElements(groupId, compGroups.compGroups[groupId]?.name ?? groupId, elements)
         selection.clear()
       }
       return
@@ -93,11 +94,17 @@ export function useKeyboard() {
       tracks.insertSegment(seg)
     }
 
+    const beforeTree = objectTree.snapshotTree()
+    objectTree.syncPastedTrack(pasteTrackId, newSegs)
+    const afterTree = objectTree.snapshotTree()
     import('@/commands/copyPaste').then(m => {
-      history.push(m.buildPasteCommand({ items: clipboard.items, newSegments: newSegs }))
+      const newTrack = tracks.tracks[pasteTrackId]
+      if (!newTrack) return
+      const cmd = m.buildPasteCommand({ items: clipboard.items, newSegments: newSegs, newTrack: { ...newTrack, segments: [] } })
+      cmd.objectTree = { kind: 'snapshot', before: beforeTree, after: afterTree }
+      history.push(cmd)
     })
 
-    objectTree.syncPastedTrack(pasteTrackId, newSegs)
     objectTreeUi.clearSelection()
     selection.selectAll(newSegs.map(s => s.id), 'segments')
   }
@@ -156,12 +163,22 @@ export function useKeyboard() {
             color: first.color,
             ignored: false,
           }
+          const oldSegs = sortedSegs.map(s => ({ ...s }))
+          const objectTree = useObjectTreeStore()
+          const beforeTree = objectTree.snapshotTree()
+          const sync = objectTree.syncMergedSegments(oldSegs, merged)
+          if (!sync.ok) {
+            useObjectTreeUiStore().flashNotice(sync.reason || '对象树合并同步失败')
+            return
+          }
+          const afterTree = objectTree.snapshotTree()
           tracks.replaceSegments(trackId, selectedSegIds, [merged])
           selection.select(mergedId, false)
 
-          const oldSegs = sortedSegs.map(s => ({ ...s }))
           import('@/commands/merge').then(m => {
-            history.push(m.buildMergeWithinTrackCommand(trackId, oldSegs, merged))
+            const cmd = m.buildMergeWithinTrackCommand(trackId, oldSegs, merged)
+            cmd.objectTree = { kind: 'snapshot', before: beforeTree, after: afterTree }
+            history.push(cmd)
           })
           return
         }
@@ -206,6 +223,7 @@ export function useKeyboard() {
       const sa = tracks.getSegment(a), sb = tracks.getSegment(b)
       return (sa?.timelineStart ?? 0) - (sb?.timelineStart ?? 0)
     })
+    useObjectTreeStore().syncMovedSegments(allSegs)
 
     selection.selectAll(allSegs.map(s => s.id), 'segments')
   }
@@ -270,27 +288,40 @@ export function useKeyboard() {
       color: first.color,
       ignored: false,
     }
+    const oldSegs = allSegs.map(s => ({ ...s }))
+    const objectTree = useObjectTreeStore()
+    const beforeTree = objectTree.snapshotTree()
+    const sync = objectTree.syncMergedSegments(oldSegs, merged)
+    if (!sync.ok) {
+      useObjectTreeUiStore().flashNotice(sync.reason || '对象树合并同步失败')
+      return
+    }
+    const afterTree = objectTree.snapshotTree()
     tracks.replaceSegments(trackId, selectedSegIds, [merged])
     selection.select(mergedId, false)
 
     scheduleMergeF0Extraction(merged, trackId)
 
-    const oldSegs = allSegs.map(s => ({ ...s }))
     import('@/commands/merge').then(m => {
-      history.push(m.buildMergeWithinTrackCommand(trackId, oldSegs, merged))
+      const cmd = m.buildMergeWithinTrackCommand(trackId, oldSegs, merged)
+      cmd.objectTree = { kind: 'snapshot', before: beforeTree, after: afterTree }
+      history.push(cmd)
     })
   }
 
   function deleteSelected() {
     const tracks = useTracksStore()
     const compGroups = useCompGroupsStore()
+    const objectTree = useObjectTreeStore()
 
     for (const id of selection.ids) {
       if (id.startsWith('trk_')) {
+        objectTree.syncDeletedTrack(id as TrackId)
         tracks.removeTrack(id as TrackId)
       } else if (id.startsWith('seg_')) {
         const seg = tracks.getSegment(id as SegmentId)
         if (seg) {
+          objectTree.syncDeletedSegment({ ...seg })
           const track = tracks.tracks[seg.trackId]
           if (track) {
             track.segments = track.segments.filter(s => s !== seg.id)
@@ -300,6 +331,7 @@ export function useKeyboard() {
       } else if (id.startsWith('cgrp_')) {
         const group = compGroups.compGroups[id]
         if (group?.svcResult?.trackId) {
+          objectTree.syncDeletedTrack(group.svcResult.trackId)
           tracks.removeTrack(group.svcResult.trackId)
         }
         compGroups.remove(id)
@@ -323,14 +355,15 @@ export function useKeyboard() {
   function locateTrackObjectShortcut() {
     const objectTree = useObjectTreeStore()
     const ui = useObjectTreeUiStore()
-    const trackObjectId = trackObjectIdFromLegacySelection()
-    if (trackObjectId && objectTree.node(trackObjectId)) {
-      locateInL2(trackObjectId)
-      return
-    }
-
     const leftNodeId = singleObjectTreeSelection()
     const leftNode = leftNodeId ? objectTree.node(leftNodeId) : null
+    if (!leftNode && leftNodeId?.startsWith('node:trackObject:')) {
+      const segmentId = segmentIdFromTrackObjectId(leftNodeId)
+      if (segmentId) {
+        ;(window as any).__timelineLocateSegment?.(segmentId)
+        return
+      }
+    }
     if (leftNode?.kind === 'trackObject') {
       const segmentId = leftNode.legacy?.segmentId
       if (segmentId) {
@@ -339,6 +372,12 @@ export function useKeyboard() {
       }
       ;(window as any).__playbackSeek?.(leftNode.trackObject.timelineStart)
       ui.flashNotice('已定位到时间线起点')
+      return
+    }
+
+    const trackObjectId = trackObjectIdFromLegacySelection()
+    if (trackObjectId && objectTree.node(trackObjectId)) {
+      locateInL2(trackObjectId)
       return
     }
 
@@ -403,6 +442,14 @@ export function useKeyboard() {
       return objectTree.legacyMaps?.trackObjectIdBySegmentId[selected] ?? `node:trackObject:${selected}`
     }
     return null
+  }
+
+  function segmentIdFromTrackObjectId(trackObjectId: NodeId): string | null {
+    const objectTree = useObjectTreeStore()
+    const trackObject = objectTree.node(trackObjectId)
+    if (trackObject?.kind === 'trackObject') return trackObject.legacy?.segmentId ?? null
+    const prefix = 'node:trackObject:'
+    return trackObjectId.startsWith(prefix) ? trackObjectId.slice(prefix.length) : null
   }
 
   function locateInL2(id: NodeId) {

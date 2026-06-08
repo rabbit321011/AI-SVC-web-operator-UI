@@ -69,7 +69,12 @@ function toggleMute() {
 
 function toggleSolo() {
   if (track.value) {
-    track.value.solo = !track.value.solo
+    const nextSolo = !track.value.solo
+    for (const tid of tracks.trackOrder) {
+      const other = tracks.tracks[tid]
+      if (other) other.solo = false
+    }
+    track.value.solo = nextSolo
     if (track.value.muted && track.value.solo) track.value.muted = false
   }
 }
@@ -87,6 +92,7 @@ function closeMenu() { showMenu.value = false }
 
 function deleteTrack() {
   showMenu.value = false
+  objectTree.syncDeletedTrack(props.trackId)
   tracks.removeTrack(props.trackId)
 }
 

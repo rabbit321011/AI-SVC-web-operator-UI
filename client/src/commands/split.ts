@@ -67,5 +67,12 @@ export function buildSplitCommand(ctx: SplitContext, newSegA: AudioSegment, newS
     },
   ]
 
-  return makeCommand(`切分音轨片段 ${oldSegId}`, patches, inversePatches)
+  return {
+    ...makeCommand(`切分音轨片段 ${oldSegId}`, patches, inversePatches),
+    objectTree: {
+      kind: 'splitSegment',
+      oldSegment: { ...ctx.segment },
+      newSegments: [{ ...newSegA }, { ...newSegB }],
+    },
+  }
 }

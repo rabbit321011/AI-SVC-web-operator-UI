@@ -5,13 +5,13 @@ export function makeCommand(description: string, patches: Patch[], inversePatche
 }
 
 export function trackPath(trackId: TrackId, field: string): string {
-  return `tracks.${trackId}.${field}`
+  return field ? `tracks.${trackId}.${field}` : `tracks.${trackId}`
 }
 
 export function segPath(segId: SegmentId, field: string): string {
-  return `segments.${segId}.${field}`
+  return field ? `segments.${segId}.${field}` : `segments.${segId}`
 }
 
 export function cgrpPath(cgrpId: string, field: string): string {
-  return `compGroups.${cgrpId}.${field}`
+  return field ? `compGroups.${cgrpId}.${field}` : `compGroups.${cgrpId}`
 }

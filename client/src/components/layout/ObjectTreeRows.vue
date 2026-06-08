@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useSelectionStore } from '@/stores/selection'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectAudioPreview } from '@/composables/useObjectAudioPreview'
 import type { TreeNode } from '@/object-workbench'
 
@@ -20,6 +21,7 @@ const props = defineProps<{
 
 const ui = useObjectTreeUiStore()
 const selection = useSelectionStore()
+const objectTree = useObjectTreeStore()
 const audioPreview = useObjectAudioPreview()
 const expandable = computed(() => props.hasChildren(props.node) || (props.node.kind === 'group' && props.node.group.trackObjectIds.length > 0))
 const expanded = computed(() => ui.isExpanded(props.pane, props.node.id))
@@ -49,6 +51,10 @@ function handleVirtualMemberClick(trackObjectId: string, event: MouseEvent) {
 function toggleAudioPreview(event: MouseEvent) {
   event.stopPropagation()
   if (props.node.kind === 'audio') audioPreview.toggleAudioObject(props.node.id)
+}
+
+function memberName(trackObjectId: string) {
+  return objectTree.node(trackObjectId)?.name ?? trackObjectId
 }
 </script>
 
@@ -95,7 +101,7 @@ function toggleAudioPreview(event: MouseEvent) {
     >
       <span class="twisty">·</span>
       <span class="kind">mem</span>
-      <span class="name">{{ memberId }}</span>
+      <span class="name">{{ memberName(memberId) }}</span>
     </div>
     <ObjectTreeRows
       v-if="expandable && expanded"

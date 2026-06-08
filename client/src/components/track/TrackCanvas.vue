@@ -321,12 +321,13 @@ function handleSplit(cutTime: number) {
       const oldSegSnapshot = { ...seg }
 
       tstore.replaceSegments(props.trackId, [seg.id], [segA, segB])
-      objectTree.syncSplitSegment(oldSegSnapshot, [segA, segB])
+      const splitSync = objectTree.syncSplitSegment(oldSegSnapshot, [segA, segB])
 
       const cmd = buildSplitCommand(
         { trackId: props.trackId, segment: oldSegSnapshot, cutTime, sampleRate: track.value?.sampleRate ?? 44100 },
         segA, segB
       )
+      if (cmd.objectTree?.kind === 'splitSegment') cmd.objectTree.splitSnapshot = splitSync.snapshot
       hstore.push(cmd)
 
       break
@@ -337,7 +338,7 @@ function handleSplit(cutTime: number) {
 
 const isDragging = ref(false)
 const dragStartClientX = ref(0)
-const dragSegments: Array<{ seg: AudioSegment; origStart: number; origEnd: number }> = []
+const dragSegments: Array<{ seg: AudioSegment; origStart: number; origEnd: number; origTrackId: TrackId; origColor: string }> = []
 
 function onDragMove(e: MouseEvent) {
   if (!isDragging.value) return
@@ -379,9 +380,13 @@ function onDragEnd() {
   isDragging.value = false
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', onDragEnd)
+  const beforeTree = objectTree.snapshotTree()
+  objectTree.syncMovedSegments(dragSegments.map(entry => entry.seg))
+  const afterTree = objectTree.snapshotTree()
   import('@/commands/move').then(m => {
     const history = useHistoryStore()
     const cmd = m.buildMoveCommand(dragSegments)
+    cmd.objectTree = { kind: 'snapshot', before: beforeTree, after: afterTree }
     history.push(cmd)
   })
 }
@@ -403,7 +408,7 @@ function handleMousedown(e: MouseEvent) {
     for (const sid of selection.ids) {
       const s = tracks.getSegment(sid)
       if (s) {
-        dragSegments.push({ seg: s, origStart: s.timelineStart, origEnd: s.timelineEnd })
+        dragSegments.push({ seg: s, origStart: s.timelineStart, origEnd: s.timelineEnd, origTrackId: s.trackId, origColor: s.color })
       }
     }
     document.addEventListener('mousemove', onDragMove)

@@ -138,6 +138,18 @@ export interface Command {
   description: string
   patches: Patch[]
   inversePatches: Patch[]
+  objectTree?:
+    | {
+        kind: 'splitSegment'
+        oldSegment: AudioSegment
+        newSegments: [AudioSegment, AudioSegment]
+        splitSnapshot?: unknown
+      }
+    | {
+        kind: 'snapshot'
+        before: unknown
+        after: unknown
+      }
 }
 
 export type SelectionType = 'none' | 'tracks' | 'segments' | 'compGroups' | 'mixed'
