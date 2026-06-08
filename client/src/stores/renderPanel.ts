@@ -6,6 +6,8 @@ import { useObjectTreeStore } from './objectTree'
 
 export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed'
 export type SvsRenderStatus = 'idle' | 'running' | 'done' | 'failed'
+export type ToolRunStatus = 'idle' | 'running' | 'done' | 'failed'
+export type LocalProcessingTool = 'svc' | 'svs' | 'whisper' | 'msst'
 
 export const useRenderPanelStore = defineStore('renderPanel', () => {
   const mode = ref<RenderPanelMode>('svc')
@@ -17,6 +19,13 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
   const svsProgress = ref(0)
   const svsMessage = ref('')
   const currentSvsJobId = ref<string | null>(null)
+  const localProcessingTool = ref<LocalProcessingTool | null>(null)
+  const whisperStatus = ref<ToolRunStatus>('idle')
+  const whisperProgress = ref(0)
+  const whisperMessage = ref('')
+  const msstStatus = ref<ToolRunStatus>('idle')
+  const msstProgress = ref(0)
+  const msstMessage = ref('')
   const svc = reactive({
     condAudio: null as RenderInputRef | null,
     sourceAudio: null as RenderInputRef | null,
@@ -36,10 +45,23 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     seed: 42,
     device: 'cuda:0',
   })
+  const whisper = reactive({
+    audio: null as RenderInputRef | null,
+    outputName: '',
+    language: 'auto',
+  })
+  const msst = reactive({
+    audio: null as RenderInputRef | null,
+    outputName: '',
+    outputMode: 'vocals_accompaniment' as 'vocals' | 'accompaniment' | 'vocals_accompaniment' | 'denoise' | 'other',
+    backfillAll: true,
+  })
+
+  const isLocalProcessingRunning = computed(() => localProcessingTool.value !== null)
 
   const canRunSvc = computed(() => {
     const objectTree = useObjectTreeStore()
-    return svcStatus.value !== 'running'
+    return !isLocalProcessingRunning.value
       && validateRenderSlot(objectTree.tree, 'svc.condAudio', svc.condAudio).ok
       && validateRenderSlot(objectTree.tree, 'svc.sourceAudio', svc.sourceAudio).ok
   })
@@ -49,10 +71,22 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     const textOk = svs.textMode === 'manual'
       ? normalizeSvsText(svs.manualText).length > 0
       : validateRenderSlot(objectTree.tree, 'svs.text', svs.textRef).ok
-    return svsStatus.value !== 'running'
+    return !isLocalProcessingRunning.value
       && validateRenderSlot(objectTree.tree, 'svs.timbreAudio', svs.timbreAudio).ok
       && validateRenderSlot(objectTree.tree, 'svs.melody', svs.melody).ok
       && textOk
+  })
+
+  const canRunWhisper = computed(() => {
+    const objectTree = useObjectTreeStore()
+    return !isLocalProcessingRunning.value
+      && validateRenderSlot(objectTree.tree, 'whisper.audio', whisper.audio).ok
+  })
+
+  const canRunMsst = computed(() => {
+    const objectTree = useObjectTreeStore()
+    return !isLocalProcessingRunning.value
+      && validateRenderSlot(objectTree.tree, 'msst.audio', msst.audio).ok
   })
 
   function setMode(nextMode: RenderPanelMode) {
@@ -72,6 +106,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
       svs.textRef = input
       svs.textMode = 'ref'
     }
+    if (slotId === 'whisper.audio') whisper.audio = input
+    if (slotId === 'msst.audio') msst.audio = input
     return { ok: true }
   }
 
@@ -79,7 +115,10 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     const objectTree = useObjectTreeStore()
     const node = objectTree.node(id)
     if (!node) return { ok: false, reason: '原对象不存在' }
-    const acceptsAudioObject = slotId === 'svc.condAudio' || slotId === 'svs.timbreAudio'
+    const acceptsAudioObject = slotId === 'svc.condAudio'
+      || slotId === 'svs.timbreAudio'
+      || slotId === 'whisper.audio'
+      || slotId === 'msst.audio'
     if (node.kind !== 'trackObject' && node.kind !== 'group' && !(acceptsAudioObject && node.kind === 'audio')) {
       return { ok: false, reason: acceptsAudioObject ? '该槽位只接受 AudioObject/TrackObject/GroupObject' : '槽位只接受 TrackObject 或 GroupObject' }
     }
@@ -93,13 +132,27 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     if (slotId === 'svs.timbreAudio') svs.timbreAudio = null
     if (slotId === 'svs.melody') svs.melody = null
     if (slotId === 'svs.text') svs.textRef = null
+    if (slotId === 'whisper.audio') whisper.audio = null
+    if (slotId === 'msst.audio') msst.audio = null
+  }
+
+  function beginLocalProcessing(tool: LocalProcessingTool): boolean {
+    if (localProcessingTool.value && localProcessingTool.value !== tool) return false
+    localProcessingTool.value = tool
+    return true
+  }
+
+  function endLocalProcessing(tool: LocalProcessingTool) {
+    if (localProcessingTool.value === tool) localProcessingTool.value = null
   }
 
   function setSvcRunning(jobId: string, message = '准备 SVC') {
+    if (!beginLocalProcessing('svc')) return false
     currentJobId.value = jobId
     svcStatus.value = 'running'
     svcProgress.value = 0
     svcMessage.value = message
+    return true
   }
 
   function updateSvcProgress(progress: number, message?: string) {
@@ -111,18 +164,22 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     svcStatus.value = 'done'
     svcProgress.value = 100
     svcMessage.value = message
+    endLocalProcessing('svc')
   }
 
   function setSvcFailed(message: string) {
     svcStatus.value = 'failed'
     svcMessage.value = message
+    endLocalProcessing('svc')
   }
 
   function setSvsRunning(jobId: string, message = '准备 SVS') {
+    if (!beginLocalProcessing('svs')) return false
     currentSvsJobId.value = jobId
     svsStatus.value = 'running'
     svsProgress.value = 0
     svsMessage.value = message
+    return true
   }
 
   function updateSvsProgress(progress: number, message?: string) {
@@ -134,11 +191,65 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     svsStatus.value = 'done'
     svsProgress.value = 100
     svsMessage.value = message
+    endLocalProcessing('svs')
   }
 
   function setSvsFailed(message: string) {
     svsStatus.value = 'failed'
     svsMessage.value = message
+    endLocalProcessing('svs')
+  }
+
+  function setWhisperRunning(message = '准备 Whisper') {
+    if (!beginLocalProcessing('whisper')) return false
+    whisperStatus.value = 'running'
+    whisperProgress.value = 0
+    whisperMessage.value = message
+    return true
+  }
+
+  function updateWhisperProgress(progress: number, message?: string) {
+    whisperProgress.value = Math.max(0, Math.min(100, Math.round(progress)))
+    if (message !== undefined) whisperMessage.value = message
+  }
+
+  function setWhisperDone(message = 'Whisper 完成') {
+    whisperStatus.value = 'done'
+    whisperProgress.value = 100
+    whisperMessage.value = message
+    endLocalProcessing('whisper')
+  }
+
+  function setWhisperFailed(message: string) {
+    whisperStatus.value = 'failed'
+    whisperMessage.value = message
+    endLocalProcessing('whisper')
+  }
+
+  function setMsstRunning(message = '准备 MSST') {
+    if (!beginLocalProcessing('msst')) return false
+    msstStatus.value = 'running'
+    msstProgress.value = 0
+    msstMessage.value = message
+    return true
+  }
+
+  function updateMsstProgress(progress: number, message?: string) {
+    msstProgress.value = Math.max(0, Math.min(100, Math.round(progress)))
+    if (message !== undefined) msstMessage.value = message
+  }
+
+  function setMsstDone(message = 'MSST 完成') {
+    msstStatus.value = 'done'
+    msstProgress.value = 100
+    msstMessage.value = message
+    endLocalProcessing('msst')
+  }
+
+  function setMsstFailed(message: string) {
+    msstStatus.value = 'failed'
+    msstMessage.value = message
+    endLocalProcessing('msst')
   }
 
   return {
@@ -151,10 +262,22 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     svsProgress,
     svsMessage,
     currentSvsJobId,
+    localProcessingTool,
+    isLocalProcessingRunning,
+    whisperStatus,
+    whisperProgress,
+    whisperMessage,
+    msstStatus,
+    msstProgress,
+    msstMessage,
     svc,
     svs,
+    whisper,
+    msst,
     canRunSvc,
     canRunSvs,
+    canRunWhisper,
+    canRunMsst,
     setMode,
     setSlot,
     setSlotFromNode,
@@ -167,5 +290,13 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     updateSvsProgress,
     setSvsDone,
     setSvsFailed,
+    setWhisperRunning,
+    updateWhisperProgress,
+    setWhisperDone,
+    setWhisperFailed,
+    setMsstRunning,
+    updateMsstProgress,
+    setMsstDone,
+    setMsstFailed,
   }
 })

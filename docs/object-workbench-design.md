@@ -1,14 +1,16 @@
 # AISVC-midi-web 对象工作台设计文档
 
-> 版本：v0.1 consensus draft  
-> 来源：围绕 SVC/SVS、素材树、TrackObject、GroupObject、双文件栏、合成面板等设计问答整理  
-> 状态：设计共识文档，不代表当前代码已实现
+> 版本：v0.2 checkpoint-aligned draft  
+> 来源：围绕 AI 歌声工程对象、富媒体编辑器、SVC/SVS、素材树、TrackObject、GroupObject、双文件栏、处理工具面板等设计问答整理  
+> 状态：长期设计共识文档；部分章节已进入当前 checkpoint，实现偏差在文中标注
 
 ---
 
 ## 1. 设计目标
 
-AISVC-midi-web 的下一阶段不再只是 YingMusic-SVC 的 Web 操作界面，而是一个面向 AI 歌声制作的本地对象工作台。
+AISVC-midi-web 的下一阶段不再只是 YingMusic-SVC 的 Web 操作界面，而是一个面向 AI 歌声制作的本地工程系统。
+
+它的核心不是某一个 SVC/SVS 功能，而是让素材、时间线单元、组合输入、工具产物和实验候选都成为可保存、可引用、可复用的工程资产。
 
 它需要同时支持：
 
@@ -22,13 +24,29 @@ AISVC-midi-web 的下一阶段不再只是 YingMusic-SVC 的 Web 操作界面，
 - 假名/罗马音文本编辑
 - 未来 MIDI/旋律二维编辑
 
-核心原则：
+顶层设计公理：
 
 ```text
+AISVC-midi-web 是 AI 歌声制作工程系统，不是单一 SVC Web UI。
+Object 是工程资产本体；工具结果只要有复用价值就对象化。
+对象树和富媒体编辑器工作区是同一工程对象系统的不同表达与编辑入口。
+中间区域是多 tab Rich Media Editor Workspace，timeline 只是 project/root 的默认编辑器。
+左侧 selection 不等于中间 editor context；复杂对象需要显式打开为 editor tab。
+TrackObject / GroupObject 是长期主模型，legacy segment / CompGroup 最终退出。
 UID 给程序找对象，树结构给人理解对象。
-Object 表示完整媒体，TrackObject 表示时间线摆放。
+跨系统流动是语义转换，不是随手共享引用。
+timeline 是实验编排面，不只是音频剪辑器。
+AI 候选结果默认保留、比较、再处理，而不是覆盖。
+Object kind 使用封闭枚举；每种类型必须定义自己的进入边界和消费方式。
+```
+
+现阶段对象原则：
+
+```text
+Object 表示工程资产，媒体对象只是 Object 的一种。
+TrackObject 表示媒体对象在时间线单元系统中的一次时间性使用。
 GroupObject 表示多个同类型 TrackObject 的带时间关系合并输入。
-右侧合成面板只接受 TrackObject 或 GroupObject。
+右侧处理工具面板消费项目对象，并产出新的项目对象。
 ```
 
 ---
@@ -39,10 +57,20 @@ GroupObject 表示多个同类型 TrackObject 的带时间关系合并输入。
 
 ```text
 ┌───────────────┬─────────────────────────────┬──────────────────┐
-│ L1 / L2 文件栏 │ 中间时间线                   │ 右侧合成面板       │
-│ 对象树         │ TrackObject 编辑             │ SVC / SVS recipe  │
+│ L1 / L2 文件栏 │ 富媒体编辑器工作区             │ 右侧处理工具面板    │
+│ 对象树         │ Timeline / MIDI / Text / ...  │ SVC / SVS / ...   │
 └───────────────┴─────────────────────────────┴──────────────────┘
 ```
+
+三块区域的职责：
+
+```text
+左侧 Object Tree：工程对象导航、组织、定位、拖拽引用入口。
+中间 Rich Media Editor Workspace：多 tab 富媒体编辑器宿主。
+右侧 Tool Panel：处理器入口，消费项目对象并产出新对象。
+```
+
+左侧对象树 selection 表示当前操作对象、拖拽对象、工具填槽来源或定位来源。中间 editor tab 表示当前正在编辑的上下文。二者可以相互定位，但不是同一个状态；选择左侧对象不应自动替换正在编辑的富媒体 editor。
 
 ### 2.1 左侧 L1/L2 文件栏
 
@@ -70,11 +98,17 @@ GroupObject 表示多个同类型 TrackObject 的带时间关系合并输入。
 - 如果某个已选对象在另一栏也可见，另一栏也高亮
 - 如果另一栏没有展开到该对象，不自动展开，不改变其滚动/展开结构
 
+当前 checkpoint 补充：
+
+- 左侧对象树 selection 和中间 timeline selection 互斥
+- 左侧单选优先级高于残留 timeline selection
+- 定位快捷键执行时，如果左侧存在单选，优先按左侧对象定位；左侧没有选择时才使用 timeline selection
+
 定位规则：
 
 - 定位不改变全局选中状态
 - 定位只展开并滚动 L2 到目标对象，并高亮 0.5 秒
-- `Ctrl+N`、`Ctrl+L`、`Ctrl+M`、`Ctrl+K` 都遵守此规则
+- `Alt+N`、`Alt+L`、`Alt+M`、`Alt+K` 都遵守此规则
 
 文件夹规则：
 
@@ -82,11 +116,27 @@ GroupObject 表示多个同类型 TrackObject 的带时间关系合并输入。
 - 文件夹可展开/折叠
 - 文件夹可拖拽移动
 - 文件夹可作为 drop target
-- 文件夹不可拖入右侧合成槽
+- 文件夹不可拖入右侧工具输入槽
 
-### 2.2 中间时间线
+### 2.2 中间富媒体编辑器工作区
 
-中间时间线显示并编辑 `TrackObject`。
+中间区域不是固定 timeline，而是多 tab `Rich Media Editor Workspace`。
+
+`Timeline Editor` 是挂载在 `project/root` 下的默认主编辑器，也是当前 checkpoint 的主要富媒体编辑器。未来不同 Object kind 可以按需要打开自己的 editor tab：
+
+- `project/root`：Timeline Editor
+- `MidiObject`：MIDI / piano roll / melody editor
+- `TextObject`：text / kana / romaji editor；轻量文本也可作为小组件展开
+- `PitchObject` / F0 结果：pitch curve / analysis editor
+- 复杂分析对象：二维、三维或多维参数/散点编辑器
+
+编辑器粒度分为：
+
+- 轻量内联编辑：名称、简单文本、简单参数
+- 局部面板编辑：文本片段、参数列表、对象属性
+- 完整主编辑器：timeline、MIDI、waveform、pitch curve、二维/三维/多维编辑器
+
+当前 Timeline Editor 显示并编辑 `TrackObject`。
 
 保留当前值得继承的体验：
 
@@ -103,11 +153,31 @@ GroupObject 表示多个同类型 TrackObject 的带时间关系合并输入。
 - 忽略片段
 - 播放选中
 
-中间对象不能拖到侧栏。中间拖动手势只用于移动 TrackObject 的时间线位置或音轨归属，不承担“拖到素材栏/Group”的语义。
+Timeline Editor 中的对象不能拖到侧栏。中间拖动手势只用于移动 TrackObject 的时间线位置或音轨归属，不承担“拖到素材栏/Group”的语义。
 
-### 2.3 右侧合成面板
+### 2.3 右侧处理工具面板
 
-右侧合成面板由模型类型决定输入槽。
+右侧不是 SVC/SVS 专属合成面板，而是处理工具面板。它只放会产生新媒体或新工程对象的处理工具，不放重命名、删除、创建 Group 等基础对象管理操作。
+
+处理工具系统不是项目对象子系统。它消费项目对象系统中的对象，并产出新的项目对象：
+
+```text
+Object(s) -> Tool Processor -> Object(s)
+```
+
+右侧同一时间显示一个工具类型。每个工具保留自己的草稿输入和参数；占用同类重资源的任务运行时，其他同类工具的执行入口禁用。任务状态显示在正在运行的工具内部，第一版不要求取消任务或全局任务中心。
+
+工具按需声明：
+
+- 输入槽需要的对象类型
+- 输入是否必须带时间性
+- 是否允许普通 Object 作为无时间性参考
+- 输出是否进入 `renders`
+- 输出是否自动创建 TrackObject
+
+当前第一批工具包括 SVC、SVS。Whisper、F0/pitch 提取、切片/静音检测等识别和提取工具属于后续同类扩展。
+
+SVC 工具：
 
 SVC 面板：
 
@@ -119,7 +189,7 @@ cfg: [slider]
 输出名: [...]
 ```
 
-SVS 面板：
+SVS 工具：
 
 ```text
 模型: [xxx-SVS]        step: [...]
@@ -145,6 +215,18 @@ cfg_cond: [slider]
 
 普通项目编辑界面不显示全局资源库，只显示当前项目自己的树。
 
+项目树不是普通文件管理器，而是完整工程资产树。它看起来像文件树，但管理的是工程资产和工程语义。路径服务人的组织理解；对象之间的真实依赖必须通过 UID 和 object relation 表达。
+
+概念上，项目对象系统分为三类职责：
+
+```text
+资源定位系统：workspace / resource / renders
+时间线单元系统：tracks / Track / TrackObject / TrackSource
+组合输入系统：groups / GroupObject
+```
+
+这个分层是概念分层，实际区分主要落在 Object kind、对象所在区域和对象行为规则上，不要求项目文件物理拆成多套互不相关的数据结构。
+
 项目内固定顶层结构：
 
 ```text
@@ -154,7 +236,7 @@ project
 ├─ trackSources    TrackObject 专属源对象
 ├─ tracks          TrackFolder / TrackObject
 ├─ groups          GroupObject
-└─ renders         SVC/SVS 输出归档
+└─ renders         工具输出归档资源
 ```
 
 全局 resource 在单独资源管理页面编辑：
@@ -184,7 +266,7 @@ globalResource
 - 可删除
 - 可与 `resource` 互相移动/复制
 - 可拖入中间时间线，拖入时复制到 `trackSources`
-- 可拖入右侧合成槽：不允许，必须先变成 TrackObject
+- 可拖入右侧工具输入槽：不允许，必须先变成 TrackObject
 
 ### 3.2 resource
 
@@ -199,7 +281,9 @@ globalResource
 
 ### 3.3 trackSources
 
-`trackSources` 是时间线工作副本区。
+`trackSources` 是时间线单元系统的内部源支撑区。
+
+`TrackObject / Track` 是时间线单元系统的基础单元。`TrackSource` 服务于这个单元，是 TrackObject/Track 的内部支撑对象，不是 `workspace/resource/renders` 那种用户资源定位对象，也不应被理解为普通资源池或引用复用入口。
 
 当普通 Object 从 `workspace/resource/renders` 拖入时间线时：
 
@@ -269,7 +353,7 @@ TrackObject 规则：
 - 可在 `groups` 内建子文件夹整理
 - GroupObject 不能移动/复制到 `workspace/resource/renders/trackSources/tracks`
 - GroupObject 不能拖入中间时间线
-- GroupObject 只能拖入右侧合成面板
+- GroupObject 只能拖入右侧处理工具面板
 - 如果要变成普通素材，必须执行“渲染/合并为对象”
 
 默认保存位置：
@@ -282,7 +366,11 @@ project:/groups/text
 
 ### 3.6 renders
 
-`renders` 是模型生成结果归档区。
+`renders` 是资源定位系统的一部分，是工具成功产出的项目资源归档区。
+
+`renders` 不是工具历史面板。工具输出一旦进入 `renders`，它就是项目资源，可以继续被定位、复用、拖入 timeline、作为后续工具输入。工具历史如果未来需要，应作为单独机制设计，不污染 `renders` 的资源定位语义。
+
+`renders` 不限于音频。SVC/SVS 输出的 AudioObject、Whisper 输出的 timestamped TextObject、F0/pitch 提取结果、切片/标注结果等，只要是有后续复用价值的工具产物，都应对象化并进入项目对象系统；通常进入 `renders`。
 
 模型输出完成后生成两份语义不同的对象：
 
@@ -525,7 +613,7 @@ interface GroupObjectNode extends BaseTreeNode {
 - GroupObject 类型来自 TrackObject 的 contentType
 - GroupObject 成员显示和解析永远按 TrackObject.timelineStart 排序
 - GroupObject 不能拖入中间时间线
-- GroupObject 只能拖入右侧合成面板
+- GroupObject 只能拖入右侧处理工具面板
 - GroupObject 是多段媒体的合并对象
 
 Group 展开 UI：
@@ -633,6 +721,14 @@ Group 解析时跳过 ignored TrackObject。合成前如果 Group 内有 ignored
 - 单元素 Group 保留
 - Undo 必须恢复 TrackObject、源对象、树位置、Group 引用和 blob
 
+当前 checkpoint 已闭合：
+
+- 从中间删除 segment 会同步删除 TrackObject、专属 trackSources 源对象、asset，并维护 Group 引用
+- 从左侧删除 TrackObject 会反向删除对应 timeline segment、专属 trackSources 源对象、asset，并维护 GroupObject 与旧 CompGroup 引用
+- 从左侧删除 TrackFolder 会反向删除对应 timeline track、子 TrackObject、专属 trackSources 源对象、asset，并维护 GroupObject 与旧 CompGroup 引用
+- 从左侧删除被 TrackObject 引用的 trackSources 源对象时，不执行孤立删除，而是转为语义删除对应 TrackObject
+- 从左侧删除 GroupObject 会同步删除旧 CompGroup
+
 ### 6.7 删除 renders 对象
 
 删除 renders 归档对象：
@@ -669,9 +765,9 @@ GroupObject 保存 live TrackObjectId，因此所有会改变 TrackObject 集合
 
 ---
 
-## 8. 右侧合成面板模型
+## 8. 右侧处理工具面板输入模型
 
-右侧合成输入槽只接受：
+右侧处理工具面板按工具声明输入槽。当前 SVC/SVS 等需要时间性输入的槽位默认只接受：
 
 - TrackObject UID
 - GroupObject UID
@@ -682,6 +778,8 @@ GroupObject 保存 live TrackObjectId，因此所有会改变 TrackObject 集合
 - 普通 MidiObject
 - 普通 TextObject
 - Folder
+
+当前 checkpoint 兼容策略：SVS 音色参考槽额外接受普通 AudioObject。普通 AudioObject 被视为无时间性参考，解析起点按 0 处理；SVS 输出仍对齐 melody 输入的最早 timelineStart，不受 timbre 参考时间影响。该兼容用于降低当前音色参考使用成本，长期是否收紧回 TrackObject/GroupObject-only 另行复审。
 
 输入槽结构：
 
@@ -694,11 +792,11 @@ interface RenderInputRef {
 }
 ```
 
-合成时实时解析 UID：
+执行工具时实时解析 UID：
 
 - 如果 UID 存在，读取当前对象状态
 - 如果 UID 不存在，显示“原对象不存在”，不可合成
-- 如果 Group 损坏，Group 整体不可合成
+- 如果 Group 损坏，Group 整体不可执行
 
 ### 8.1 槽位类型匹配
 
@@ -706,7 +804,7 @@ interface RenderInputRef {
 |---|---|
 | SVC 被变声音频 | audio TrackObject / audio GroupObject |
 | SVC cond 音频 | audio TrackObject / audio GroupObject |
-| SVS 音色音频 | audio TrackObject / audio GroupObject |
+| SVS 音色音频 | audio TrackObject / audio GroupObject；当前兼容普通 AudioObject |
 | SVS 旋律音频 | audio 或 midi TrackObject / audio 或 midi GroupObject |
 | SVS text | text TrackObject / text GroupObject / 手写文本 |
 
@@ -741,7 +839,7 @@ text Group：
 
 ### 8.3 输出命名
 
-合成面板提供可编辑输出名。默认自动生成，重名自动编号。
+处理工具面板提供可编辑输出名。默认自动生成，重名自动编号。
 
 默认命名：
 
@@ -766,7 +864,7 @@ project:/tracks/<TrackFolder>/<TrackObject>
 
 ---
 
-## 9. SVC / SVS 合成流程
+## 9. SVC / SVS 工具流程
 
 ### 9.1 SVC
 
@@ -830,18 +928,18 @@ YingMusic-Singer-Plus 当前脚本约束：
 
 | 快捷键 | 行为 |
 |---|---|
-| Ctrl+N | TrackObject 定位 |
-| Ctrl+L | 定位 AudioObject |
-| Ctrl+M | 定位关联 MidiObject |
-| Ctrl+K | 定位关联 TextObject |
+| Alt+N | TrackObject 定位 |
+| Alt+L | 定位 AudioObject |
+| Alt+M | 定位关联 MidiObject |
+| Alt+K | 定位关联 TextObject |
 
-`Ctrl+N` 双向行为：
+`Alt+N` 双向行为：
 
 - 中间时间线选中 TrackObject：L2 定位到对应 TrackObject 树节点，临时高亮 0.5 秒
 - 左栏单选 TrackObject：中间时间线滚动/定位到对应元素，临时高亮 0.5 秒
 - 左栏多选或选中非 TrackObject：提示“请选择一个时间线对象”
 
-`Ctrl+L/M/K`：
+`Alt+L/M/K`：
 
 - 从当前 TrackObject 或 AudioObject 追溯关联对象
 - 成功时 L2 定位并临时高亮
@@ -973,8 +1071,10 @@ interface DeleteTrackObjectCommandPayload {
 这些现有逻辑是下一阶段的地基，不建议推倒：
 
 - Canvas 时间线
+- Timeline Editor 作为 project/root 的默认富媒体编辑器
 - F0 曲线绘制
 - 片段切分/移动/合并/复制粘贴体验
+- 音轨 solo/mute 和 TrackObject ignore，用于 AI 候选结果比较、筛选和再处理
 - Web Audio 播放调度
 - Project JSON + blob 分离保存
 - Patch-based undo/redo 的基础思想
@@ -985,8 +1085,9 @@ interface DeleteTrackObjectCommandPayload {
 
 - `AudioSegment` 的源裁剪模型改为完整 Object 模型
 - `CompGroup` 演化为 `GroupObject`
-- 右侧合成入口从“当前选中合成组”改为 TrackObject/GroupObject 输入槽
+- 右侧合成入口演化为通用处理工具面板，SVC/SVS 只是第一批工具
 - tracks/segments store 逐步迁移到树节点 + TrackObject 模型
+- 中间区域从固定时间线演化为多 tab Rich Media Editor Workspace
 
 ---
 
@@ -1004,7 +1105,37 @@ interface DeleteTrackObjectCommandPayload {
 
 ---
 
-## 15. 共识复审清单
+## 15. 版本化设计 checkpoint
+
+后续较小的设计/实现 checkpoint 使用共享版本号组织在 `docs/updates/` 下：
+
+```text
+docs/updates/baseline/report.md
++ docs/updates/verX.Y/report.md
++ ...
+= 当前项目整体状态
+```
+
+每个版本目录结构：
+
+```text
+docs/updates/verX.Y/
+├─ design.md   本 checkpoint 的最小设计
+└─ report.md   checkpoint 收束后生成的现实报告
+```
+
+`design.md` 和 `report.md` 共享同一版本号。前者记录意图，后者记录现实。checkpoint 尚未实现或尚未收束时，可以只有 `design.md`，不需要提前创建空的 `report.md`。
+
+当前下一阶段设计 checkpoint：
+
+```text
+docs/updates/ver0.3/design.md
+report.md 将在 ver0.3 收束时生成
+```
+
+---
+
+## 16. 共识复审清单
 
 本节逐条复核问答过程中形成的共识是否已经进入文档。部分早期结论被后续讨论修订，状态标为“已修订”。
 
@@ -1072,9 +1203,18 @@ interface DeleteTrackObjectCommandPayload {
 | 60 | Text TrackObject 显示 | 中间栏显示为歌词时间条，保留用户显示文本，可显示 romaji 小字 | 11.2 | 已纳入 |
 | 61 | Midi TrackObject 显示 | 中间栏显示 pitch-time 二维预览，未来 MIDI 编辑器复用 | 11.3 | 已纳入 |
 | 62 | TrackFolder 单类型 | TrackFolder 强制单类型，TrackObject 只能放入同类型轨道 | 3.4, 5.6, 6.4 | 已纳入 |
+| 63 | 产品目标 | AISVC-midi-web 是 AI 歌声制作工程系统，不是单一 SVC Web UI | 1 | 已纳入 |
+| 64 | 中间区域定位 | 中间是多 tab Rich Media Editor Workspace，Timeline 是 project/root 默认编辑器 | 2.2 | 已纳入 |
+| 65 | editor context | 左侧 selection 不等于中间 editor context，复杂对象显式打开 editor tab | 2 | 已纳入 |
+| 66 | 右侧定位 | 右侧是处理工具面板，SVC/SVS/Whisper 等都是工具，不是对象子系统 | 2.3, 8 | 已纳入 |
+| 67 | 工具结果对象化 | 有复用价值的工具结果默认进入项目对象系统，通常进入 renders | 1, 3.6 | 已纳入 |
+| 68 | renders 定位 | renders 是资源定位系统的一部分，不是工具历史面板 | 3.6 | 已纳入 |
+| 69 | TrackSource 定位 | TrackSource 是 TrackObject/Track 的内部支撑对象，不是普通资源池 | 3.3 | 已纳入 |
+| 70 | legacy 长期方向 | TrackObject/GroupObject 是长期主模型，legacy segment/CompGroup 最终退出 | 1, 13 | 已纳入 |
+| 71 | 实验候选场景 | solo/mute/ignore/renders 多结果服务于候选比较、筛选和再处理 | 1, 13 | 已纳入 |
 
 ---
 
-## 16. 当前设计一句话总结
+## 17. 当前设计一句话总结
 
-用户在左栏管理完整媒体对象，在中间用 TrackObject 编排这些对象，在右侧把 TrackObject 或由 TrackObject 组成的 GroupObject 交给 SVC/SVS。所有时间线编辑都作用于 trackSources 工作副本，保护 workspace/resource/renders 里的用户素材和生成归档；所有跨对象链接用 UID，树路径只为人服务。
+AISVC-midi-web 是 AI 歌声制作工程系统：用户在左侧对象树组织工程资产，在中间多 tab 富媒体编辑器中编辑时间线、MIDI、文本和未来分析对象，在右侧处理工具面板消费对象并产出新对象。TrackObject/GroupObject 是长期主模型；工具结果默认对象化并回到项目资源循环；所有跨对象链接用 UID，树路径只为人服务。

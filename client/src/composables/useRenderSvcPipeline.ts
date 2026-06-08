@@ -14,7 +14,7 @@ export function useRenderSvcPipeline() {
   const project = useProjectStore()
 
   async function startSvc() {
-    if (renderPanel.svcStatus === 'running') return
+    if (renderPanel.isLocalProcessingRunning) return
     const condAudio = renderPanel.svc.condAudio
     const sourceAudio = renderPanel.svc.sourceAudio
     if (!condAudio || !sourceAudio) {
@@ -23,7 +23,7 @@ export function useRenderSvcPipeline() {
     }
 
     const jobId = crypto.randomUUID().slice(0, 8)
-    renderPanel.setSvcRunning(jobId, '解析输入')
+    if (!renderPanel.setSvcRunning(jobId, '解析输入')) return
     let ws: WebSocket | null = null
 
     try {

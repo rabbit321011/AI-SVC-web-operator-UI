@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AudioSegment, GroupElementSnapshot, Project } from '@/types'
-import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TrackFolderNode, TrackObjectNode, TreeNode } from '@/object-workbench'
+import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TextSegment, TrackFolderNode, TrackObjectContentType, TrackObjectNode, TreeNode } from '@/object-workbench'
 import {
   buildNodeIndex,
   canDragIntoTimeline,
@@ -11,6 +11,7 @@ import {
   canTransferTreeNode,
   createEmptyProjectObjectTree,
   findNodeLocation,
+  getProjectArea,
   getNode,
   getParent,
   insertChild,
@@ -141,15 +142,75 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     const currentIndex = index.value
     const nodeToDelete = currentIndex.nodes[nodeId]
     if (!nodeToDelete) return { ok: false, reason: '节点不存在' }
+
+    if (nodeToDelete.kind === 'trackObject') return deleteTrackObjectFromObjectTree(nodeToDelete)
+    if (nodeToDelete.kind === 'trackFolder') return deleteTrackFolderFromObjectTree(nodeToDelete)
+    if (nodeToDelete.kind === 'group') return deleteGroupObjectFromObjectTree(nodeToDelete)
+    if (nodeToDelete.kind === 'audio' && getProjectArea(currentIndex, nodeToDelete.id) === 'trackSources') {
+      return deleteTrackSourceFromObjectTree(nodeToDelete)
+    }
+
     const policy = canDeleteTreeNode(currentIndex, nodeToDelete)
     if (!policy.ok) return policy
     if (nodeToDelete.kind === 'audio') {
-      const assetId = nodeToDelete.audio.assetId
-      const blobKey = tree.value.assets[assetId]?.blobKey
-      if (blobKey) useTracksStore().sourceBlobs.delete(blobKey)
-      delete tree.value.assets[assetId]
+      deleteAudioAssetAndBlob(nodeToDelete)
     }
     removeNode(tree.value.root, nodeId)
+    return { ok: true }
+  }
+
+  function deleteTrackObjectFromObjectTree(trackObject: TrackObjectNode): { ok: boolean; reason?: string } {
+    const segmentId = trackObject.legacy?.segmentId ?? segmentIdFromTrackObjectId(trackObject.id)
+    const trackId = trackObject.legacy?.trackId ?? findParentTrackId(trackObject.id)
+    const sourceId = trackObject.trackObject.sourceObjectId
+    const source = index.value.nodes[sourceId]
+    if (source?.kind === 'audio') deleteAudioAssetAndBlob(source)
+    removeNode(tree.value.root, trackObject.id)
+    removeNode(tree.value.root, sourceId)
+    removeTrackObjectFromGroups(trackObject.id)
+    removeLegacySegmentFromCompGroups(segmentId)
+    pruneEmptyGroups()
+
+    const tracksStore = useTracksStore()
+    if (segmentId) delete tracksStore.segmentsMap[segmentId]
+    if (trackId && tracksStore.tracks[trackId]) {
+      tracksStore.tracks[trackId].segments = tracksStore.tracks[trackId].segments.filter(id => id !== segmentId)
+    }
+    return { ok: true }
+  }
+
+  function deleteTrackFolderFromObjectTree(trackFolder: TrackFolderNode): { ok: boolean; reason?: string } {
+    const trackObjects = trackFolder.children.map(child => clonePlain(child))
+    for (const nodeToDelete of trackObjects) {
+      const result = deleteTrackObjectFromObjectTree(nodeToDelete)
+      if (!result.ok) return result
+    }
+
+    const trackId = trackFolder.legacy?.trackId ?? trackIdFromTrackFolderId(trackFolder.id)
+    removeLegacyTrackFromCompGroups(trackId)
+    if (trackId) useTracksStore().removeTrack(trackId)
+    removeNode(tree.value.root, trackFolder.id)
+    pruneEmptyGroups()
+    return { ok: true }
+  }
+
+  function deleteTrackSourceFromObjectTree(source: AudioObjectNode): { ok: boolean; reason?: string } {
+    const refs = collectTrackObjects().filter(trackObject => trackObject.trackObject.sourceObjectId === source.id)
+    if (refs.length === 0) {
+      deleteAudioAssetAndBlob(source)
+      removeNode(tree.value.root, source.id)
+      return { ok: true }
+    }
+    for (const ref of refs) {
+      const result = deleteTrackObjectFromObjectTree(ref)
+      if (!result.ok) return result
+    }
+    return { ok: true }
+  }
+
+  function deleteGroupObjectFromObjectTree(group: GroupObjectNode): { ok: boolean; reason?: string } {
+    if (group.legacy?.compGroupId) useCompGroupsStore().remove(group.legacy.compGroupId)
+    removeNode(tree.value.root, group.id)
     return { ok: true }
   }
 
@@ -275,7 +336,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   async function addRenderedAudioToTimeline(options: {
     blob: Blob
     outputFileName: string
-    renderKind: 'svc' | 'svs'
+    renderKind: 'svc' | 'svs' | 'msst'
     timelineStart?: number
   }): Promise<{
     ok: boolean
@@ -725,6 +786,75 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     }
   }
 
+  function addRenderedTextToTimeline(options: {
+    outputName: string
+    renderKind: 'whisper'
+    segments: TextSegment[]
+    sourceAudioObjectId?: NodeId | null
+    timelineStart?: number
+    timelineEnd?: number
+  }): {
+    ok: boolean
+    reason?: string
+    renderObjectId?: NodeId
+    trackSourceObjectId?: NodeId
+    trackObjectId?: NodeId
+    outputName?: string
+  } {
+    const timelineStart = options.timelineStart ?? 0
+    const durationFromSegments = Math.max(0, ...options.segments.map(segment => segment.start))
+    const timelineEnd = Math.max(options.timelineEnd ?? timelineStart + Math.max(1, durationFromSegments), timelineStart + 0.001)
+    const renderFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.renders, options.renderKind)
+    const outputName = uniqueChildName(renderFolder, sanitizeFileName(options.outputName) || 'whisper_text')
+
+    const renderObjectId = `node:render:${options.renderKind}:text:${crypto.randomUUID()}`
+    const renderObject = {
+      id: renderObjectId,
+      kind: 'text' as const,
+      name: outputName,
+      text: {
+        sourceAudioObjectId: options.sourceAudioObjectId ?? null,
+        segments: clonePlain(options.segments),
+      },
+    }
+    insertChild(renderFolder, renderObject)
+
+    const trackSourceObjectId = `node:trackSource:text:${crypto.randomUUID()}`
+    const trackSourceObject = {
+      id: trackSourceObjectId,
+      kind: 'text' as const,
+      name: outputName,
+      text: {
+        sourceAudioObjectId: options.sourceAudioObjectId ?? null,
+        segments: clonePlain(options.segments),
+      },
+    }
+    insertChild(getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'text'), trackSourceObject)
+
+    const trackObjectId = `node:trackObject:text:${crypto.randomUUID()}`
+    const trackFolder = createObjectTrackFolder('text', outputName)
+    insertChild(trackFolder, {
+      id: trackObjectId,
+      kind: 'trackObject',
+      name: outputName,
+      trackObject: {
+        contentType: 'text',
+        sourceObjectId: trackSourceObjectId,
+        timelineStart,
+        timelineEnd,
+        ignored: false,
+      },
+    })
+
+    return {
+      ok: true,
+      renderObjectId,
+      trackSourceObjectId,
+      trackObjectId,
+      outputName,
+    }
+  }
+
   function syncUndoSplitSegment(snapshot: SplitSegmentObjectTreeSnapshot): { ok: boolean; reason?: string } {
     for (const id of snapshot.newTrackObjectIds) removeNode(tree.value.root, id)
     for (const id of snapshot.newSourceIds) removeNode(tree.value.root, id)
@@ -794,8 +924,34 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
   function pruneEmptyGroups() {
     for (const group of collectGroups()) {
-      if (group.group.trackObjectIds.length === 0) removeNode(tree.value.root, group.id)
+      if (group.group.trackObjectIds.length === 0) deleteGroupObjectFromObjectTree(group)
     }
+  }
+
+  function removeLegacySegmentFromCompGroups(segmentId: string | null) {
+    if (!segmentId) return
+    const compGroupsStore = useCompGroupsStore()
+    for (const group of Object.values(compGroupsStore.compGroups)) {
+      group.elements = group.elements.filter(element => !(element.type === 'segment' && element.id === segmentId))
+    }
+  }
+
+  function removeLegacyTrackFromCompGroups(trackId: string | null) {
+    if (!trackId) return
+    const compGroupsStore = useCompGroupsStore()
+    for (const group of Object.values(compGroupsStore.compGroups)) {
+      group.elements = group.elements.filter(element => !(element.type === 'track' && element.id === trackId))
+    }
+  }
+
+  function collectTrackObjects() {
+    const trackObjects: TrackObjectNode[] = []
+    function visit(node: TreeNode) {
+      if (node.kind === 'trackObject') trackObjects.push(node)
+      if (node.kind === 'folder' || node.kind === 'trackFolder') node.children.forEach(visit)
+    }
+    visit(tree.value.root)
+    return trackObjects
   }
 
   function collectGroups() {
@@ -827,6 +983,26 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
   function deleteStaleAssetForSource(source: AudioObjectNode) {
     delete tree.value.assets[source.audio.assetId]
+  }
+
+  function deleteAudioAssetAndBlob(source: AudioObjectNode) {
+    const assetId = source.audio.assetId
+    const blobKey = tree.value.assets[assetId]?.blobKey
+    if (blobKey) useTracksStore().sourceBlobs.delete(blobKey)
+    delete tree.value.assets[assetId]
+  }
+
+  function segmentIdFromTrackObjectId(trackObjectId: NodeId): string | null {
+    return trackObjectId.startsWith('node:trackObject:') ? trackObjectId.slice('node:trackObject:'.length) : null
+  }
+
+  function trackIdFromTrackFolderId(trackFolderId: NodeId): string | null {
+    return trackFolderId.startsWith('node:trackFolder:') ? trackFolderId.slice('node:trackFolder:'.length) : null
+  }
+
+  function findParentTrackId(trackObjectId: NodeId): string | null {
+    const parentId = buildNodeIndex(tree.value.root).parentById[trackObjectId]
+    return parentId ? trackIdFromTrackFolderId(parentId) : null
   }
 
   function insertIntoFirstFolder(parentId: NodeId, child: TreeNode) {
@@ -876,6 +1052,23 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return folder
   }
 
+  function createObjectTrackFolder(trackType: TrackObjectContentType, name: string): TrackFolderNode {
+    const folder: TrackFolderNode = {
+      id: `node:trackFolder:${trackType}:${crypto.randomUUID()}`,
+      kind: 'trackFolder',
+      name,
+      trackFolder: {
+        trackType,
+        muted: false,
+        solo: false,
+        volume: 1,
+      },
+      children: [],
+    }
+    insertIntoFirstFolder(TOP_LEVEL_IDS.tracks, folder)
+    return folder
+  }
+
   return {
     tree,
     legacyWarnings,
@@ -896,6 +1089,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     importFilesToFolder,
     dropAudioObjectToTimeline,
     addRenderedAudioToTimeline,
+    addRenderedTextToTimeline,
     syncPastedTrack,
     syncTrackFolderName,
     createGroupFromLegacyElements,

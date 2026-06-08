@@ -9,7 +9,7 @@ import { useProjectStore } from '@/stores/project'
 import { usePlaybackStore } from '@/stores/playback'
 import TopBar from '@/components/layout/TopBar.vue'
 import LeftSidebar from '@/components/layout/LeftSidebar.vue'
-import MainCanvas from '@/components/layout/MainCanvas.vue'
+import EditorWorkspace from '@/components/layout/EditorWorkspace.vue'
 import RenderPanel from '@/components/layout/RenderPanel.vue'
 import StatusBar from '@/components/layout/StatusBar.vue'
 
@@ -138,7 +138,7 @@ onMounted(async () => {
     <TopBar />
     <div class="body">
       <LeftSidebar />
-      <MainCanvas />
+      <EditorWorkspace />
       <RenderPanel />
     </div>
     <StatusBar />

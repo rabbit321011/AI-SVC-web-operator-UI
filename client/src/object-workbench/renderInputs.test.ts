@@ -28,6 +28,8 @@ describe('render input slot validation', () => {
 
     expect(validateRenderSlot(tree, 'svc.condAudio', input)).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.timbreAudio', input)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'whisper.audio', input)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'msst.audio', input)).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svc.sourceAudio', input)).toMatchObject({ ok: false, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.melody', input)).toMatchObject({ ok: false, mediaType: 'audio' })
   })
@@ -55,6 +57,10 @@ describe('render input slot validation', () => {
     })
 
     expect(validateRenderSlot(tree, 'svs.timbreAudio', audioTrackObject)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'whisper.audio', audioTrackObject)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'msst.audio', audioTrackObject)).toMatchObject({ ok: true, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'whisper.audio', midiTrackObject)).toMatchObject({ ok: false, mediaType: 'midi' })
+    expect(validateRenderSlot(tree, 'msst.audio', textTrackObject)).toMatchObject({ ok: false, mediaType: 'text' })
     expect(validateRenderSlot(tree, 'svs.timbreAudio', midiTrackObject)).toMatchObject({ ok: false, mediaType: 'midi' })
     expect(validateRenderSlot(tree, 'svs.melody', audioTrackObject)).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.melody', midiTrackObject)).toMatchObject({ ok: true, mediaType: 'midi' })

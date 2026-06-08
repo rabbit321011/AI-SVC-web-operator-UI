@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NInput, NInputNumber, NSelect, NSpace, NTag } from 'naive-ui'
+import { NButton, NCheckbox, NInput, NInputNumber, NSelect, NSpace, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
@@ -29,10 +29,17 @@ const selectedObjectNodeId = computed(() => {
 })
 
 const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
+const msstOutputOptions = [
+  { label: '人声 + 伴奏', value: 'vocals_accompaniment' },
+  { label: '仅人声', value: 'vocals' },
+  { label: '仅伴奏', value: 'accompaniment' },
+  { label: '去噪输出', value: 'denoise' },
+  { label: '其他 stem', value: 'other' },
+]
 
 function pickSelected(slotId: RenderSlotId) {
   if (isSlotLocked(slotId)) {
-    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
+    flash(localProcessingMessage())
     return
   }
   const id = selectedObjectNodeId.value
@@ -47,7 +54,7 @@ function pickSelected(slotId: RenderSlotId) {
 function handleDrop(slotId: RenderSlotId, event: DragEvent) {
   event.preventDefault()
   if (isSlotLocked(slotId)) {
-    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
+    flash(localProcessingMessage())
     return
   }
   const id = event.dataTransfer?.getData('application/x-aisvc-node-id') || event.dataTransfer?.getData('text/plain')
@@ -82,16 +89,27 @@ function slotReason(slotId: RenderSlotId, input: RenderInputRef | null) {
 
 function clearSlot(slotId: RenderSlotId) {
   if (isSlotLocked(slotId)) {
-    flash(renderPanel.mode === 'svs' ? 'SVS 运行中' : 'SVC 运行中')
+    flash(localProcessingMessage())
     return
   }
   renderPanel.clearSlot(slotId)
 }
 
 function isSlotLocked(slotId: RenderSlotId) {
-  return slotId.startsWith('svc.')
-    ? renderPanel.svcStatus === 'running'
-    : renderPanel.svsStatus === 'running'
+  if (!renderPanel.isLocalProcessingRunning) return false
+  if (slotId.startsWith('svc.')) return renderPanel.localProcessingTool !== 'svc'
+  if (slotId.startsWith('svs.')) return renderPanel.localProcessingTool !== 'svs'
+  if (slotId.startsWith('whisper.')) return renderPanel.localProcessingTool !== 'whisper'
+  if (slotId.startsWith('msst.')) return renderPanel.localProcessingTool !== 'msst'
+  return true
+}
+
+function isToolLocked(tool: 'svc' | 'svs' | 'whisper' | 'msst') {
+  return renderPanel.isLocalProcessingRunning && renderPanel.localProcessingTool !== tool
+}
+
+function localProcessingMessage() {
+  return renderPanel.localProcessingTool ? `${renderPanel.localProcessingTool.toUpperCase()} 运行中` : '本地任务运行中'
 }
 
 async function runSvc() {
@@ -108,6 +126,22 @@ async function runSvs() {
   await renderSvsPipeline.startSvs()
   if (renderPanel.svsStatus === 'failed') flash(renderPanel.svsMessage || 'SVS 执行失败')
 }
+
+function runWhisperPlaceholder() {
+  if (!renderPanel.canRunWhisper) return
+  if (!renderPanel.setWhisperRunning('Whisper 后端尚未接入')) return
+  renderPanel.updateWhisperProgress(100, 'Whisper 后端尚未接入')
+  renderPanel.setWhisperFailed('Whisper 后端尚未接入')
+  flash('Whisper 后端尚未接入')
+}
+
+function runMsstPlaceholder() {
+  if (!renderPanel.canRunMsst) return
+  if (!renderPanel.setMsstRunning('MSST 后端尚未接入')) return
+  renderPanel.updateMsstProgress(100, 'MSST 后端尚未接入')
+  renderPanel.setMsstFailed('MSST 后端尚未接入')
+  flash('MSST 后端尚未接入')
+}
 </script>
 
 <template>
@@ -115,6 +149,9 @@ async function runSvs() {
     <div class="panel-header">
       <button class="mode-btn" :class="{ active: renderPanel.mode === 'svc' }" @click="renderPanel.setMode('svc')">SVC</button>
       <button class="mode-btn" :class="{ active: renderPanel.mode === 'svs' }" @click="renderPanel.setMode('svs')">SVS</button>
+      <button class="mode-btn" :class="{ active: renderPanel.mode === 'whisper' }" @click="renderPanel.setMode('whisper')">Whisper</button>
+      <button class="mode-btn" :class="{ active: renderPanel.mode === 'msst' }" @click="renderPanel.setMode('msst')">MSST</button>
+      <button class="mode-btn" :class="{ active: renderPanel.mode === 'chat' }" @click="renderPanel.setMode('chat')">Chat</button>
     </div>
 
     <div v-if="renderPanel.mode === 'svc'" class="panel-body">
@@ -122,8 +159,8 @@ async function runSvs() {
         <div class="slot-title">cond音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svc.condAudio) }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="renderPanel.svcStatus === 'running'" @click="pickSelected('svc.condAudio')">放入</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svc.condAudio || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.condAudio')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svc') || renderPanel.svcStatus === 'running'" @click="pickSelected('svc.condAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svc.condAudio || isToolLocked('svc') || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.condAudio')">清空</n-button>
         </div>
         <div v-if="renderPanel.svc.condAudio && slotReason('svc.condAudio', renderPanel.svc.condAudio)" class="slot-error">
           {{ slotReason('svc.condAudio', renderPanel.svc.condAudio) }}
@@ -133,8 +170,8 @@ async function runSvs() {
         <div class="slot-title">被变声音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svc.sourceAudio) }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="renderPanel.svcStatus === 'running'" @click="pickSelected('svc.sourceAudio')">放入</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svc.sourceAudio || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.sourceAudio')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svc') || renderPanel.svcStatus === 'running'" @click="pickSelected('svc.sourceAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svc.sourceAudio || isToolLocked('svc') || renderPanel.svcStatus === 'running'" @click="clearSlot('svc.sourceAudio')">清空</n-button>
         </div>
         <div v-if="renderPanel.svc.sourceAudio && slotReason('svc.sourceAudio', renderPanel.svc.sourceAudio)" class="slot-error">
           {{ slotReason('svc.sourceAudio', renderPanel.svc.sourceAudio) }}
@@ -176,13 +213,13 @@ async function runSvs() {
       </n-button>
     </div>
 
-    <div v-else class="panel-body">
+    <div v-else-if="renderPanel.mode === 'svs'" class="panel-body">
       <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.timbreAudio', $event)">
         <div class="slot-title">音色音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.timbreAudio) }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.timbreAudio')">放入</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svs.timbreAudio || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.timbreAudio')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.timbreAudio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.timbreAudio || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.timbreAudio')">清空</n-button>
         </div>
         <div v-if="renderPanel.svs.timbreAudio && slotReason('svs.timbreAudio', renderPanel.svs.timbreAudio)" class="slot-error">
           {{ slotReason('svs.timbreAudio', renderPanel.svs.timbreAudio) }}
@@ -192,8 +229,8 @@ async function runSvs() {
         <div class="slot-title">旋律音频</div>
         <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.melody) }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.melody')">放入</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svs.melody || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.melody')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.melody')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.melody || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.melody')">清空</n-button>
         </div>
         <div v-if="renderPanel.svs.melody && slotReason('svs.melody', renderPanel.svs.melody)" class="slot-error">
           {{ slotReason('svs.melody', renderPanel.svs.melody) }}
@@ -203,8 +240,8 @@ async function runSvs() {
         <div class="slot-title">target text</div>
         <n-tag size="small" :bordered="false">{{ renderPanel.svs.textMode === 'ref' ? slotLabel(renderPanel.svs.textRef) : '手写' }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="renderPanel.svsStatus === 'running'" @click="pickSelected('svs.text')">引用</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svs.textRef || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.text')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.text')">引用</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.textRef || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.text')">清空</n-button>
         </div>
         <div v-if="renderPanel.svs.textMode === 'ref' && renderPanel.svs.textRef && slotReason('svs.text', renderPanel.svs.textRef)" class="slot-error">
           {{ slotReason('svs.text', renderPanel.svs.textRef) }}
@@ -249,6 +286,76 @@ async function runSvs() {
       </div>
     </div>
 
+    <div v-else-if="renderPanel.mode === 'whisper'" class="panel-body">
+      <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('whisper.audio', $event)">
+        <div class="slot-title">转写音频</div>
+        <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.whisper.audio) }}</n-tag>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="isToolLocked('whisper') || renderPanel.whisperStatus === 'running'" @click="pickSelected('whisper.audio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.whisper.audio || isToolLocked('whisper') || renderPanel.whisperStatus === 'running'" @click="clearSlot('whisper.audio')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.whisper.audio && slotReason('whisper.audio', renderPanel.whisper.audio)" class="slot-error">
+          {{ slotReason('whisper.audio', renderPanel.whisper.audio) }}
+        </div>
+      </div>
+      <n-space vertical :size="8">
+        <label class="field-label">输出名</label>
+        <n-input v-model:value="renderPanel.whisper.outputName" size="small" placeholder="Whisper_text" />
+        <label class="field-label">语言</label>
+        <n-input v-model:value="renderPanel.whisper.language" size="small" placeholder="auto" />
+      </n-space>
+      <div v-if="renderPanel.whisperStatus !== 'idle'" class="run-status">
+        <div class="status-line">
+          <span>{{ renderPanel.whisperMessage }}</span>
+          <span>{{ renderPanel.whisperProgress }}%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" :style="{ width: `${renderPanel.whisperProgress}%` }" />
+        </div>
+      </div>
+      <n-button type="primary" size="small" :disabled="!renderPanel.canRunWhisper" :loading="renderPanel.whisperStatus === 'running'" block @click="runWhisperPlaceholder">
+        转写
+      </n-button>
+    </div>
+
+    <div v-else-if="renderPanel.mode === 'msst'" class="panel-body">
+      <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('msst.audio', $event)">
+        <div class="slot-title">处理音频</div>
+        <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.msst.audio) }}</n-tag>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="isToolLocked('msst') || renderPanel.msstStatus === 'running'" @click="pickSelected('msst.audio')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.msst.audio || isToolLocked('msst') || renderPanel.msstStatus === 'running'" @click="clearSlot('msst.audio')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.msst.audio && slotReason('msst.audio', renderPanel.msst.audio)" class="slot-error">
+          {{ slotReason('msst.audio', renderPanel.msst.audio) }}
+        </div>
+      </div>
+      <n-space vertical :size="8">
+        <label class="field-label">输出名</label>
+        <n-input v-model:value="renderPanel.msst.outputName" size="small" placeholder="MSST_output" />
+        <label class="field-label">输出</label>
+        <n-select v-model:value="renderPanel.msst.outputMode" :options="msstOutputOptions" size="small" />
+        <n-checkbox v-model:checked="renderPanel.msst.backfillAll">输出后回填 timeline</n-checkbox>
+      </n-space>
+      <div v-if="renderPanel.msstStatus !== 'idle'" class="run-status">
+        <div class="status-line">
+          <span>{{ renderPanel.msstMessage }}</span>
+          <span>{{ renderPanel.msstProgress }}%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" :style="{ width: `${renderPanel.msstProgress}%` }" />
+        </div>
+      </div>
+      <n-button type="primary" size="small" :disabled="!renderPanel.canRunMsst" :loading="renderPanel.msstStatus === 'running'" block @click="runMsstPlaceholder">
+        分离/增强
+      </n-button>
+    </div>
+
+    <div v-else class="panel-body chat-body">
+      <n-input type="textarea" size="small" placeholder="和 LLM 对话" :autosize="{ minRows: 8, maxRows: 14 }" />
+      <n-button size="small" block @click="flash('chatWithLLM 暂未接入')">发送</n-button>
+    </div>
+
     <div class="notice">{{ notice }}</div>
   </aside>
 </template>
@@ -264,7 +371,7 @@ async function runSvs() {
 }
 .panel-header {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border-bottom: 1px solid #21262d;
 }
 .mode-btn {
@@ -273,6 +380,10 @@ async function runSvs() {
   background: transparent;
   color: #8b949e;
   cursor: pointer;
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mode-btn.active {
   color: #fff;
@@ -327,6 +438,9 @@ async function runSvs() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
+}
+.chat-body {
+  flex: 1;
 }
 .status-line {
   display: flex;

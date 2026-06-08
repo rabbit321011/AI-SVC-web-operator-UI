@@ -2,13 +2,15 @@ import type { NodeId, ProjectObjectTree, RuntimeTreeIndex, TrackObjectContentTyp
 import { buildNodeIndex } from './objectTree'
 
 export type RenderInputKind = 'trackObject' | 'group' | 'audioObject'
-export type RenderPanelMode = 'svc' | 'svs'
+export type RenderPanelMode = 'svc' | 'svs' | 'whisper' | 'msst' | 'chat'
 export type RenderSlotId =
   | 'svc.condAudio'
   | 'svc.sourceAudio'
   | 'svs.timbreAudio'
   | 'svs.melody'
   | 'svs.text'
+  | 'whisper.audio'
+  | 'msst.audio'
 
 export interface RenderInputRef {
   kind: RenderInputKind
@@ -80,6 +82,18 @@ export function validateRenderSlot(tree: ProjectObjectTree, slotId: RenderSlotId
     return mediaType === 'text'
       ? { ok: true, mediaType }
       : { ok: false, mediaType, reason: '文本槽只接受 text TrackObject/GroupObject' }
+  }
+
+  if (slotId === 'whisper.audio') {
+    return mediaType === 'audio'
+      ? { ok: true, mediaType }
+      : { ok: false, mediaType, reason: 'Whisper 只接受 audio 对象' }
+  }
+
+  if (slotId === 'msst.audio') {
+    return mediaType === 'audio'
+      ? { ok: true, mediaType }
+      : { ok: false, mediaType, reason: 'MSST 只接受 audio 对象' }
   }
 
   return { ok: false, mediaType, reason: '未知槽位' }

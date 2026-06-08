@@ -68,6 +68,67 @@ describe('AudioObject drag into timeline', () => {
     expect(audioFolder.children.some(child => child.id === result.trackSourceObjectId && child.kind === 'audio')).toBe(true)
     expect(objectTree.node(result.trackObjectId!)?.kind).toBe('trackObject')
   })
+
+  it('archives rendered MSST audio under renders/msst and backfills audio TrackObject', async () => {
+    setActivePinia(createPinia())
+    mockAudioContext()
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    objectTree.loadObjectTree(createEmptyProjectObjectTree())
+
+    const result = await objectTree.addRenderedAudioToTimeline({
+      blob: new Blob(['stem']),
+      outputFileName: 'vocals',
+      renderKind: 'msst',
+      timelineStart: 4,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(tracks.trackOrder).toHaveLength(1)
+    expect(tracks.getSegment(result.segmentId!)?.timelineStart).toBe(4)
+
+    const renderRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.renders)!)
+    const msstFolder = workspaceLike(renderRoot.children.find(child => child.name === 'msst')!)
+    expect(msstFolder.children.some(child => child.id === result.renderObjectId && child.kind === 'audio')).toBe(true)
+    expect(objectTree.node(result.trackObjectId!)?.kind).toBe('trackObject')
+  })
+
+  it('archives rendered Whisper text and backfills a text TrackObject', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    objectTree.loadObjectTree(createEmptyProjectObjectTree())
+
+    const result = objectTree.addRenderedTextToTimeline({
+      outputName: 'whisper result',
+      renderKind: 'whisper',
+      segments: [
+        { start: 0, kana: 'きみ', romaji: 'ki mi' },
+        { start: 1.5, kana: 'のこえ', romaji: 'no ko e' },
+      ],
+      sourceAudioObjectId: 'node:source:audio',
+      timelineStart: 6,
+      timelineEnd: 9,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.outputName).toBe('whisper result')
+
+    const renderRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.renders)!)
+    const whisperFolder = workspaceLike(renderRoot.children.find(child => child.name === 'whisper')!)
+    const renderObject = whisperFolder.children.find(child => child.id === result.renderObjectId)
+    expect(renderObject?.kind).toBe('text')
+
+    const trackSourcesRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.trackSources)!)
+    const textFolder = workspaceLike(trackSourcesRoot.children.find(child => child.name === 'text')!)
+    expect(textFolder.children.some(child => child.id === result.trackSourceObjectId && child.kind === 'text')).toBe(true)
+
+    const trackObject = objectTree.node(result.trackObjectId!)
+    expect(trackObject?.kind).toBe('trackObject')
+    if (trackObject?.kind !== 'trackObject') throw new Error('expected TrackObject')
+    expect(trackObject.trackObject.contentType).toBe('text')
+    expect(trackObject.trackObject.timelineStart).toBe(6)
+    expect(trackObject.trackObject.timelineEnd).toBe(9)
+  })
 })
 
 function mockAudioContext() {

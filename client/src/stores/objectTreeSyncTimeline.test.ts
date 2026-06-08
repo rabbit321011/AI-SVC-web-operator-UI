@@ -203,6 +203,95 @@ describe('object tree sync from legacy timeline edits', () => {
     expect(group.group.trackObjectIds).toEqual(['node:trackObject:seg_b'])
   })
 
+  it('deletes a left-tree TrackObject from timeline, trackSources, assets, and groups', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    const compGroups = useCompGroupsStore()
+    objectTree.loadObjectTree(treeWithTwoSegments())
+    seedLegacyTimeline(tracks)
+    compGroups.compGroups.cgrp_ab = legacyCompGroup(['seg_a', 'seg_b'])
+    compGroups.compGroupOrder.push('cgrp_ab')
+    const group = objectTree.node('node:group:ab')
+    if (group?.kind !== 'group') throw new Error('expected group')
+    group.legacy = { compGroupId: 'cgrp_ab' }
+
+    const result = objectTree.deleteNode('node:trackObject:seg_a')
+
+    expect(result.ok).toBe(true)
+    expect(tracks.segmentsMap.seg_a).toBeUndefined()
+    expect(tracks.tracks.trk_a.segments).toEqual(['seg_b'])
+    expect(objectTree.node('node:trackObject:seg_a')).toBeUndefined()
+    expect(objectTree.node('node:trackSource:audio:seg_a')).toBeUndefined()
+    expect(objectTree.tree.assets.asset_seg_a).toBeUndefined()
+    expect(group.group.trackObjectIds).toEqual(['node:trackObject:seg_b'])
+    expect(compGroups.compGroups.cgrp_ab.elements.map(element => element.id)).toEqual(['seg_b'])
+  })
+
+  it('deletes a left-tree TrackFolder from timeline, child TrackObjects, sources, and legacy groups', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    const compGroups = useCompGroupsStore()
+    objectTree.loadObjectTree(treeWithTwoSegments())
+    seedLegacyTimeline(tracks)
+    compGroups.compGroups.cgrp_ab = legacyCompGroup(['seg_a', 'seg_b'], ['trk_a'])
+    compGroups.compGroupOrder.push('cgrp_ab')
+    const group = objectTree.node('node:group:ab')
+    if (group?.kind !== 'group') throw new Error('expected group')
+    group.legacy = { compGroupId: 'cgrp_ab' }
+
+    const result = objectTree.deleteNode('node:trackFolder:trk_a')
+
+    expect(result.ok).toBe(true)
+    expect(tracks.tracks.trk_a).toBeUndefined()
+    expect(tracks.segmentsMap.seg_a).toBeUndefined()
+    expect(tracks.segmentsMap.seg_b).toBeUndefined()
+    expect(objectTree.node('node:trackFolder:trk_a')).toBeUndefined()
+    expect(objectTree.node('node:trackObject:seg_a')).toBeUndefined()
+    expect(objectTree.node('node:trackObject:seg_b')).toBeUndefined()
+    expect(objectTree.node('node:trackSource:audio:seg_a')).toBeUndefined()
+    expect(objectTree.node('node:trackSource:audio:seg_b')).toBeUndefined()
+    expect(objectTree.node('node:group:ab')).toBeUndefined()
+    expect(compGroups.compGroups.cgrp_ab).toBeUndefined()
+  })
+
+  it('turns deletion of a referenced trackSource into semantic TrackObject deletion', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    objectTree.loadObjectTree(treeWithTwoSegments())
+    seedLegacyTimeline(tracks)
+
+    const result = objectTree.deleteNode('node:trackSource:audio:seg_a')
+
+    expect(result.ok).toBe(true)
+    expect(tracks.segmentsMap.seg_a).toBeUndefined()
+    expect(tracks.tracks.trk_a.segments).toEqual(['seg_b'])
+    expect(objectTree.node('node:trackObject:seg_a')).toBeUndefined()
+    expect(objectTree.node('node:trackSource:audio:seg_a')).toBeUndefined()
+    expect(objectTree.tree.assets.asset_seg_a).toBeUndefined()
+  })
+
+  it('deletes a GroupObject from the object tree and legacy CompGroup store', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const compGroups = useCompGroupsStore()
+    objectTree.loadObjectTree(treeWithTwoSegments())
+    compGroups.compGroups.cgrp_ab = legacyCompGroup(['seg_a', 'seg_b'])
+    compGroups.compGroupOrder.push('cgrp_ab')
+    const group = objectTree.node('node:group:ab')
+    if (group?.kind !== 'group') throw new Error('expected group')
+    group.legacy = { compGroupId: 'cgrp_ab' }
+
+    const result = objectTree.deleteNode('node:group:ab')
+
+    expect(result.ok).toBe(true)
+    expect(objectTree.node('node:group:ab')).toBeUndefined()
+    expect(compGroups.compGroups.cgrp_ab).toBeUndefined()
+    expect(compGroups.compGroupOrder).toEqual([])
+  })
+
   it('syncs merged segments by replacing TrackObjects, sources, assets, and group references', () => {
     setActivePinia(createPinia())
     const objectTree = useObjectTreeStore()
@@ -331,6 +420,28 @@ function legacyTrack(id: string, name: string, segments: string[]) {
     volume: 1,
     ignored: false,
     boundCompGroupId: null,
+  }
+}
+
+function seedLegacyTimeline(tracks: ReturnType<typeof useTracksStore>) {
+  tracks.tracks.trk_a = legacyTrack('trk_a', 'Track', ['seg_a', 'seg_b'])
+  tracks.trackOrder.splice(0, tracks.trackOrder.length, 'trk_a')
+  tracks.segmentsMap.seg_a = segment('seg_a', 0, 1)
+  tracks.segmentsMap.seg_b = segment('seg_b', 2, 3)
+}
+
+function legacyCompGroup(segmentIds: string[], trackIds: string[] = []) {
+  return {
+    id: 'cgrp_ab',
+    name: 'AB',
+    elements: [
+      ...segmentIds.map(id => ({ type: 'segment' as const, id, startTime: id === 'seg_a' ? 0 : 2, endTime: id === 'seg_a' ? 1 : 3 })),
+      ...trackIds.map(id => ({ type: 'track' as const, id, startTime: 0, endTime: 3 })),
+    ],
+    combinedAudio: null,
+    svcResult: null,
+    collapsed: false,
+    expanded: false,
   }
 }
 

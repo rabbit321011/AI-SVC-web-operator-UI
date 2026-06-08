@@ -12,7 +12,7 @@ export function useRenderSvsPipeline() {
   const tracks = useTracksStore()
 
   async function dryRunSvs() {
-    if (renderPanel.svsStatus === 'running') return
+    if (renderPanel.isLocalProcessingRunning) return
     const timbreAudio = renderPanel.svs.timbreAudio
     const melody = renderPanel.svs.melody
     if (!timbreAudio || !melody) {
@@ -21,7 +21,7 @@ export function useRenderSvsPipeline() {
     }
 
     const jobId = crypto.randomUUID().slice(0, 8)
-    renderPanel.setSvsRunning(jobId, '解析 SVS 输入')
+    if (!renderPanel.setSvsRunning(jobId, '解析 SVS 输入')) return
 
     try {
       const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: true })
@@ -44,7 +44,7 @@ export function useRenderSvsPipeline() {
   }
 
   async function startSvs() {
-    if (renderPanel.svsStatus === 'running') return
+    if (renderPanel.isLocalProcessingRunning) return
     const timbreAudio = renderPanel.svs.timbreAudio
     const melody = renderPanel.svs.melody
     if (!timbreAudio || !melody) {
@@ -53,7 +53,7 @@ export function useRenderSvsPipeline() {
     }
 
     const jobId = crypto.randomUUID().slice(0, 8)
-    renderPanel.setSvsRunning(jobId, '解析 SVS 输入')
+    if (!renderPanel.setSvsRunning(jobId, '解析 SVS 输入')) return
     let ws: WebSocket | null = null
 
     try {
