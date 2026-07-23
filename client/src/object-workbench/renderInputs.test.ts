@@ -16,7 +16,7 @@ describe('render input slot validation', () => {
     const { tree, maps } = legacyProjectToObjectTree(makeProject())
     const input = makeRenderInputRef(tree, 'trackObject', maps.trackObjectIdBySegmentId.seg_a)
 
-    expect(validateRenderSlot(tree, 'svs.text', input)).toMatchObject({ ok: false, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'svs.targetText', input)).toMatchObject({ ok: false, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svc.condAudio', { ...input, id: 'missing' })).toMatchObject({ ok: false, reason: '原对象不存在' })
   })
 
@@ -65,11 +65,13 @@ describe('render input slot validation', () => {
     expect(validateRenderSlot(tree, 'svs.melody', audioTrackObject)).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.melody', midiTrackObject)).toMatchObject({ ok: true, mediaType: 'midi' })
     expect(validateRenderSlot(tree, 'svs.melody', textTrackObject)).toMatchObject({ ok: false, mediaType: 'text' })
-    expect(validateRenderSlot(tree, 'svs.text', textTrackObject)).toMatchObject({ ok: true, mediaType: 'text' })
-    expect(validateRenderSlot(tree, 'svs.text', audioTrackObject)).toMatchObject({ ok: false, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'svs.refText', textTrackObject)).toMatchObject({ ok: true, mediaType: 'text' })
+    expect(validateRenderSlot(tree, 'svs.targetText', textTrackObject)).toMatchObject({ ok: true, mediaType: 'text' })
+    expect(validateRenderSlot(tree, 'svs.targetText', audioTrackObject)).toMatchObject({ ok: false, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.timbreAudio', makeRenderInputRef(tree, 'group', audioGroup.id))).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.melody', makeRenderInputRef(tree, 'group', midiGroup.id))).toMatchObject({ ok: true, mediaType: 'midi' })
-    expect(validateRenderSlot(tree, 'svs.text', makeRenderInputRef(tree, 'group', textGroup.id))).toMatchObject({ ok: true, mediaType: 'text' })
+    expect(validateRenderSlot(tree, 'svs.refText', makeRenderInputRef(tree, 'group', textGroup.id))).toMatchObject({ ok: true, mediaType: 'text' })
+    expect(validateRenderSlot(tree, 'svs.targetText', makeRenderInputRef(tree, 'group', textGroup.id))).toMatchObject({ ok: true, mediaType: 'text' })
   })
 })
 

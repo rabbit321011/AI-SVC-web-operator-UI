@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { NButton, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
+import { NButton, NCheckbox, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
@@ -242,38 +242,31 @@ onMounted(() => {
           {{ slotReason('svs.melody', renderPanel.svs.melody) }}
         </div>
       </div>
-      <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.text', $event)">
-        <div class="slot-title">target text</div>
-        <n-tag size="small" :bordered="false">{{ renderPanel.svs.textMode === 'ref' ? slotLabel(renderPanel.svs.textRef) : '手写' }}</n-tag>
+      <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.refText', $event)">
+        <div class="slot-title">A 参考文本 (T1)</div>
+        <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.refText) }}</n-tag>
         <div class="slot-actions">
-          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.text')">引用</n-button>
-          <n-button size="tiny" :disabled="!renderPanel.svs.textRef || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.text')">清空</n-button>
+          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.refText')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.refText || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.refText')">清空</n-button>
         </div>
-        <div v-if="renderPanel.svs.textMode === 'ref' && renderPanel.svs.textRef && slotReason('svs.text', renderPanel.svs.textRef)" class="slot-error">
-          {{ slotReason('svs.text', renderPanel.svs.textRef) }}
+        <div v-if="renderPanel.svs.refText && slotReason('svs.refText', renderPanel.svs.refText)" class="slot-error">
+          {{ slotReason('svs.refText', renderPanel.svs.refText) }}
+        </div>
+      </div>
+      <div class="slot-row" @dragover="allowDrop" @drop="handleDrop('svs.targetText', $event)">
+        <div class="slot-title">B 目标文本 (T1)</div>
+        <n-tag size="small" :bordered="false">{{ slotLabel(renderPanel.svs.targetText) }}</n-tag>
+        <div class="slot-actions">
+          <n-button size="tiny" :disabled="isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="pickSelected('svs.targetText')">放入</n-button>
+          <n-button size="tiny" :disabled="!renderPanel.svs.targetText || isToolLocked('svs') || renderPanel.svsStatus === 'running'" @click="clearSlot('svs.targetText')">清空</n-button>
+        </div>
+        <div v-if="renderPanel.svs.targetText && slotReason('svs.targetText', renderPanel.svs.targetText)" class="slot-error">
+          {{ slotReason('svs.targetText', renderPanel.svs.targetText) }}
         </div>
       </div>
       <n-space vertical :size="8">
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.svs.outputName" size="small" placeholder="SVS_output" />
-        <label class="field-label">Kana</label>
-        <n-input
-          :value="renderPanel.svs.manualText"
-          type="textarea"
-          size="small"
-          placeholder="假名歌词"
-          @focus="renderPanel.svs.textMode = 'manual'"
-          @update:value="renderPanel.setSvsManualKana"
-        />
-        <label class="field-label">Romaji</label>
-        <n-input
-          :value="renderPanel.svs.manualRomaji"
-          type="textarea"
-          size="small"
-          placeholder="romaji"
-          @focus="renderPanel.svs.textMode = 'manual'"
-          @update:value="renderPanel.setSvsManualRomaji"
-        />
         <label class="field-label">SVS 模型</label>
         <n-select v-model:value="svsConfig.selectedName" size="small" :options="svsModelOptions" placeholder="默认模型" clearable />
         <label class="field-label">cfg</label>
@@ -326,12 +319,9 @@ onMounted(() => {
       <n-space vertical :size="8">
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.whisper.outputName" size="small" placeholder="Whisper_text" />
-        <label class="field-label">语言</label>
+        <label class="field-label">对齐语言</label>
         <n-select v-model:value="renderPanel.whisper.language" size="small" :options="[
-          { label: '自动检测', value: 'auto' },
-          { label: '日本語', value: 'ja' },
-          { label: '中文', value: 'zh' },
-          { label: 'English', value: 'en' },
+          { label: '日本語 · SOFA JPN_Test2_Plus', value: 'ja' },
         ]" />
         <label class="field-label">
           <n-switch v-model:value="renderPanel.whisper.vad" size="small" />

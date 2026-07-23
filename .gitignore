@@ -2,8 +2,11 @@ node_modules/
 dist/
 .vite/
 *.tsbuildinfo
+vite.config.ts.timestamp-*.mjs
 *.asvcproj
 *_data/
+__pycache__/
+*.py[cod]
 
 # 项目数据目录（生成的音频文件）
 data/

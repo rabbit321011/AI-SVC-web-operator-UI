@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectObjectTree, TextObjectNode, TrackFolderNode, TrackObjectNode } from './types'
-import { createEmptyProjectObjectTree, createGroupObject, normalizeSvsText, resolveTextRenderInput, TOP_LEVEL_IDS } from './index'
+import { createEmptyProjectObjectTree, createGroupObject, normalizeSvsText, rebaseTimedSvsPhrases, resolveTextRenderInput, TOP_LEVEL_IDS } from './index'
 
 describe('SVS text render resolver', () => {
   it('normalizes manual SVS text by removing spaces and converting punctuation to separators', () => {
@@ -20,6 +20,10 @@ describe('SVS text render resolver', () => {
     })
 
     expect(resolved.text).toBe('きみのこえ')
+    expect(resolved.phrases).toEqual([
+      { start: 0, text: 'きみの' },
+      { start: 1, text: 'こえ' },
+    ])
     expect(resolved.sourceStart).toBe(4)
     expect(resolved.sourceEnd).toBe(6)
   })
@@ -39,8 +43,27 @@ describe('SVS text render resolver', () => {
     })
 
     expect(resolved.text).toBe('きみのこえ|とおく')
+    expect(resolved.phrases).toEqual([
+      { start: 0, text: 'きみの' },
+      { start: 1, text: 'こえ' },
+      { start: 3, text: 'とおく' },
+    ])
     expect(resolved.sourceStart).toBe(4)
     expect(resolved.sourceEnd).toBe(9)
+  })
+
+  it('rebases project-timeline phrases to the matching audio-local timeline', () => {
+    const resolved = resolveTextRenderInput(makeTextTree(), {
+      kind: 'trackObject',
+      id: 'node:trackObject:text_a',
+      displayName: 'Text A',
+    })
+
+    expect(rebaseTimedSvsPhrases(resolved, 3, 4, 'A')).toEqual([
+      { start: 1, text: 'きみの' },
+      { start: 2, text: 'こえ' },
+    ])
+    expect(() => rebaseTimedSvsPhrases(resolved, 5, 4, 'A')).toThrow(/起点不在对应音频范围内/)
   })
 })
 

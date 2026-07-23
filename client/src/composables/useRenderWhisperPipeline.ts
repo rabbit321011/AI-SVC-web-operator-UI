@@ -5,6 +5,7 @@ import { useObjectTreeStore } from '@/stores/objectTree'
 import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useTracksStore } from '@/stores/tracks'
+import { readWhisperSofaResult, whisperSofaProgressLabel } from './whisperSofaProtocol'
 
 export function useRenderWhisperPipeline() {
   const renderPanel = useRenderPanelStore()
@@ -49,7 +50,7 @@ export function useRenderWhisperPipeline() {
           jobId,
           inputWav: upload.path,
           outputName: renderPanel.whisper.outputName || defaultWhisperOutputName(),
-          language: renderPanel.whisper.language || 'auto',
+          language: 'ja',
           vad: renderPanel.whisper.vad,
           device: 'cuda',
           computeType: 'float16',
@@ -71,15 +72,20 @@ export function useRenderWhisperPipeline() {
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'progress') {
-            renderPanel.updateWhisperProgress(30 + Number(msg.progress || 0) * 0.6, 'Whisper 转写中')
+            renderPanel.updateWhisperProgress(30 + Number(msg.progress || 0) * 0.6, whisperSofaProgressLabel(msg))
             return
           }
           if (msg.type === 'log' && msg.message) {
             renderPanel.updateWhisperProgress(renderPanel.whisperProgress, String(msg.message))
             return
           }
-          if (msg.type === 'result' && msg.textObject?.text?.segments) {
-            resultSegments = msg.textObject.text.segments
+          if (msg.type === 'result') {
+            const aligned = readWhisperSofaResult(msg)
+            if (!aligned) {
+              reject(new Error('未收到 JPN_Test2_Plus 全段对齐结果'))
+              return
+            }
+            resultSegments = aligned.segments
             return
           }
           if (msg.type === 'error') {
@@ -88,10 +94,10 @@ export function useRenderWhisperPipeline() {
           }
           if (msg.type === 'done') {
             if (!resultSegments) {
-              reject(new Error('Whisper 未返回 TextObject'))
+              reject(new Error('SOFA 未返回对齐后的 TextObject'))
               return
             }
-            renderPanel.updateWhisperProgress(96, '写入 TextObject')
+            renderPanel.updateWhisperProgress(96, '写入 SOFA TextObject')
             const result = objectTree.addRenderedTextToTimeline({
               outputName: renderPanel.whisper.outputName || defaultWhisperOutputName(),
               renderKind: 'whisper',
@@ -101,7 +107,7 @@ export function useRenderWhisperPipeline() {
             })
             if (!result.ok) throw new Error(result.reason || 'Whisper 文本回填失败')
             project.bumpRedraw()
-            renderPanel.setWhisperDone(`Whisper 完成: ${result.outputName}`)
+            renderPanel.setWhisperDone(`Whisper + SOFA 完成: ${result.outputName}`)
             resolve()
           }
         } catch (error: any) {
@@ -116,7 +122,7 @@ export function useRenderWhisperPipeline() {
   }
 
   function defaultWhisperOutputName() {
-    return `${renderPanel.whisper.audio?.displayName || 'audio'}_whisper`
+    return `${renderPanel.whisper.audio?.displayName || 'audio'}_sofa`
   }
 
   return { startWhisper }

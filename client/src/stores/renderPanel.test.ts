@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createEmptyProjectObjectTree, TOP_LEVEL_IDS } from '@/object-workbench'
-import type { AudioObjectNode, FolderNode, TrackFolderNode, TrackObjectNode } from '@/object-workbench'
+import type { AudioObjectNode, FolderNode, TextObjectNode, TrackFolderNode, TrackObjectNode } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 import { useRenderPanelStore } from './renderPanel'
 
@@ -71,18 +71,33 @@ describe('right tool panel store', () => {
     expect(renderPanel.canRunMsst).toBe(false)
   })
 
-  it('syncs SVS manual kana and romaji fields', () => {
+  it('requires separate timed A and B TextObject slots for SVS', () => {
     setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
     const renderPanel = useRenderPanelStore()
+    const tree = createEmptyProjectObjectTree()
+    const source = audio('node:audio')
+    const melody = trackObjectNode('node:trackObject:melody', source.id)
+    const refText = text('node:text:ref')
+    const targetText = text('node:text:target')
+    const refTrackObject = textTrackObject('node:trackObject:refText', refText.id)
+    const targetTrackObject = textTrackObject('node:trackObject:targetText', targetText.id)
+    trackSources(tree).children.push(source, refText, targetText)
+    tracksRoot(tree).children.push(
+      trackFolder('node:trackFolder:audio', melody),
+      textTrackFolder('node:trackFolder:refText', refTrackObject),
+      textTrackFolder('node:trackFolder:targetText', targetTrackObject),
+    )
+    objectTree.loadObjectTree(tree)
 
-    renderPanel.setSvsManualKana('きみのこえ')
-    expect(renderPanel.svs.manualRomaji).toBe('ki mi no ko e')
-    expect(renderPanel.svs.textMode).toBe('manual')
-
-    renderPanel.setSvsManualRomaji('to o ku')
-    expect(renderPanel.svs.manualText).toBe('とおく')
-    expect(renderPanel.svs.textMode).toBe('manual')
+    expect(renderPanel.setSlotFromNode('svs.timbreAudio', source.id).ok).toBe(true)
+    expect(renderPanel.setSlotFromNode('svs.melody', melody.id).ok).toBe(true)
+    expect(renderPanel.setSlotFromNode('svs.refText', refTrackObject.id).ok).toBe(true)
+    expect(renderPanel.canRunSvs).toBe(false)
+    expect(renderPanel.setSlotFromNode('svs.targetText', targetTrackObject.id).ok).toBe(true)
+    expect(renderPanel.canRunSvs).toBe(true)
   })
+
 })
 
 function workspace(tree: ReturnType<typeof createEmptyProjectObjectTree>): FolderNode {
@@ -122,6 +137,38 @@ function trackFolder(id: string, child: TrackObjectNode): TrackFolderNode {
     name: 'Audio Track',
     trackFolder: { trackType: 'audio' },
     children: [child],
+  }
+}
+
+function textTrackFolder(id: string, child: TrackObjectNode): TrackFolderNode {
+  return {
+    id,
+    kind: 'trackFolder',
+    name: 'Text Track',
+    trackFolder: { trackType: 'text' },
+    children: [child],
+  }
+}
+
+function text(id: string): TextObjectNode {
+  return {
+    id,
+    kind: 'text',
+    name: 'Timed text',
+    text: {
+      sourceAudioObjectId: null,
+      segments: [{ start: 0, end: 1, kana: 'きみ', romaji: 'ki mi' }],
+    },
+  }
+}
+
+function textTrackObject(id: string, sourceObjectId: string): TrackObjectNode {
+  return {
+    ...trackObjectNode(id, sourceObjectId),
+    trackObject: {
+      ...trackObjectNode(id, sourceObjectId).trackObject,
+      contentType: 'text',
+    },
   }
 }
 

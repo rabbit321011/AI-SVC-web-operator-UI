@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import sys
-import wave
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -15,31 +14,23 @@ def emit(payload):
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
-def wav_duration(path):
-    try:
-        with wave.open(path, "rb") as wav:
-            frames = wav.getnframes()
-            rate = wav.getframerate() or 44100
-            return max(0.1, frames / rate)
-    except Exception:
-        return 1.0
-
-
 def to_kana_and_romaji(text):
-    try:
-        import jaconv
-        from sudachipy import Dictionary, SplitMode
+    text = normalize_japanese_phrase(text)
+    import jaconv
+    from sudachipy import Dictionary, SplitMode
 
-        tokenizer = Dictionary(dict="full").create()
-        pieces = []
-        for token in tokenizer.tokenize(text, SplitMode.C):
-            reading = token.reading_form()
-            pieces.append(reading if reading != "*" else token.surface())
-        kana = jaconv.kata2hira("".join(pieces))
-        romaji = space_romaji(jaconv.kana2alphabet(kana))
-        return kana, romaji
-    except Exception:
-        return text, ""
+    tokenizer = Dictionary(dict="full").create()
+    pieces = []
+    for token in tokenizer.tokenize(text, SplitMode.C):
+        reading = token.reading_form()
+        pieces.append(reading if reading != "*" else token.surface())
+    kana = jaconv.kata2hira("".join(pieces))
+    romaji = space_romaji(jaconv.kana2alphabet(kana))
+    return kana, romaji
+
+
+def normalize_japanese_phrase(text):
+    return "".join(str(text).split())
 
 
 def space_romaji(text):
@@ -56,12 +47,36 @@ def space_romaji(text):
     return " ".join(chunk for chunk in chunks if chunk)
 
 
+def build_transcript(raw_segments, detected_language, converter=to_kana_and_romaji):
+    phrases = []
+    for segment in raw_segments:
+        text = normalize_japanese_phrase(getattr(segment, "text", ""))
+        if not text:
+            continue
+        kana, romaji = converter(text)
+        phrases.append(
+            {
+                "id": f"phrase:whisper:{len(phrases)}",
+                "text": text,
+                "kana": kana,
+                "romaji": romaji,
+            }
+        )
+    if not phrases:
+        raise ValueError("Whisper returned no Japanese phrases")
+    return {
+        "language": detected_language,
+        "text": "".join(phrase["text"] for phrase in phrases),
+        "phrases": phrases,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--output-name", required=True)
-    parser.add_argument("--language", default="auto")
+    parser.add_argument("--language", choices=["ja"], default="ja")
     parser.add_argument("--vad", default="true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--compute-type", default="float16")
@@ -86,45 +101,33 @@ def main():
 
     emit({"type": "log", "message": "Transcribing audio..."})
     emit({"type": "progress", "progress": 20})
-    language = None if args.language == "auto" else args.language
-    segments, _info = model.transcribe(
+    segments, info = model.transcribe(
         args.input,
-        language=language,
+        language="ja",
         beam_size=1,
         vad_filter=args.vad.lower() != "false",
     )
 
     raw_segments = list(segments)
-    raw_text = "".join(segment.text.strip() for segment in raw_segments).strip()
+    detected_language = getattr(info, "language", "ja") or "ja"
+    if detected_language != "ja":
+        emit({"type": "error", "message": f"Japanese transcription required, detected: {detected_language}"})
+        return 1
     emit({"type": "progress", "progress": 78})
-    emit({"type": "log", "message": "Converting reading to kana/romaji..."})
-    kana, romaji = to_kana_and_romaji(raw_text)
-    duration = wav_duration(args.input)
+    emit({"type": "log", "message": "Preparing Japanese phrase readings for SOFA..."})
+    try:
+        transcript = build_transcript(raw_segments, detected_language)
+    except Exception as exc:
+        emit({"type": "error", "message": f"Japanese phrase reading conversion failed: {exc}"})
+        return 1
 
-    text_object = {
-        "kind": "text",
-        "name": args.output_name,
-        "text": {
-            "sourceAudioObjectId": None,
-            "segments": [
-                {
-                    "id": "textseg:whisper:0",
-                    "start": 0,
-                    "end": duration,
-                    "kana": kana,
-                    "romaji": romaji,
-                }
-            ],
-        },
-    }
-
-    output_path = os.path.join(args.output_dir, f"{args.output_name}.json")
+    output_path = os.path.join(args.output_dir, f"{args.output_name}.whisper.json")
     with open(output_path, "w", encoding="utf-8") as file:
-        json.dump(text_object, file, ensure_ascii=False, indent=2)
+        json.dump(transcript, file, ensure_ascii=False, indent=2)
 
     emit({"type": "progress", "progress": 95})
-    emit({"type": "result", "textObject": text_object, "outputFile": output_path})
-    emit({"type": "done", "outputFile": output_path})
+    emit({"type": "transcript", "transcript": transcript, "transcriptFile": output_path})
+    emit({"type": "stage_done", "stage": "whisper", "transcriptFile": output_path})
     return 0
 
 

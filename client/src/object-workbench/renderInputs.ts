@@ -8,7 +8,8 @@ export type RenderSlotId =
   | 'svc.sourceAudio'
   | 'svs.timbreAudio'
   | 'svs.melody'
-  | 'svs.text'
+  | 'svs.refText'
+  | 'svs.targetText'
   | 'whisper.audio'
   | 'msst.audio'
 
@@ -78,10 +79,10 @@ export function validateRenderSlot(tree: ProjectObjectTree, slotId: RenderSlotId
       : { ok: false, mediaType, reason: '旋律槽只接受 audio 或 midi TrackObject/GroupObject' }
   }
 
-  if (slotId === 'svs.text') {
+  if (slotId === 'svs.refText' || slotId === 'svs.targetText') {
     return mediaType === 'text'
       ? { ok: true, mediaType }
-      : { ok: false, mediaType, reason: '文本槽只接受 text TrackObject/GroupObject' }
+      : { ok: false, mediaType, reason: 'T1 文本槽只接受 text TrackObject/GroupObject' }
   }
 
   if (slotId === 'whisper.audio') {

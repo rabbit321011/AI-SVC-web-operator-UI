@@ -1,5 +1,14 @@
 import { combineSegmentsToBlob } from '@/api/wav'
-import { buildNodeIndex, getRenderInputMediaType, normalizeSvsText, resolveAudioRenderInputToSegmentInputs, resolveTextRenderInput } from '@/object-workbench'
+import {
+  buildNodeIndex,
+  getRenderInputMediaType,
+  rebaseTimedSvsPhrases,
+  resolveAudioRenderInputToSegmentInputs,
+  resolveGroupObjectInput,
+  resolveTextRenderInput,
+  resolveTrackObjectInput,
+  type TimedSvsPhrase,
+} from '@/object-workbench'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
@@ -26,7 +35,7 @@ export function useRenderSvsPipeline() {
     if (!renderPanel.setSvsRunning(jobId, '解析 SVS 输入')) return
 
     try {
-      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: true })
+      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: true, uploadAudio: false })
       renderPanel.updateSvsProgress(80, prepared.melodyType === 'midi' ? 'MIDI 旋律 dryRun 暂不上传 melody_audio' : '请求 SVS dryRun')
       const resp = await fetch('/api/svs/run', {
         method: 'POST',
@@ -59,7 +68,7 @@ export function useRenderSvsPipeline() {
     let ws: WebSocket | null = null
 
     try {
-      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: false })
+      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: false, uploadAudio: true })
       renderPanel.updateSvsProgress(70, '连接 SVS')
       ws = await openRenderWebSocket(jobId)
       const done = waitForSvsDone(ws, jobId, prepared.timelineStart)
@@ -84,17 +93,20 @@ export function useRenderSvsPipeline() {
     }
   }
 
-  async function prepareSvsRequest(jobId: string, options: { allowMidiMelody: boolean }): Promise<{
+  async function prepareSvsRequest(jobId: string, options: { allowMidiMelody: boolean; uploadAudio: boolean }): Promise<{
     body: {
       refAudio: string
       melodyAudio?: string
-      targetText: string
+      refPhrases: TimedSvsPhrase[]
+      targetPhrases: TimedSvsPhrase[]
       output: string
+      modelId?: string
       steps: number
       cfg: number
       seed: number
       device: string
       checkpoint?: string
+      vaeCheckpoint?: string
     }
     melodyType: 'audio' | 'midi'
     timelineStart: number
@@ -119,13 +131,19 @@ export function useRenderSvsPipeline() {
       segments: tracks.segmentsMap,
       tracks: tracks.tracks,
     })
-    renderPanel.updateSvsProgress(15, mergeWarnings('合并音色音频', timbre.warnings))
-    const timbreBlob = await combineSegmentsToBlob(timbre.segmentInputs, timbre.duration, timbre.sampleRate)
-    renderPanel.updateSvsProgress(30, '上传音色音频')
-    const timbreUpload = await uploadTempWav(`render_${jobId}_svs_timbre`, timbreBlob, timbre.sampleRate)
+    let timbreAudioPath = `dry-run/${jobId}/ref.wav`
+    if (options.uploadAudio) {
+      renderPanel.updateSvsProgress(15, mergeWarnings('合并音色音频', timbre.warnings))
+      const timbreBlob = await combineSegmentsToBlob(timbre.segmentInputs, timbre.duration, timbre.sampleRate)
+      renderPanel.updateSvsProgress(30, '上传音色音频')
+      timbreAudioPath = (await uploadTempWav(`render_${jobId}_svs_timbre`, timbreBlob, timbre.sampleRate)).path
+    } else {
+      renderPanel.updateSvsProgress(30, mergeWarnings('校验音色音频', timbre.warnings))
+    }
 
     let melodyAudioPath: string | undefined
     let timelineStart = 0
+    let melodyDuration = 0
     if (melodyType === 'audio') {
       const melodyAudio = await resolveAudioRenderInputToSegmentInputs({
         tree: objectTree.tree,
@@ -135,25 +153,46 @@ export function useRenderSvsPipeline() {
         tracks: tracks.tracks,
       })
       timelineStart = melodyAudio.sourceStart
-      renderPanel.updateSvsProgress(45, mergeWarnings('合并旋律音频', melodyAudio.warnings))
-      const melodyBlob = await combineSegmentsToBlob(melodyAudio.segmentInputs, melodyAudio.duration, melodyAudio.sampleRate)
-      renderPanel.updateSvsProgress(60, '上传旋律音频')
-      melodyAudioPath = (await uploadTempWav(`render_${jobId}_svs_melody`, melodyBlob, melodyAudio.sampleRate)).path
+      melodyDuration = melodyAudio.duration
+      if (options.uploadAudio) {
+        renderPanel.updateSvsProgress(45, mergeWarnings('合并旋律音频', melodyAudio.warnings))
+        const melodyBlob = await combineSegmentsToBlob(melodyAudio.segmentInputs, melodyAudio.duration, melodyAudio.sampleRate)
+        renderPanel.updateSvsProgress(60, '上传旋律音频')
+        melodyAudioPath = (await uploadTempWav(`render_${jobId}_svs_melody`, melodyBlob, melodyAudio.sampleRate)).path
+      } else {
+        renderPanel.updateSvsProgress(60, mergeWarnings('校验旋律音频', melodyAudio.warnings))
+        melodyAudioPath = `dry-run/${jobId}/melody.wav`
+      }
+    } else {
+      const resolvedMidi = melody.kind === 'group'
+        ? resolveGroupObjectInput(objectTree.tree, melody.id)
+        : resolveTrackObjectInput(objectTree.tree, melody.id)
+      timelineStart = resolvedMidi.sourceStart
+      melodyDuration = resolvedMidi.duration
     }
 
-    const targetText = resolveTargetText()
-    const output = outputPathBeside(timbreUpload.path, outputWavFileName(renderPanel.svs.outputName || defaultSvsOutputName()))
+    const { refPhrases, targetPhrases } = resolveT1Phrases(
+      timbre.sourceStart,
+      timbre.duration,
+      timelineStart,
+      melodyDuration,
+    )
+    const output = outputPathBeside(timbreAudioPath, outputWavFileName(renderPanel.svs.outputName || defaultSvsOutputName()))
+    const selectedModel = svsConfig.selectedModel
     return {
       body: {
-        refAudio: timbreUpload.path,
+        refAudio: timbreAudioPath,
         melodyAudio: melodyAudioPath,
-        targetText,
+        refPhrases,
+        targetPhrases,
         output,
         steps: renderPanel.svs.steps,
         cfg: renderPanel.svs.cfg,
         seed: renderPanel.svs.seed,
         device: renderPanel.svs.device,
-        checkpoint: svsConfig.selectedCheckpoint || undefined,
+        modelId: selectedModel?.name,
+        checkpoint: selectedModel?.checkpoint,
+        vaeCheckpoint: selectedModel?.vaeCheckpoint,
       },
       melodyType,
       timelineStart,
@@ -206,14 +245,21 @@ export function useRenderSvsPipeline() {
     })
   }
 
-  function resolveTargetText(): string {
-    if (renderPanel.svs.textMode === 'manual') {
-      const text = normalizeSvsText(renderPanel.svs.manualText)
-      if (!text) throw new Error('target text 为空')
-      return text
+  function resolveT1Phrases(
+    refAudioStart: number,
+    refAudioDuration: number,
+    melodyStart: number,
+    melodyDuration: number,
+  ): { refPhrases: TimedSvsPhrase[]; targetPhrases: TimedSvsPhrase[] } {
+    if (!renderPanel.svs.refText || !renderPanel.svs.targetText) {
+      throw new Error('T1 需要 A 参考文本和 B 目标文本两个带时间戳的 TextObject')
     }
-    if (!renderPanel.svs.textRef) throw new Error('target text 引用为空')
-    return resolveTextRenderInput(objectTree.tree, renderPanel.svs.textRef).text
+    const refText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.refText)
+    const targetText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.targetText)
+    return {
+      refPhrases: rebaseTimedSvsPhrases(refText, refAudioStart, refAudioDuration, 'A 参考文本'),
+      targetPhrases: rebaseTimedSvsPhrases(targetText, melodyStart, melodyDuration, 'B 目标文本'),
+    }
   }
 
   function defaultSvsOutputName() {

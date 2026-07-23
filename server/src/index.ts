@@ -11,7 +11,7 @@ import http from 'http'
 import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { runSvc } from './services/svc.service.js'
-import { buildSvsArgs, runSvs } from './services/svs.service.js'
+import { buildSvsArgs, runSvs, verifySvsResources } from './services/svs.service.js'
 import { runWhisper } from './services/whisper.service.js'
 
 const app = express()
@@ -372,28 +372,77 @@ app.post('/api/svc/run', (req, res) => {
   }
 })
 
-app.post('/api/svs/run', (req, res) => {
-  const { jobId: clientJobId, refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device, dryRun } = req.body
+app.post('/api/svs/run', async (req, res) => {
+  const {
+    jobId: clientJobId,
+    refAudio,
+    melodyAudio,
+    refPhrases,
+    targetPhrases,
+    output,
+    modelId,
+    checkpoint,
+    vaeCheckpoint,
+    steps,
+    cfg,
+    seed,
+    device,
+    dryRun,
+  } = req.body
 
-  if (!refAudio || !targetText || !output) {
-    res.status(400).json({ error: 'missing refAudio, targetText, or output' })
+  if (!refAudio || !output || !Array.isArray(refPhrases) || refPhrases.length === 0
+    || !Array.isArray(targetPhrases) || targetPhrases.length === 0) {
+    res.status(400).json({ error: 'missing refAudio, timed refPhrases, timed targetPhrases, or output' })
     return
   }
 
-  const svsReq = { refAudio, melodyAudio, targetText, output, checkpoint, steps, cfg, seed, device }
+  const svsReq = {
+    refAudio,
+    melodyAudio,
+    refPhrases,
+    targetPhrases,
+    output,
+    modelId,
+    checkpoint,
+    vaeCheckpoint,
+    steps,
+    cfg,
+    seed,
+    device,
+  }
+  let verifiedResources: Awaited<ReturnType<typeof verifySvsResources>>
+  try {
+    verifiedResources = await verifySvsResources(svsReq)
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+    return
+  }
   if (dryRun) {
-    res.json({ ok: true, dryRun: true, args: buildSvsArgs(svsReq) })
+    try {
+      res.json({
+        ok: true,
+        dryRun: true,
+        resources: verifiedResources,
+        args: buildSvsArgs(svsReq, { writeManifest: false }),
+      })
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || String(error) })
+    }
     return
   }
 
   const jobId = clientJobId || crypto.randomUUID().slice(0, 8)
-  res.json({ ok: true, jobId, status: 'started' })
+  res.json({ ok: true, jobId, status: 'started', resources: verifiedResources })
 
   function tryRun() {
     const ws = svsJobs.get(jobId)
     if (ws) {
       console.log(`[SVS] job ${jobId} started, WS found`)
-      runSvs(svsReq, ws)
+      try {
+        runSvs(svsReq, ws)
+      } catch (error: any) {
+        ws.send(JSON.stringify({ type: 'error', message: error?.message || String(error) }))
+      }
       return true
     }
     return false
@@ -416,6 +465,10 @@ app.post('/api/whisper/run', (req, res) => {
     res.status(400).json({ error: 'missing or invalid inputWav' })
     return
   }
+  if (language != null && language !== 'ja') {
+    res.status(400).json({ error: 'Whisper -> SOFA transcription only supports Japanese (ja)' })
+    return
+  }
 
   const jobId = clientJobId || crypto.randomUUID().slice(0, 8)
   const safeOutputName = sanitizeName(outputName || `Whisper_${jobId}`)
@@ -430,7 +483,7 @@ app.post('/api/whisper/run', (req, res) => {
         inputWav,
         outputDir,
         outputName: safeOutputName,
-        language: ['auto', 'ja', 'zh', 'en'].includes(language) ? language : 'auto',
+        language: 'ja',
         vad: vad ?? true,
         device: device || 'cuda',
         computeType: computeType || 'float16',

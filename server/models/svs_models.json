@@ -1,5 +1,14 @@
 {
-  "plus_ja_sft_v4c step24k": "ckpts/plus_ja_sft_v4c/step_024000.pt",
-  "v4f_sofa_base30k step24k": "E:/MyProject/重要模型保存/YingMusic-Singer-Plus-sft-24k/v4f_sofa_base30k_step_024000.pt",
-  "V4fg_10k": "E:/MyProject/重要模型保存/V4fg_10k/step_010000.pt"
+  "plus_ja_sft_v4c step24k": {
+    "checkpoint": "ckpts/plus_ja_sft_v4c/step_024000.pt",
+    "vaeCheckpoint": "ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "v4f_sofa_base30k step24k": {
+    "checkpoint": "E:/MyProject/重要模型保存/YingMusic-Singer-Plus-sft-24k/v4f_sofa_base30k_step_024000.pt",
+    "vaeCheckpoint": "ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4fg_10k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4fg_10k/step_010000.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt"
+  }
 }
