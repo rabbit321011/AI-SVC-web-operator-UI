@@ -16,6 +16,7 @@ const props = defineProps<{
   handleNodeDrop: (pane: 'L1' | 'L2', node: TreeNode, event: DragEvent) => void
   allowTreeDrop: (event: DragEvent) => void
   handleContextMenu: (node: TreeNode, event: MouseEvent) => void
+  handleNodeDblClick: (node: TreeNode) => void
   rowDomId: (pane: 'L1' | 'L2', id: string) => string
 }>()
 
@@ -72,12 +73,15 @@ function memberName(trackObjectId: string) {
       :title="node.name"
       draggable="true"
       @click="handleNodeClick(pane, node, $event)"
+      @dblclick="handleNodeDblClick(node)"
       @dragstart="handleDragStart"
       @dragover="(node.kind === 'folder' || node.kind === 'trackFolder') ? allowTreeDrop($event) : undefined"
       @drop="(node.kind === 'folder' || node.kind === 'trackFolder') ? handleNodeDrop(pane, node, $event) : undefined"
       @contextmenu="handleContextMenu(node, $event)"
     >
-      <span class="twisty" @click="toggleExpanded">{{ expandable ? (expanded ? '▾' : '▸') : '·' }}</span>
+      <span class="twisty" @click="toggleExpanded">
+        <svg v-if="expandable" viewBox="0 0 16 16" aria-hidden="true" :class="{ expanded }"><path d="M6 3l5 5-5 5V3Z" /></svg>
+      </span>
       <span class="kind">{{ icon(node) }}</span>
       <span class="name">{{ node.name }}</span>
       <button
@@ -86,7 +90,8 @@ function memberName(trackObjectId: string) {
         :title="audioPreview.playingNodeId.value === node.id ? '停止预览' : '播放音频'"
         @click="toggleAudioPreview"
       >
-        {{ audioPreview.playingNodeId.value === node.id ? '■' : '▶' }}
+        <svg v-if="audioPreview.playingNodeId.value === node.id" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4h8v8H4V4Z" /></svg>
+        <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8 12.5 8 4 13.2V2.8Z" /></svg>
       </button>
     </div>
     <div
@@ -99,7 +104,7 @@ function memberName(trackObjectId: string) {
       :title="memberId"
       @click.stop="handleVirtualMemberClick(memberId, $event)"
     >
-      <span class="twisty">·</span>
+      <span class="twisty"></span>
       <span class="kind">mem</span>
       <span class="name">{{ memberName(memberId) }}</span>
     </div>
@@ -116,6 +121,7 @@ function memberName(trackObjectId: string) {
       :handle-node-drop="handleNodeDrop"
       :allow-tree-drop="allowTreeDrop"
       :handle-context-menu="handleContextMenu"
+      :handle-node-dbl-click="handleNodeDblClick"
       :row-dom-id="rowDomId"
     />
   </div>

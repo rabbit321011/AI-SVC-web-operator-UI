@@ -2,6 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { RenderInputRef, RenderPanelMode, RenderSlotId } from '@/object-workbench'
 import { makeRenderInputRef, normalizeSvsText, validateRenderSlot } from '@/object-workbench'
+import { kanaToRomaji, romajiToKana } from '@/utils/kanaRomaji'
 import { useObjectTreeStore } from './objectTree'
 
 export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed'
@@ -38,6 +39,7 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     melody: null as RenderInputRef | null,
     textRef: null as RenderInputRef | null,
     manualText: '',
+    manualRomaji: '',
     textMode: 'manual' as 'manual' | 'ref',
     outputName: '',
     cfg: 3.0,
@@ -48,7 +50,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
   const whisper = reactive({
     audio: null as RenderInputRef | null,
     outputName: '',
-    language: 'auto',
+    language: 'auto' as 'auto' | 'ja' | 'zh' | 'en',
+    vad: true,
   })
   const msst = reactive({
     audio: null as RenderInputRef | null,
@@ -134,6 +137,18 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     if (slotId === 'svs.text') svs.textRef = null
     if (slotId === 'whisper.audio') whisper.audio = null
     if (slotId === 'msst.audio') msst.audio = null
+  }
+
+  function setSvsManualKana(value: string) {
+    svs.manualText = value
+    svs.manualRomaji = kanaToRomaji(value)
+    svs.textMode = 'manual'
+  }
+
+  function setSvsManualRomaji(value: string) {
+    svs.manualRomaji = value
+    svs.manualText = romajiToKana(value)
+    svs.textMode = 'manual'
   }
 
   function beginLocalProcessing(tool: LocalProcessingTool): boolean {
@@ -282,6 +297,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     setSlot,
     setSlotFromNode,
     clearSlot,
+    setSvsManualKana,
+    setSvsManualRomaji,
     setSvcRunning,
     updateSvcProgress,
     setSvcDone,

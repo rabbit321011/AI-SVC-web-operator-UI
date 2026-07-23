@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { useProjectStore } from '@/stores/project'
-import { useSvcConfigStore } from '@/stores/svcConfig'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
-import { NButton, NDropdown, NSelect, NInputNumber, NSwitch, NSpace } from 'naive-ui'
-import type { SvcRuntimeConfig } from '@/types'
+import { NButton, NDropdown, NSwitch, NSpace } from 'naive-ui'
 import { usePlaybackStore } from '@/stores/playback'
 import { ref } from 'vue'
+import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 const project = useProjectStore()
-const svcConfig = useSvcConfigStore()
 const tracks = useTracksStore()
 const selection = useSelectionStore()
 const pb = usePlaybackStore()
+const editorWorkspace = useEditorWorkspaceStore()
 
 const playSelectedOnly = ref(false)
 
@@ -37,20 +37,6 @@ const fileOptions = [
   { label: '另存为 (.asvcproj)', key: 'save-as' },
   { type: 'divider' as const, key: 'd3' },
   { label: '回到首页', key: 'go-home' },
-]
-
-const modelOptions = svcConfig.presets.map(p => ({
-  label: p.modelName,
-  value: p.modelName,
-}))
-
-const stepOptions = [
-  { label: '10', value: 10 },
-  { label: '30', value: 30 },
-  { label: '50', value: 50 },
-  { label: '100', value: 100 },
-  { label: '150', value: 150 },
-  { label: '200', value: 200 },
 ]
 
 function handleFileSelect(key: string) {
@@ -171,18 +157,22 @@ function exportAll() { exportSegments(tracks.getAllSegments().filter(s => !s.ign
 
 async function exportSegments(segs: import('@/types').AudioSegment[]) {
   if (segs.length === 0) { alert('没有可导出的片段'); return }
-  const segInputs = segs.map(seg => {
+  const segInputs = await Promise.all(segs.map(async seg => {
     const track = tracks.tracks[seg.trackId]
-    const sr = track?.sampleRate || 44100
+    const blob = tracks.sourceBlobs.get(seg.sourceFile) || tracks.sourceBlobs.get(seg.trackId)
+    let sr = track?.sampleRate || 44100
+    if (blob) {
+      try { sr = (await getAudioBlobMeta(blob)).sampleRate || sr } catch {}
+    }
     return {
-      blob: (tracks.sourceBlobs.get(seg.sourceFile) || tracks.sourceBlobs.get(seg.trackId))!,
+      blob: blob!,
       startSample: seg.srcStartSample,
       endSample: seg.srcEndSample,
       timelineStart: seg.timelineStart,
       sampleRate: sr,
       volume: track?.volume ?? 1,
     }
-  })
+  }))
   const valid = segInputs.filter(s => s.blob)
   if (valid.length === 0) { alert('片段无音频数据'); return }
   const allStarts = valid.map(s => s.timelineStart)
@@ -219,22 +209,17 @@ function downloadBlob(filename: string, blob: Blob) {
   URL.revokeObjectURL(url)
 }
 
-function handleSvc() {
-  const compGroupIds = [...selection.ids].filter(id => id.startsWith('cgrp_'))
-  if (compGroupIds.length === 0) return
-  ;(window as any).__svcStart?.(compGroupIds[0])
-}
 </script>
 
 <template>
   <div class="topbar">
     <div class="topbar-left">
-      <span class="logo">🎵 AISVC</span>
+      <span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3Zm0 2.3L6 8.7v6.6l6 3.4 6-3.4V8.7l-6-3.4Zm0 3.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>AISVC</span>
 
       <n-space :size="4">
-        <n-button size="tiny" @click="handlePlay" :disabled="pb.isPlaying">▶</n-button>
-        <n-button size="tiny" @click="handlePause" :disabled="!pb.isPlaying">⏸</n-button>
-        <n-button size="tiny" @click="handleStop">⏹</n-button>
+        <n-button size="tiny" class="icon-button" @click="handlePlay" :disabled="pb.isPlaying" title="播放"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8 12.5 8 4 13.2V2.8Z" /></svg></n-button>
+        <n-button size="tiny" class="icon-button" @click="handlePause" :disabled="!pb.isPlaying" title="暂停"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h3v10H4V3Zm5 0h3v10H9V3Z" /></svg></n-button>
+        <n-button size="tiny" class="icon-button" @click="handleStop" title="停止"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4h8v8H4V4Z" /></svg></n-button>
         <n-switch
           :value="playSelectedOnly"
           size="small"
@@ -249,41 +234,14 @@ function handleSvc() {
     </div>
 
     <div class="topbar-center">
-      <n-space align="center" :size="12">
-        <n-select
-          :value="svcConfig.config.modelName"
-          :options="modelOptions"
-          size="small"
-          style="width: 160px"
-          @update:value="(v: string) => svcConfig.selectPreset(v)"
-        />
-        <n-input-number
-          :value="svcConfig.config.diffusionSteps"
-          :min="10" :max="200" :step="10"
-          size="small"
-          style="width: 80px"
-          @update:value="(v: number|null) => v && svcConfig.updateField('diffusionSteps', v)"
-        />
-        <span class="param-label">cfg</span>
-        <n-input-number
-          :value="svcConfig.config.inferenceCfgRate"
-          :min="0" :max="1.0" :step="0.1"
-          size="small"
-          style="width: 80px"
-          @update:value="(v: number|null) => v !== null && svcConfig.updateField('inferenceCfgRate', v)"
-        />
-        <span class="param-label">F0</span>
-        <n-switch
-          :value="svcConfig.config.f0Condition"
-          size="small"
-          @update:value="(v: boolean) => svcConfig.updateField('f0Condition', v)"
-        />
-        <n-button type="primary" size="small" @click="handleSvc">🎤 合成</n-button>
-      </n-space>
+      <span class="project-name center-name">{{ project.name || '未命名项目' }}</span>
     </div>
 
     <div class="topbar-right">
-      <span class="project-name">{{ project.name || '未命名项目' }}</span>
+      <n-space :size="6">
+        <n-button size="tiny" class="icon-button" title="键位教学" @click="editorWorkspace.openKeymapTab"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12v8H2V4Zm1.5 1.5v5h9v-5h-9ZM4 7h1v1H4V7Zm2 0h1v1H6V7Zm2 0h1v1H8V7Zm2 0h1v1h-1V7ZM5 9h6v1H5V9Z" /></svg></n-button>
+        <n-button size="tiny" class="icon-button" title="设置" @click="editorWorkspace.openSettingsTab"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.2 1.8h1.6l.35 1.55c.35.12.68.25.98.43l1.34-.85 1.13 1.13-.85 1.34c.18.3.31.63.43.98l1.55.35v1.6l-1.55.35c-.12.35-.25.68-.43.98l.85 1.34-1.13 1.13-1.34-.85c-.3.18-.63.31-.98.43l-.35 1.55H7.2l-.35-1.55a4.8 4.8 0 0 1-.98-.43l-1.34.85L3.4 10.97l.85-1.34a4.8 4.8 0 0 1-.43-.98L2.27 8.3V6.7l1.55-.35c.12-.35.25-.68.43-.98L3.4 4.03 4.53 2.9l1.34.85c.3-.18.63-.31.98-.43L7.2 1.8ZM8 5.4a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2Z" /></svg></n-button>
+      </n-space>
     </div>
   </div>
 </template>
@@ -293,18 +251,21 @@ function handleSvc() {
   display: flex;
   align-items: center;
   padding: 6px 16px;
-  background: #161b22;
-  border-bottom: 1px solid #21262d;
+  background: color-mix(in srgb, var(--app-panel) var(--topbar-opacity-percent), transparent);
+  border-bottom: 1px solid var(--app-border);
   gap: 16px;
   flex-shrink: 0;
   min-height: 40px;
 }
 .topbar-left { display: flex; align-items: center; gap: 8px; }
-.topbar-center { flex: 1; display: flex; justify-content: center; }
+.topbar-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .topbar-right { display: flex; align-items: center; }
-.logo { font-size: 15px; font-weight: 700; color: #58a6ff; margin-right: 8px; }
+.logo { font-size: 15px; font-weight: 700; color: var(--app-accent); margin-right: 8px; display: inline-flex; align-items: center; gap: 6px; }
+.logo svg { width: 18px; height: 18px; fill: currentColor; }
 .menu-btn { font-size: 13px; }
-.param-label { font-size: 11px; color: #8b949e; }
-.project-name { font-size: 12px; color: #6e7681; }
+.param-label { font-size: 11px; color: var(--app-muted); }
+.project-name { font-size: 12px; color: var(--app-muted); }
+.center-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-button svg { width: 14px; height: 14px; fill: currentColor; }
 </style>
 

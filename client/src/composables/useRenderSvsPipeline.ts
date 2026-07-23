@@ -3,6 +3,7 @@ import { buildNodeIndex, getRenderInputMediaType, normalizeSvsText, resolveAudio
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
+import { useSvsConfigStore } from '@/stores/svsConfig'
 import { useTracksStore } from '@/stores/tracks'
 
 export function useRenderSvsPipeline() {
@@ -10,6 +11,7 @@ export function useRenderSvsPipeline() {
   const objectTree = useObjectTreeStore()
   const project = useProjectStore()
   const tracks = useTracksStore()
+  const svsConfig = useSvsConfigStore()
 
   async function dryRunSvs() {
     if (renderPanel.isLocalProcessingRunning) return
@@ -92,6 +94,7 @@ export function useRenderSvsPipeline() {
       cfg: number
       seed: number
       device: string
+      checkpoint?: string
     }
     melodyType: 'audio' | 'midi'
     timelineStart: number
@@ -150,6 +153,7 @@ export function useRenderSvsPipeline() {
         cfg: renderPanel.svs.cfg,
         seed: renderPanel.svs.seed,
         device: renderPanel.svs.device,
+        checkpoint: svsConfig.selectedCheckpoint || undefined,
       },
       melodyType,
       timelineStart,

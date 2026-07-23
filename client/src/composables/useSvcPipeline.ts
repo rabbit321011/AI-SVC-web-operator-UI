@@ -5,6 +5,7 @@ import { useSvcConfigStore } from '@/stores/svcConfig'
 import { useProjectStore } from '@/stores/project'
 import { combineSegmentsToBlob } from '@/api/wav'
 import type { CompGroupId, AudioSegment } from '@/types'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 export function useSvcPipeline() {
   const isRunning = ref(false)
@@ -39,15 +40,13 @@ export function useSvcPipeline() {
           if (seg.timelineEnd > maxEnd) maxEnd = seg.timelineEnd
         }
       } else if (snap.type === 'track') {
-        const track = tracks.tracks[snap.id]
         const trackSegs = tracks.getTrackSegments(snap.id)
-        const blob = tracks.sourceBlobs.get(track?.sourceFile ?? '') ?? tracks.sourceBlobs.get(snap.id)
-        if (blob) {
-          for (const s of trackSegs) {
-            segmentRefs.push({ seg: s, blob })
-            if (s.timelineStart < minStart) minStart = s.timelineStart
-            if (s.timelineEnd > maxEnd) maxEnd = s.timelineEnd
-          }
+        for (const s of trackSegs) {
+          const blob = tracks.sourceBlobs.get(s.sourceFile) ?? tracks.sourceBlobs.get(s.trackId)
+          if (!blob) continue
+          segmentRefs.push({ seg: s, blob })
+          if (s.timelineStart < minStart) minStart = s.timelineStart
+          if (s.timelineEnd > maxEnd) maxEnd = s.timelineEnd
         }
       }
     }
@@ -72,12 +71,15 @@ export function useSvcPipeline() {
 
     try {
       // Step 1: Combine segments
-      const segInputs = segmentRefs.map(({ seg, blob }) => ({
-        blob,
-        startSample: seg.srcStartSample,
-        endSample: seg.srcEndSample,
-        timelineStart: seg.timelineStart - minStart,
-        sampleRate: tracks.tracks[seg.trackId]?.sampleRate || sampleRate,
+      const segInputs = await Promise.all(segmentRefs.map(async ({ seg, blob }) => {
+        const meta = await getAudioBlobMeta(blob)
+        return {
+          blob,
+          startSample: seg.srcStartSample,
+          endSample: seg.srcEndSample,
+          timelineStart: seg.timelineStart - minStart,
+          sampleRate: meta.sampleRate || tracks.tracks[seg.trackId]?.sampleRate || sampleRate,
+        }
       }))
 
       compGroups.updateSvcProgress(groupId, 5, 0)
@@ -257,4 +259,3 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob)
   })
 }
-

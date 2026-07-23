@@ -537,6 +537,29 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
+  function syncTrackFolderColor(trackId: string, color: string): { ok: boolean; reason?: string } {
+    const trackFolderId = `node:trackFolder:${trackId}`
+    const trackFolder = index.value.nodes[trackFolderId]
+    if (!trackFolder || trackFolder.kind !== 'trackFolder') return { ok: false, reason: '对象树中没有对应 TrackFolder' }
+    trackFolder.trackFolder.color = color
+    return { ok: true }
+  }
+
+  function syncTrackFolderOrder(trackOrder: string[]): { ok: boolean; reason?: string } {
+    const tracksRoot = index.value.nodes[TOP_LEVEL_IDS.tracks]
+    if (!tracksRoot || tracksRoot.kind !== 'folder') return { ok: false, reason: '对象树中没有 tracks 根目录' }
+    const orderById = new Map(trackOrder.map((trackId, order) => [`node:trackFolder:${trackId}`, order]))
+    tracksRoot.children.sort((a, b) => {
+      const left = orderById.get(a.id)
+      const right = orderById.get(b.id)
+      if (left == null && right == null) return 0
+      if (left == null) return 1
+      if (right == null) return -1
+      return left - right
+    })
+    return { ok: true }
+  }
+
   function createGroupFromLegacyElements(groupId: string, name: string, elements: GroupElementSnapshot[]): { ok: boolean; reason?: string; groupObjectId?: NodeId } {
     const trackObjectIds: NodeId[] = []
     const tracksStore = useTracksStore()
@@ -802,7 +825,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     outputName?: string
   } {
     const timelineStart = options.timelineStart ?? 0
-    const durationFromSegments = Math.max(0, ...options.segments.map(segment => segment.start))
+    const normalizedSegments = normalizeTextSegments(options.segments)
+    const durationFromSegments = Math.max(0, ...normalizedSegments.map(segment => segment.end ?? segment.start))
     const timelineEnd = Math.max(options.timelineEnd ?? timelineStart + Math.max(1, durationFromSegments), timelineStart + 0.001)
     const renderFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.renders, options.renderKind)
     const outputName = uniqueChildName(renderFolder, sanitizeFileName(options.outputName) || 'whisper_text')
@@ -814,7 +838,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       name: outputName,
       text: {
         sourceAudioObjectId: options.sourceAudioObjectId ?? null,
-        segments: clonePlain(options.segments),
+        segments: clonePlain(normalizedSegments),
       },
     }
     insertChild(renderFolder, renderObject)
@@ -826,13 +850,15 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       name: outputName,
       text: {
         sourceAudioObjectId: options.sourceAudioObjectId ?? null,
-        segments: clonePlain(options.segments),
+        segments: clonePlain(normalizedSegments),
       },
     }
     insertChild(getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'text'), trackSourceObject)
 
+    const tracksStore = useTracksStore()
+    const trackId = tracksStore.addObjectTrack('text', outputName)
     const trackObjectId = `node:trackObject:text:${crypto.randomUUID()}`
-    const trackFolder = createObjectTrackFolder('text', outputName)
+    const trackFolder = createObjectTrackFolder('text', outputName, trackId)
     insertChild(trackFolder, {
       id: trackObjectId,
       kind: 'trackObject',
@@ -870,6 +896,27 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     insertChild(trackParent, clonePlain(snapshot.oldTrackObject), snapshot.oldTrackIndex)
     insertChild(sourceParent, clonePlain(snapshot.oldSource), snapshot.oldSourceIndex)
     restoreGroups(snapshot.groups)
+    return { ok: true }
+  }
+
+  function updateTextSegmentTiming(sourceObjectId: NodeId, segmentId: string, start: number, end: number): { ok: boolean; reason?: string } {
+    const source = index.value.nodes[sourceObjectId]
+    if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
+    const segment = source.text.segments.find(item => item.id === segmentId)
+    if (!segment) return { ok: false, reason: '句子不存在' }
+    segment.start = Math.max(0, start)
+    segment.end = Math.max(segment.start + 0.1, end)
+    source.text.segments.sort((a, b) => a.start - b.start)
+    return { ok: true }
+  }
+
+  function updateTextSegmentContent(sourceObjectId: NodeId, segmentId: string, patch: Partial<Pick<TextSegment, 'kana' | 'romaji'>>): { ok: boolean; reason?: string } {
+    const source = index.value.nodes[sourceObjectId]
+    if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
+    const segment = source.text.segments.find(item => item.id === segmentId)
+    if (!segment) return { ok: false, reason: '句子不存在' }
+    if (patch.kana !== undefined) segment.kana = patch.kana
+    if (patch.romaji !== undefined) segment.romaji = patch.romaji
     return { ok: true }
   }
 
@@ -971,6 +1018,25 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     })
   }
 
+  function normalizeTextSegments(segments: TextSegment[]): TextSegment[] {
+    const sorted = clonePlain(segments)
+      .map((segment, index) => ({
+        ...segment,
+        id: segment.id || `textseg:${crypto.randomUUID()}`,
+        start: Math.max(0, Number.isFinite(segment.start) ? segment.start : index),
+      }))
+      .sort((a, b) => a.start - b.start)
+
+    return sorted.map((segment, index) => {
+      const nextStart = sorted[index + 1]?.start
+      const preferredEnd = segment.end ?? nextStart ?? segment.start + 1
+      return {
+        ...segment,
+        end: Math.max(segment.start + 0.1, preferredEnd),
+      }
+    })
+  }
+
   function clonePlain<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T
   }
@@ -1052,18 +1118,20 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return folder
   }
 
-  function createObjectTrackFolder(trackType: TrackObjectContentType, name: string): TrackFolderNode {
+  function createObjectTrackFolder(trackType: TrackObjectContentType, name: string, trackId?: string): TrackFolderNode {
     const folder: TrackFolderNode = {
-      id: `node:trackFolder:${trackType}:${crypto.randomUUID()}`,
+      id: trackId ? `node:trackFolder:${trackId}` : `node:trackFolder:${trackType}:${crypto.randomUUID()}`,
       kind: 'trackFolder',
       name,
       trackFolder: {
         trackType,
+        color: trackId ? useTracksStore().tracks[trackId]?.color : undefined,
         muted: false,
         solo: false,
         volume: 1,
       },
       children: [],
+      legacy: trackId ? { trackId } : undefined,
     }
     insertIntoFirstFolder(TOP_LEVEL_IDS.tracks, folder)
     return folder
@@ -1092,6 +1160,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     addRenderedTextToTimeline,
     syncPastedTrack,
     syncTrackFolderName,
+    syncTrackFolderColor,
+    syncTrackFolderOrder,
     createGroupFromLegacyElements,
     syncMovedSegments,
     syncMovedSegment,
@@ -1101,6 +1171,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     syncMergedSegments,
     syncSplitSegment,
     syncUndoSplitSegment,
+    updateTextSegmentTiming,
+    updateTextSegmentContent,
   }
 })
 

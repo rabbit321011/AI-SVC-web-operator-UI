@@ -12,10 +12,12 @@ import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { runSvc } from './services/svc.service.js'
 import { buildSvsArgs, runSvs } from './services/svs.service.js'
+import { runWhisper } from './services/whisper.service.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '500mb' }))
+app.use('/api/projects/:name/blobs', express.raw({ type: 'application/octet-stream', limit: '500mb' }))
 
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws/svc' })
@@ -23,6 +25,7 @@ const wss = new WebSocketServer({ server, path: '/ws/svc' })
 // Store active render jobs
 const svcJobs = new Map<string, WebSocket>()
 const svsJobs = new Map<string, WebSocket>()
+const whisperJobs = new Map<string, WebSocket>()
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WS] client connected')
@@ -33,6 +36,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (msg.type === 'register' && msg.jobId) {
         svcJobs.set(msg.jobId, ws)
         svsJobs.set(msg.jobId, ws)
+        whisperJobs.set(msg.jobId, ws)
         console.log(`[WS] registered job ${msg.jobId}`)
       }
     } catch {}
@@ -124,6 +128,17 @@ const PROJECTS_DIR = path.join(PROJECT_ROOT, 'projects')
 const DEMO_F0_CACHE = path.join(PROJECT_ROOT, 'data', 'demo_f0.json')
 const PYTHON_EXE = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const F0_SCRIPT = path.join(PROJECT_ROOT, 'server', 'scripts', 'f0_extract.py')
+const SVS_MODELS_PATH = path.join(PROJECT_ROOT, 'server', 'models', 'svs_models.json')
+
+app.get('/api/svs/models', (_req, res) => {
+  try {
+    const raw = fs.readFileSync(SVS_MODELS_PATH, 'utf-8')
+    const models = JSON.parse(raw)
+    res.json(models)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '无法加载 SVS 模型列表' })
+  }
+})
 
 app.get('/api/demo/f0', (_req, res) => {
   if (fs.existsSync(DEMO_F0_CACHE)) {
@@ -196,7 +211,7 @@ app.get('/api/f0', (req, res) => {
 
 // F0 extraction from uploaded WAV (base64)
 app.post('/api/f0/extract', (req, res) => {
-  const { wavBase64, sourceFile, sampleRate } = req.body
+  const { wavBase64, startSec, endSec } = req.body
   if (!wavBase64) {
     res.status(400).json({ error: 'missing wavBase64' })
     return
@@ -207,7 +222,10 @@ app.post('/api/f0/extract', (req, res) => {
     const tempWav = path.join(dataDir, `upload_${Date.now()}.wav`)
     fs.writeFileSync(tempWav, Buffer.from(wavBase64, 'base64'))
 
-    const child = spawn(PYTHON_EXE, [F0_SCRIPT, tempWav], { cwd: path.dirname(F0_SCRIPT) })
+    const args = [F0_SCRIPT, tempWav]
+    if (startSec != null) args.push('--start', String(startSec))
+    if (endSec != null) args.push('--end', String(endSec))
+    const child = spawn(PYTHON_EXE, args, { cwd: path.dirname(F0_SCRIPT) })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
@@ -391,6 +409,45 @@ app.post('/api/svs/run', (req, res) => {
   }
 })
 
+app.post('/api/whisper/run', (req, res) => {
+  const { jobId: clientJobId, inputWav, outputName, language, vad, device, computeType } = req.body
+
+  if (!inputWav || !fs.existsSync(inputWav)) {
+    res.status(400).json({ error: 'missing or invalid inputWav' })
+    return
+  }
+
+  const jobId = clientJobId || crypto.randomUUID().slice(0, 8)
+  const safeOutputName = sanitizeName(outputName || `Whisper_${jobId}`)
+  const outputDir = path.resolve(PROJECT_ROOT, 'data', `render_${jobId}_whisper`)
+  res.json({ ok: true, jobId, status: 'started' })
+
+  function tryRun() {
+    const ws = whisperJobs.get(jobId)
+    if (ws) {
+      console.log(`[Whisper] job ${jobId} started, WS found`)
+      runWhisper({
+        inputWav,
+        outputDir,
+        outputName: safeOutputName,
+        language: ['auto', 'ja', 'zh', 'en'].includes(language) ? language : 'auto',
+        vad: vad ?? true,
+        device: device || 'cuda',
+        computeType: computeType || 'float16',
+      }, ws)
+      return true
+    }
+    return false
+  }
+
+  if (!tryRun()) {
+    console.log(`[Whisper] job ${jobId} waiting for WS registration...`)
+    setTimeout(() => {
+      if (!tryRun()) console.error(`[Whisper] job ${jobId} WS never connected`)
+    }, 2000)
+  }
+})
+
 app.get('/api/svs/result/:jobId.wav', (req, res) => {
   const outDir = path.resolve(PROJECT_ROOT, 'data', `render_${req.params.jobId}_svs_timbre`)
   if (!fs.existsSync(outDir)) {
@@ -436,6 +493,7 @@ function sanitizeName(name: string) { return name.replace(/[<>:"/\\|?*]/g, '_').
 function projectJsonPath(name: string) { return path.join(projectDir(name), 'project.json') }
 function blobsDir(name: string) { return path.join(projectDir(name), 'blobs') }
 function blobManifestPath(name: string) { return path.join(blobsDir(name), 'manifest.json') }
+function uiDir(name: string) { return path.join(projectDir(name), 'ui') }
 
 type BlobManifest = Record<string, string>
 
@@ -492,6 +550,22 @@ function readBlobManifest(name: string): BlobManifest {
   }
 }
 
+function writeBlobManifest(name: string, manifest: BlobManifest) {
+  fs.mkdirSync(blobsDir(name), { recursive: true })
+  fs.writeFileSync(blobManifestPath(name), JSON.stringify(manifest, null, 2))
+}
+
+function writeProjectBlob(name: string, key: string, data: Buffer) {
+  const bDir = blobsDir(name)
+  fs.mkdirSync(bDir, { recursive: true })
+  const manifest = readBlobManifest(name)
+  const existingEntry = Object.entries(manifest).find(([, originalKey]) => originalKey === key)
+  const fileName = existingEntry?.[0] ?? makeBlobFileName(key, new Set(Object.keys(manifest)))
+  fs.writeFileSync(path.join(bDir, fileName), data)
+  manifest[fileName] = key
+  writeBlobManifest(name, manifest)
+}
+
 function makeBlobFileName(key: string, used: Set<string>): string {
   const hash = crypto.createHash('sha256').update(key).digest('hex').slice(0, 40)
   let fileName = `${hash}.blob`
@@ -502,6 +576,24 @@ function makeBlobFileName(key: string, used: Set<string>): string {
   }
   used.add(fileName)
   return fileName
+}
+
+function stripDataUrlPrefix(value: string): string {
+  const comma = value.indexOf(',')
+  return value.startsWith('data:') && comma >= 0 ? value.slice(comma + 1) : value
+}
+
+function imageExtension(fileName?: string, mimeType?: string): string | null {
+  const byMime: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+  }
+  if (mimeType && byMime[mimeType]) return byMime[mimeType]
+  const ext = path.extname(fileName || '').toLowerCase().replace(/^\./, '')
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext
+  return null
 }
 
 app.get('/api/projects', (_req, res) => {
@@ -550,6 +642,30 @@ app.get('/api/projects/:name', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }) }
 })
 
+app.put('/api/projects/:name/blobs', (req, res) => {
+  const encodedKey = req.header('x-blob-key')
+  if (!encodedKey) { res.status(400).json({ error: 'missing x-blob-key' }); return }
+  let key = ''
+  try {
+    key = decodeURIComponent(encodedKey)
+  } catch {
+    res.status(400).json({ error: 'invalid x-blob-key' })
+    return
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    res.status(400).json({ error: 'missing blob body' })
+    return
+  }
+  try {
+    const safeProject = sanitizeName(req.params.name)
+    fs.mkdirSync(projectDir(safeProject), { recursive: true })
+    writeProjectBlob(safeProject, key, req.body)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.put('/api/projects/:name', (req, res) => {
   const { _sourceBlobsBase64, ...project } = req.body
   if (!project.name) { res.status(400).json({ error: 'invalid' }); return }
@@ -561,6 +677,52 @@ app.put('/api/projects/:name', (req, res) => {
   project.modifiedAt = new Date().toISOString()
   fs.writeFileSync(projectJsonPath(req.params.name), JSON.stringify(project, null, 2))
   res.json({ ok: true })
+})
+
+app.post('/api/projects/:name/ui/background', (req, res) => {
+  const { fileName, mimeType, dataBase64 } = req.body
+  if (!dataBase64 || typeof dataBase64 !== 'string') {
+    res.status(400).json({ error: 'missing dataBase64' })
+    return
+  }
+  const safeProject = sanitizeName(req.params.name)
+  const dir = projectDir(safeProject)
+  if (!fs.existsSync(dir)) {
+    res.status(404).json({ error: 'project not found' })
+    return
+  }
+  const ext = imageExtension(fileName, mimeType)
+  if (!ext) {
+    res.status(400).json({ error: 'unsupported image type' })
+    return
+  }
+  try {
+    const targetDir = uiDir(safeProject)
+    fs.mkdirSync(targetDir, { recursive: true })
+    for (const entry of fs.readdirSync(targetDir)) {
+      if (/^background\.(png|jpg|jpeg|webp|gif)$/i.test(entry)) fs.unlinkSync(path.join(targetDir, entry))
+    }
+    const targetPath = path.join(targetDir, `background.${ext}`)
+    fs.writeFileSync(targetPath, Buffer.from(stripDataUrlPrefix(dataBase64), 'base64'))
+    res.json({ url: `/api/projects/${encodeURIComponent(safeProject)}/ui/background.${ext}` })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/projects/:name/ui/:file', (req, res) => {
+  const safeProject = sanitizeName(req.params.name)
+  const file = path.basename(req.params.file)
+  if (!/^background\.(png|jpg|jpeg|webp|gif)$/i.test(file)) {
+    res.status(404).json({ error: 'not found' })
+    return
+  }
+  const filePath = path.join(uiDir(safeProject), file)
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'not found' })
+    return
+  }
+  res.sendFile(filePath)
 })
 
 app.post('/api/projects/import', (req, res) => {

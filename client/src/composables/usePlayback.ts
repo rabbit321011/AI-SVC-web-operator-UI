@@ -3,6 +3,7 @@ import { usePlaybackStore } from '@/stores/playback'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import type { AudioSegment } from '@/types'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 export function usePlayback() {
   const pb = usePlaybackStore()
@@ -16,6 +17,7 @@ export function usePlayback() {
   let raf: number | null = null
   let playSelectedOnly = false
   let isScheduling = false
+  const decodedByKey = new Map<string, { blob: Blob; buffer: AudioBuffer; sampleRate: number }>()
 
   function ctx() {
     if (!audioCtx) audioCtx = new AudioContext()
@@ -52,9 +54,6 @@ export function usePlayback() {
     const list = collectSegments()
     if (list.length === 0) { isScheduling = false; return }
 
-    // Use existing totalDuration (set by syncProject from ALL segments)
-    const playDuration = pb.totalDuration
-
     // ---------- decode all unique blobs ----------
     const keyForSeg = (s: AudioSegment) => s.sourceFile || s.trackId
     const blobByKey = new Map<string, Blob>()
@@ -65,25 +64,29 @@ export function usePlayback() {
       const b = tracks.sourceBlobs.get(seg.sourceFile) ?? tracks.sourceBlobs.get(seg.trackId)
       if (b) {
         blobByKey.set(k, b)
-        // use the ORIGINAL WAV sample rate, NOT AudioContext's resampled rate
-        origSrByKey.set(k, tracks.tracks[seg.trackId]?.sampleRate ?? 44100)
       }
     }
 
-    const bufByKey = new Map<string, AudioBuffer>()
-    for (const [k, blob] of blobByKey) {
+    await Promise.all([...blobByKey].map(async ([k, blob]) => {
       try {
+        const cached = decodedByKey.get(k)
+        if (cached?.blob === blob) {
+          origSrByKey.set(k, cached.sampleRate)
+          return
+        }
+        const meta = await getAudioBlobMeta(blob)
+        origSrByKey.set(k, meta.sampleRate)
         const ab = await blob.arrayBuffer()
-        bufByKey.set(k, await ac.decodeAudioData(ab))
+        decodedByKey.set(k, { blob, buffer: await ac.decodeAudioData(ab), sampleRate: meta.sampleRate })
       } catch {}
-    }
+    }))
 
     // ---------- schedule ----------
-    scheduleBaseWall = ac.currentTime + 0.15
+    scheduleBaseWall = ac.currentTime + 0.035
     scheduleBaseTimeline = pb.currentTime
 
     for (const { seg } of list) {
-      const buf = bufByKey.get(keyForSeg(seg))
+      const buf = decodedByKey.get(keyForSeg(seg))?.buffer
       if (!buf) continue
 
       const segDur = seg.timelineEnd - seg.timelineStart
@@ -91,20 +94,21 @@ export function usePlayback() {
 
       const srcDurSamples = seg.srcEndSample - seg.srcStartSample
       if (srcDurSamples < 100) continue
+      const origSr = origSrByKey.get(keyForSeg(seg)) ?? 44100
+      const sourceDuration = srcDurSamples / origSr
 
       // timeline window this segment should be audible
       const tStart = Math.max(scheduleBaseTimeline, seg.timelineStart)
-      const tEnd = seg.timelineEnd
+      const tEnd = Math.min(seg.timelineEnd, seg.timelineStart + sourceDuration)
       if (tStart >= tEnd) continue
 
       // wall time this segment fires
       const wStart = scheduleBaseWall + (tStart - scheduleBaseTimeline)
 
       // source buffer offset & duration — use ORIGINAL sample rate
-      const origSr = origSrByKey.get(keyForSeg(seg)) ?? 44100
       const skipInSource = tStart - seg.timelineStart
       const bufOffset = seg.srcStartSample / origSr + skipInSource
-      const playLen = Math.min(tEnd - tStart, srcDurSamples / origSr - skipInSource)
+      const playLen = Math.min(tEnd - tStart, sourceDuration - skipInSource)
       if (playLen < 0.002) continue
 
       try {

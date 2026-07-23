@@ -8,8 +8,9 @@ import { useProjectStore } from '@/stores/project'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { float32ToWavBlob } from '@/api/wav'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 import type { AudioObjectNode, NodeId, TrackObjectNode } from '@/object-workbench'
-import type { AudioSegment, SegmentId, TrackId, DeepCopySegment, F0Frame } from '@/types'
+import type { AudioSegment, SegmentId, TrackId, DeepCopySegment, F0Frame, Patch } from '@/types'
 
 export function useKeyboard() {
   const history = useHistoryStore()
@@ -31,6 +32,8 @@ export function useKeyboard() {
     if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); history.redo(); return }
     if (ctrl && e.key === 's') { e.preventDefault(); saveProject(); return }
     if (ctrl && e.key === 'o') { e.preventDefault(); loadProject(); return }
+    if (ctrl && e.key === 'ArrowUp') { e.preventDefault(); moveSelectedTimelineObjects(-1); return }
+    if (ctrl && e.key === 'ArrowDown') { e.preventDefault(); moveSelectedTimelineObjects(1); return }
     if (ctrl && e.key === 'c') { e.preventDefault(); clipboard.copy(); return }
     if (ctrl && e.key === 'v') { e.preventDefault(); pasteFromClipboard(); return }
     if (ctrl && e.key === 'b') { e.preventDefault(); mergeSelected(); return }
@@ -254,10 +257,10 @@ export function useKeyboard() {
         const buf = await audioCtx.decodeAudioData(await blob.arrayBuffer())
         const channel = buf.getChannelData(0)
         const actualSr = buf.sampleRate
-        // Source sample count → normalize to actual decode rate
-        const trackSr = tracks.tracks[seg.trackId]?.sampleRate || outputSr
+        const meta = await getAudioBlobMeta(blob)
+        const trackSr = meta.sampleRate || tracks.tracks[seg.trackId]?.sampleRate || outputSr
         const startActual = seg.srcStartSample * (actualSr / trackSr)
-         const srcLenActual = (seg.srcEndSample - seg.srcStartSample) * (actualSr / trackSr)
+        const srcLenActual = (seg.srcEndSample - seg.srcStartSample) * (actualSr / trackSr)
         const segLenOut = Math.round((srcLenActual / actualSr) * outputSr)
         const targetStart = Math.round((seg.timelineStart - minTimeline) * outputSr)
 
@@ -340,6 +343,104 @@ export function useKeyboard() {
     selection.clear()
   }
 
+  function moveSelectedTimelineObjects(delta: -1 | 1) {
+    const tracks = useTracksStore()
+    const objectTree = useObjectTreeStore()
+    const ui = useObjectTreeUiStore()
+    const ids = selection.ids
+    if (ids.length === 0) {
+      ui.flashNotice('请选择要移动的片段')
+      return
+    }
+
+    const beforeTree = objectTree.snapshotTree()
+    const patches: Patch[] = []
+    const inversePatches: Patch[] = []
+    let moved = false
+    let blocked = false
+
+    for (const id of ids) {
+      if (id.startsWith('seg_')) {
+        const seg = tracks.getSegment(id as SegmentId)
+        if (!seg) continue
+        const targetTrackId = adjacentCompatibleTrackId(seg.trackId, delta, 'audio')
+        if (!targetTrackId) { blocked = true; continue }
+        const oldTrackId = seg.trackId
+        const oldColor = seg.color
+        const oldTrack = tracks.tracks[seg.trackId]
+        const targetTrack = tracks.tracks[targetTrackId]
+        const oldTrackSegmentsBefore = oldTrack ? [...oldTrack.segments] : []
+        const targetTrackSegmentsBefore = targetTrack ? [...targetTrack.segments] : []
+        if (oldTrack) oldTrack.segments = oldTrack.segments.filter(item => item !== seg.id)
+        seg.trackId = targetTrackId
+        seg.color = tracks.tracks[targetTrackId]?.color ?? seg.color
+        if (targetTrack && !targetTrack.segments.includes(seg.id)) {
+          targetTrack.segments.push(seg.id)
+          targetTrack.segments.sort((a, b) => (tracks.getSegment(a)?.timelineStart ?? 0) - (tracks.getSegment(b)?.timelineStart ?? 0))
+        }
+        if (oldTrack) {
+          patches.push({ op: 'replace', path: `tracks.${oldTrackId}.segments`, value: [...oldTrack.segments] })
+          inversePatches.push({ op: 'replace', path: `tracks.${oldTrackId}.segments`, value: oldTrackSegmentsBefore })
+        }
+        if (targetTrack) {
+          patches.push({ op: 'replace', path: `tracks.${targetTrackId}.segments`, value: [...targetTrack.segments] })
+          inversePatches.push({ op: 'replace', path: `tracks.${targetTrackId}.segments`, value: targetTrackSegmentsBefore })
+        }
+        patches.push({ op: 'replace', path: `segments.${seg.id}.trackId`, value: targetTrackId })
+        inversePatches.push({ op: 'replace', path: `segments.${seg.id}.trackId`, value: oldTrackId })
+        patches.push({ op: 'replace', path: `segments.${seg.id}.color`, value: seg.color })
+        inversePatches.push({ op: 'replace', path: `segments.${seg.id}.color`, value: oldColor })
+        moved = true
+        continue
+      }
+
+      if (id.startsWith('node:trackObject:')) {
+        const node = objectTree.node(id)
+        if (!node || node.kind !== 'trackObject') continue
+        const parentId = objectTree.index.parentById[id]
+        const currentTrackId = parentId?.startsWith('node:trackFolder:') ? parentId.slice('node:trackFolder:'.length) : null
+        if (!currentTrackId) { blocked = true; continue }
+        const targetTrackId = adjacentCompatibleTrackId(currentTrackId, delta, node.trackObject.contentType)
+        if (!targetTrackId) { blocked = true; continue }
+        const result = objectTree.moveNode(id, `node:trackFolder:${targetTrackId}`)
+        if (!result.ok) { blocked = true; continue }
+        moved = true
+      }
+    }
+
+    if (!moved) {
+      ui.flashNotice(blocked ? '相邻音轨类型不匹配或不存在' : '没有可移动的片段')
+      return
+    }
+
+    const movedSegments = ids
+      .filter(id => id.startsWith('seg_'))
+      .map(id => tracks.getSegment(id as SegmentId))
+      .filter((seg): seg is AudioSegment => Boolean(seg))
+    if (movedSegments.length > 0) objectTree.syncMovedSegments(movedSegments)
+
+    const afterTree = objectTree.snapshotTree()
+    history.push({
+      description: delta < 0 ? '上移片段到上一音轨' : '下移片段到下一音轨',
+      patches,
+      inversePatches,
+      objectTree: { kind: 'snapshot', before: beforeTree, after: afterTree },
+    })
+    useProjectStore().bumpRedraw()
+    if (blocked) ui.flashNotice('部分片段未移动：相邻音轨类型不匹配或不存在')
+  }
+
+  function adjacentCompatibleTrackId(currentTrackId: TrackId, delta: -1 | 1, contentType: 'audio' | 'midi' | 'text'): TrackId | null {
+    const tracks = useTracksStore()
+    const currentIndex = tracks.trackOrder.indexOf(currentTrackId)
+    if (currentIndex < 0) return null
+    const targetId = tracks.trackOrder[currentIndex + delta]
+    if (!targetId) return null
+    const targetTrack = tracks.tracks[targetId]
+    const targetType = targetTrack?.trackType ?? 'audio'
+    return targetType === contentType ? targetId : null
+  }
+
   function handleSpacebar() {
     ;(window as any).__playbackPlay?.()
   }
@@ -370,14 +471,28 @@ export function useKeyboard() {
         ;(window as any).__timelineLocateSegment?.(segmentId)
         return
       }
-      ;(window as any).__playbackSeek?.(leftNode.trackObject.timelineStart)
-      ui.flashNotice('已定位到时间线起点')
+      ;(window as any).__timelineLocateTrackObject?.(leftNode.id)
       return
+    }
+    if (leftNode?.kind === 'audio') {
+      const ref = trackObjectReferencingSource(leftNode.id)
+      if (ref) {
+        const segmentId = ref.legacy?.segmentId
+        if (segmentId) {
+          ;(window as any).__timelineLocateSegment?.(segmentId)
+          return
+        }
+        ;(window as any).__timelineLocateTrackObject?.(ref.id)
+        return
+      }
     }
 
     const trackObjectId = trackObjectIdFromLegacySelection()
-    if (trackObjectId && objectTree.node(trackObjectId)) {
-      locateInL2(trackObjectId)
+    if (trackObjectId) {
+      if (objectTree.node(trackObjectId)) {
+        locateInL2(trackObjectId)
+        return
+      }
       return
     }
 
@@ -429,6 +544,14 @@ export function useKeyboard() {
     return source?.kind === 'audio' ? source : null
   }
 
+  function trackObjectReferencingSource(sourceObjectId: NodeId): TrackObjectNode | null {
+    const objectTree = useObjectTreeStore()
+    const nodes = Object.values(objectTree.index.nodes)
+    return nodes.find((node): node is TrackObjectNode => {
+      return node.kind === 'trackObject' && node.trackObject.sourceObjectId === sourceObjectId
+    }) ?? null
+  }
+
   function singleObjectTreeSelection(): NodeId | null {
     const ui = useObjectTreeUiStore()
     return ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
@@ -438,6 +561,7 @@ export function useKeyboard() {
     if (selection.ids.length !== 1) return null
     const objectTree = useObjectTreeStore()
     const selected = selection.ids[0]
+    if (selected.startsWith('node:trackObject:')) return selected
     if (selected.startsWith('seg_')) {
       return objectTree.legacyMaps?.trackObjectIdBySegmentId[selected] ?? `node:trackObject:${selected}`
     }
@@ -511,22 +635,9 @@ export function useKeyboard() {
         r.readAsDataURL(blob)
       })
 
-      let url = '/api/f0/extract'
-      let body: any = { wavBase64: b64, sourceFile: merged.sourceFile }
+      const body = { wavBase64: b64, sourceFile: merged.sourceFile, startSec: 0, endSec: totalDuration }
 
-      if (totalDuration <= 60) {
-        body = { wavBase64: b64, sourceFile: merged.sourceFile }
-      } else {
-        body = { wavBase64: b64, sourceFile: merged.sourceFile }
-        url = '/api/f0/extract-overlap'
-        // Extract just the overlap region + buffer
-        const overlapStart = Math.max(0, merged.timelineStart)
-        const overlapEnd = merged.timelineEnd
-        body.startSec = Math.max(0, overlapStart - 2)
-        body.endSec = overlapEnd + 2
-      }
-
-      const resp = await fetch(url, {
+      const resp = await fetch('/api/f0/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

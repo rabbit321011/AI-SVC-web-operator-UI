@@ -30,6 +30,7 @@ export interface AudioSegment {
 export interface Track {
   id: TrackId
   name: string
+  trackType?: 'audio' | 'midi' | 'text'
   color: string
 
   segments: SegmentId[]

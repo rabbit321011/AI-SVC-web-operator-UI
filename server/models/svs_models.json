@@ -1,0 +1,5 @@
+{
+  "plus_ja_sft_v4c step24k": "ckpts/plus_ja_sft_v4c/step_024000.pt",
+  "v4f_sofa_base30k step24k": "E:/MyProject/重要模型保存/YingMusic-Singer-Plus-sft-24k/v4f_sofa_base30k_step_024000.pt",
+  "V4fg_10k": "E:/MyProject/重要模型保存/V4fg_10k/step_010000.pt"
+}

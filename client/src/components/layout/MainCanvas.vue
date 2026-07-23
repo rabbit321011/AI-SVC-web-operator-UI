@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import { useMarqueeSelect } from '@/composables/useMarqueeSelect'
 import TrackRow from '@/components/track/TrackRow.vue'
 
@@ -13,10 +14,12 @@ const tracks = useTracksStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
+const editorWorkspace = useEditorWorkspaceStore()
 const marquee = useMarqueeSelect()
 const notice = ref('')
 
 const scrollRef = ref<HTMLElement | null>(null)
+let scrollSyncRaf = 0
 
 const marqueeStyle = computed(() => {
   const r = marquee.rect.value
@@ -40,25 +43,35 @@ function handleWheel(e: WheelEvent) {
 
   if (e.shiftKey) return
 
-  // Smooth: accumulate deltas, then animate
-  const target = el.scrollLeft + e.deltaY * (e.deltaMode === 1 ? 40 : 1) + e.deltaX * (e.deltaMode === 1 ? 40 : 1)
+  if (e.ctrlKey) {
+    el.scrollTop += (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 40 : 1)
+    e.preventDefault()
+    return
+  }
 
-  // Use a cancelable animation for smooth mouse wheel
-  const start = performance.now()
-  const from = el.scrollLeft
-  const duration = 80 // ms for smooth transition
-  let frameId = 0
-
-  function step(now: number) {
-     const t = Math.min(1, (now - start) / duration)
-     const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-     if (el) el.scrollLeft = from + (target - from) * eased
-     if (t < 1) frameId = requestAnimationFrame(step)
-   }
-  cancelAnimationFrame((handleWheel as any)._raf || 0);
-  (handleWheel as any)._raf = requestAnimationFrame(step)
+  const unit = e.deltaMode === 1 ? 40 : 1
+  const speed = e.altKey ? 3 : 1
+  el.scrollLeft += (e.deltaY * unit + e.deltaX * unit) * speed
 
   e.preventDefault()
+}
+
+function handleScroll() {
+  const el = scrollRef.value
+  if (!el) return
+  if (scrollSyncRaf) return
+  scrollSyncRaf = requestAnimationFrame(() => {
+    scrollSyncRaf = 0
+    const current = scrollRef.value
+    if (current) editorWorkspace.setTimelineScroll(current.scrollLeft, current.scrollTop)
+  })
+}
+
+function restoreTimelineScroll() {
+  const el = scrollRef.value
+  if (!el) return
+  el.scrollLeft = editorWorkspace.timelineScroll.left
+  el.scrollTop = editorWorkspace.timelineScroll.top
 }
 
 function allowDrop(e: DragEvent) {
@@ -101,24 +114,52 @@ function locateSegment(segmentId: string) {
   if (el) {
     el.scrollLeft = Math.max(0, seg.timelineStart * project.pxPerSec - 80)
     document.querySelector(`[data-track-id="${seg.trackId}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    editorWorkspace.setTimelineScroll(el.scrollLeft, el.scrollTop)
+  }
+  project.bumpRedraw()
+}
+
+function locateTrackObject(trackObjectId: string) {
+  const node = objectTree.node(trackObjectId)
+  if (!node || node.kind !== 'trackObject') {
+    flash('时间线对象不存在')
+    return
+  }
+  objectTreeUi.clearSelection()
+  selection.select(trackObjectId, false)
+  ;(window as any).__playbackSeek?.(node.trackObject.timelineStart)
+
+  const el = scrollRef.value
+  if (el) {
+    el.scrollLeft = Math.max(0, node.trackObject.timelineStart * project.pxPerSec - 80)
+    const parentId = objectTree.index.parentById[trackObjectId]
+    const trackId = parentId?.startsWith('node:trackFolder:') ? parentId.slice('node:trackFolder:'.length) : null
+    if (trackId) document.querySelector(`[data-track-id="${trackId}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    editorWorkspace.setTimelineScroll(el.scrollLeft, el.scrollTop)
   }
   project.bumpRedraw()
 }
 
 onMounted(() => {
   ;(window as any).__timelineLocateSegment = locateSegment
+  ;(window as any).__timelineLocateTrackObject = locateTrackObject
+  nextTick(restoreTimelineScroll)
 })
 
 onUnmounted(() => {
+  if (scrollSyncRaf) cancelAnimationFrame(scrollSyncRaf)
   if ((window as any).__timelineLocateSegment === locateSegment) {
     delete (window as any).__timelineLocateSegment
+  }
+  if ((window as any).__timelineLocateTrackObject === locateTrackObject) {
+    delete (window as any).__timelineLocateTrackObject
   }
 })
 </script>
 
 <template>
   <div class="main-canvas" @mousedown.self="handleCanvasClick">
-    <div ref="scrollRef" class="track-scroll" @mousedown.self="handleCanvasClick" @wheel.prevent="handleWheel" @dragover="allowDrop" @drop="handleDrop">
+    <div ref="scrollRef" class="track-scroll" @mousedown.self="handleCanvasClick" @wheel.prevent="handleWheel" @scroll="handleScroll" @dragover="allowDrop" @drop="handleDrop">
       <div class="marquee-overlay" :style="marqueeStyle" />
       <div class="track-list-inner">
         <TrackRow
@@ -128,9 +169,9 @@ onUnmounted(() => {
         />
       </div>
       <div v-if="tracks.trackOrder.length === 0" class="empty-state">
-        <div class="empty-icon">🎵</div>
+        <div class="empty-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3Zm0 2.3L6 8.7v6.6l6 3.4 6-3.4V8.7l-6-3.4Zm0 3.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg></div>
         <div class="empty-text">导入 WAV 文件开始编辑</div>
-        <div class="empty-hint">文件 → 导入 WAV，或拖拽音频文件到此处</div>
+        <div class="empty-hint">文件 / 导入 WAV，或拖拽音频文件到此处</div>
       </div>
       <div class="canvas-notice">{{ notice }}</div>
     </div>
@@ -143,7 +184,7 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: color-mix(in srgb, var(--app-surface) var(--center-opacity-percent), transparent);
 }
 .track-scroll {
   flex: 1;
@@ -169,9 +210,10 @@ onUnmounted(() => {
   height: 100%;
   gap: 12px;
 }
-.empty-icon { font-size: 48px; opacity: 0.3; }
-.empty-text { font-size: 16px; color: #8b949e; }
-.empty-hint { font-size: 13px; color: #484f58; }
+.empty-icon { opacity: 0.3; }
+.empty-icon svg { width: 48px; height: 48px; fill: currentColor; }
+.empty-text { font-size: 16px; color: var(--app-muted); }
+.empty-hint { font-size: 13px; color: var(--app-muted); }
 .canvas-notice {
   position: sticky;
   left: 12px;
@@ -180,7 +222,7 @@ onUnmounted(() => {
   min-height: 20px;
   padding: 2px 8px;
   font-size: 12px;
-  color: #f0b72f;
+  color: var(--app-warning, #b7791f);
   pointer-events: none;
 }
 </style>

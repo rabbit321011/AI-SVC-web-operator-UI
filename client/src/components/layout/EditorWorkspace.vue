@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import MainCanvas from '@/components/layout/MainCanvas.vue'
+import SettingsPage from '@/components/settings/SettingsPage.vue'
+import KeymapHelpPage from '@/components/settings/KeymapHelpPage.vue'
+import TextObjectEditor from '@/components/text/TextObjectEditor.vue'
 
 const editorWorkspace = useEditorWorkspaceStore()
 </script>
@@ -18,13 +21,26 @@ const editorWorkspace = useEditorWorkspaceStore()
         :aria-selected="tab.id === editorWorkspace.activeTabId"
         @click="editorWorkspace.activateTab(tab.id)"
       >
-        {{ tab.title }}
+        <span>{{ tab.title }}</span>
+        <span
+          v-if="tab.closable"
+          class="tab-close"
+          role="button"
+          tabindex="0"
+          aria-label="Close tab"
+          @click.stop="editorWorkspace.closeTab(tab.id)"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.2 4.2 8 8l3.8-3.8 1 1L9 9l3.8 3.8-1 1L8 10l-3.8 3.8-1-1L7 9 3.2 5.2l1-1Z" /></svg>
+        </span>
       </button>
     </div>
 
     <div class="editor-surface">
-      <MainCanvas v-if="editorWorkspace.activeTab?.kind === 'timeline'" />
-      <div v-else class="empty-editor">Editor unavailable</div>
+      <MainCanvas v-show="editorWorkspace.activeTab?.kind === 'timeline'" />
+      <SettingsPage v-if="editorWorkspace.activeTab?.kind === 'settings'" />
+      <KeymapHelpPage v-if="editorWorkspace.activeTab?.kind === 'keymap'" />
+      <TextObjectEditor v-if="editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'text'" :object-id="editorWorkspace.activeTab.contextObjectId" />
+      <div v-if="editorWorkspace.activeTab?.kind !== 'timeline' && editorWorkspace.activeTab?.kind !== 'settings' && editorWorkspace.activeTab?.kind !== 'keymap' && !(editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'text')" class="empty-editor">Editor unavailable</div>
     </div>
   </section>
 </template>
@@ -36,7 +52,8 @@ const editorWorkspace = useEditorWorkspaceStore()
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: color-mix(in srgb, var(--app-surface) var(--center-opacity-percent), transparent);
+  backdrop-filter: var(--center-backdrop-filter);
 }
 
 .editor-tabs {
@@ -45,8 +62,8 @@ const editorWorkspace = useEditorWorkspaceStore()
   align-items: flex-end;
   gap: 2px;
   padding: 4px 8px 0;
-  border-bottom: 1px solid #30363d;
-  background: #0d1117;
+  border-bottom: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-surface) var(--center-opacity-percent), transparent);
 }
 
 .editor-tab {
@@ -57,17 +74,32 @@ const editorWorkspace = useEditorWorkspaceStore()
   border-bottom: 0;
   border-radius: 6px 6px 0 0;
   background: transparent;
-  color: #8b949e;
+  color: var(--app-muted);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .editor-tab.active {
-  border-color: #30363d;
-  background: #161b22;
-  color: #c9d1d9;
+  border-color: var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
 }
+
+.tab-close {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.tab-close:hover { background: color-mix(in srgb, var(--app-border) 60%, transparent); }
+.tab-close svg { width: 12px; height: 12px; fill: currentColor; }
 
 .editor-surface {
   flex: 1;
@@ -81,6 +113,6 @@ const editorWorkspace = useEditorWorkspaceStore()
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8b949e;
+  color: var(--app-muted);
 }
 </style>

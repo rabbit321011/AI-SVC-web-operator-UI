@@ -82,13 +82,13 @@ function formatDate(iso: string) {
 <template>
   <div class="home-root">
     <div class="home-header">
-      <h1 class="home-title">🎵 AISVC Midi</h1>
+      <h1 class="home-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3Zm0 2.3L6 8.7v6.6l6 3.4 6-3.4V8.7l-6-3.4Zm0 3.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>AISVC Midi</h1>
       <p class="home-subtitle">歌词转歌声合成工作站</p>
     </div>
 
     <div class="home-actions">
-      <n-button type="primary" size="large" @click="showNewModal = true">📁 新建项目</n-button>
-      <n-button size="large" @click="importProject">📥 导入项目</n-button>
+      <n-button type="primary" size="large" @click="showNewModal = true"><span class="btn-icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h5l1 1h6v7H2V4Z" /></svg></span>新建项目</n-button>
+      <n-button size="large" @click="importProject"><span class="btn-icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.5 2h1v6.2l2.2-2.2.7.7L8 10.1 4.6 6.7l.7-.7 2.2 2.2V2ZM3 12h10v2H3v-2Z" /></svg></span>导入项目</n-button>
     </div>
 
     <div class="home-projects" v-if="projects.length > 0">
@@ -97,7 +97,7 @@ function formatDate(iso: string) {
         <n-grid-item v-for="p in projects" :key="p.name">
           <n-card hoverable @click="openProject(p.name)">
             <div class="project-card-content">
-              <span class="project-icon">📁</span>
+              <span class="project-icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h5l1 1h6v7H2V4Z" /></svg></span>
               <span class="project-name">{{ p.name }}</span>
             </div>
             <template #footer>
@@ -137,12 +137,16 @@ function formatDate(iso: string) {
   padding: 60px 80px;
 }
 .home-header { text-align: center; margin-bottom: 40px; }
-.home-title { font-size: 36px; margin: 0; color: #f0f6fc; }
+.home-title { font-size: 36px; margin: 0; color: #f0f6fc; display: inline-flex; align-items: center; gap: 10px; }
+.home-title svg { width: 34px; height: 34px; fill: currentColor; }
 .home-subtitle { font-size: 16px; color: #8b949e; margin-top: 8px; }
 .home-actions { display: flex; gap: 16px; justify-content: center; margin-bottom: 48px; }
 .home-projects h3 { margin-bottom: 16px; font-size: 18px; color: #8b949e; }
 .project-card-content { display: flex; align-items: center; gap: 12px; font-size: 16px; }
-.project-icon { font-size: 24px; }
+.project-icon { display: inline-flex; color: #8b949e; }
+.project-icon svg { width: 24px; height: 24px; fill: currentColor; }
+.btn-icon { display: inline-flex; margin-right: 6px; vertical-align: -2px; }
+.btn-icon svg { width: 16px; height: 16px; fill: currentColor; }
 .project-name { color: #c9d1d9; }
 .project-footer { display: flex; justify-content: space-between; align-items: center; }
 .project-date { font-size: 12px; color: #484f58; }

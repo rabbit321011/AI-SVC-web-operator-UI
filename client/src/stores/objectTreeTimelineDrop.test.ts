@@ -96,6 +96,7 @@ describe('AudioObject drag into timeline', () => {
   it('archives rendered Whisper text and backfills a text TrackObject', () => {
     setActivePinia(createPinia())
     const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
     objectTree.loadObjectTree(createEmptyProjectObjectTree())
 
     const result = objectTree.addRenderedTextToTimeline({
@@ -112,6 +113,10 @@ describe('AudioObject drag into timeline', () => {
 
     expect(result.ok).toBe(true)
     expect(result.outputName).toBe('whisper result')
+    expect(tracks.trackOrder).toHaveLength(1)
+    const textTrack = tracks.tracks[tracks.trackOrder[0]]
+    expect(textTrack.trackType).toBe('text')
+    expect(textTrack.name).toBe('whisper result')
 
     const renderRoot = workspaceLike(objectTree.tree.root.children.find(child => child.id === TOP_LEVEL_IDS.renders)!)
     const whisperFolder = workspaceLike(renderRoot.children.find(child => child.name === 'whisper')!)
@@ -128,6 +133,13 @@ describe('AudioObject drag into timeline', () => {
     expect(trackObject.trackObject.contentType).toBe('text')
     expect(trackObject.trackObject.timelineStart).toBe(6)
     expect(trackObject.trackObject.timelineEnd).toBe(9)
+
+    const trackSource = objectTree.node(result.trackSourceObjectId!)
+    expect(trackSource?.kind).toBe('text')
+    if (trackSource?.kind !== 'text') throw new Error('expected TextObject')
+    expect(trackSource.text.segments[0].id).toBeTruthy()
+    expect(trackSource.text.segments[0].end).toBe(1.5)
+    expect(trackSource.text.segments[1].end).toBe(2.5)
   })
 })
 

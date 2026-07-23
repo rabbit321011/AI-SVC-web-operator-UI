@@ -7,7 +7,12 @@ import { useHistoryStore } from '@/stores/history'
 import { usePlaybackStore } from '@/stores/playback'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useUiSettingsStore } from '@/stores/uiSettings'
+import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import type { TrackId, AudioSegment, F0Frame } from '@/types'
+import type { TextObjectNode, TextSegment, TrackObjectNode } from '@/object-workbench'
+import { kanaToRomaji } from '@/utils/kanaRomaji'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 import { buildSplitCommand } from '@/commands/split'
 
 const props = defineProps<{ trackId: TrackId }>()
@@ -18,6 +23,8 @@ const selection = useSelectionStore()
 const playback = usePlaybackStore()
 const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
+const uiSettings = useUiSettingsStore()
+const editorWorkspace = useEditorWorkspaceStore()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const playheadRef = ref<HTMLCanvasElement | null>(null)
@@ -33,8 +40,23 @@ const CANVAS_H = PAD_T + CHART_H + PAD_B + SEG_H + 6
 
 const track = computed(() => tracks.tracks[props.trackId])
 const segments = computed(() => tracks.getTrackSegments(props.trackId))
+const textTrackObjects = computed(() => {
+  if (track.value?.trackType !== 'text') return []
+  const folder = objectTree.node(`node:trackFolder:${props.trackId}`)
+  if (!folder || folder.kind !== 'trackFolder') return []
+  return folder.children
+    .map(trackObject => {
+      const source = objectTree.node(trackObject.trackObject.sourceObjectId)
+      return source?.kind === 'text' ? { trackObject, source } : null
+    })
+    .filter((item): item is { trackObject: TrackObjectNode; source: TextObjectNode } => Boolean(item))
+})
 
 const totalDuration = computed(() => {
+  if (track.value?.trackType === 'text') {
+    const maxTextEnd = Math.max(0, ...textTrackObjects.value.map(item => item.trackObject.trackObject.timelineEnd))
+    return Math.max(10, maxTextEnd)
+  }
   const segs = segments.value
   if (segs.length > 0) {
     return Math.max(...segs.map(s => s.timelineEnd))
@@ -89,6 +111,7 @@ function draw() {
   const canvas = canvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')!
+  const theme = canvasTheme()
   const dpr = window.devicePixelRatio || 1
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.scale(dpr, dpr)
@@ -96,18 +119,24 @@ function draw() {
 
   const W = totalW.value
 
-  ctx.fillStyle = '#0d1117'
+  ctx.fillStyle = hexToRgba(theme.surface, theme.canvasAlpha)
   ctx.fillRect(0, 0, W, CANVAS_H)
 
-  ctx.fillStyle = '#0f1419'
+  ctx.fillStyle = hexToRgba(theme.panel, Math.min(1, theme.canvasAlpha + 0.08))
   ctx.fillRect(PAD_L, PAD_T, W - PAD_L - PAD_R, CHART_H)
+
+  if (track.value?.trackType === 'text') {
+    drawTextTrack(ctx, theme)
+    drawTimeGrid(ctx, theme)
+    return
+  }
 
   const gridMidi = [48, 55, 60, 67, 72, 79, 84]
   for (const midi of gridMidi) {
     const f = 440 * Math.pow(2, (midi - 69) / 12)
     const y = freqToY(f)
     if (y < PAD_T || y > PAD_T + CHART_H) continue
-    ctx.strokeStyle = midi % 12 === 0 ? '#21262d' : '#161b22'
+    ctx.strokeStyle = midi % 12 === 0 ? theme.border : theme.subtleBorder
     ctx.lineWidth = 0.5
     ctx.beginPath()
     ctx.moveTo(PAD_L, y)
@@ -173,7 +202,7 @@ function draw() {
     ctx.fill()
 
     if (isSel) {
-      ctx.strokeStyle = '#58a6ff'
+      ctx.strokeStyle = theme.accent
       ctx.lineWidth = 2
       ctx.shadowColor = 'rgba(88,166,255,0.4)'
       ctx.shadowBlur = 4
@@ -183,16 +212,116 @@ function draw() {
     }
   }
 
+  drawTimeGrid(ctx, theme)
+}
+
+function drawTimeGrid(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof canvasTheme>) {
   const step = project.pxPerSec > 120 ? 1 : project.pxPerSec > 60 ? 2 : project.pxPerSec > 30 ? 5 : 10
   for (let t = 0; t <= totalDuration.value; t += step) {
     const x = timeToX(t)
-    ctx.strokeStyle = '#161b22'
+    ctx.strokeStyle = theme.subtleBorder
     ctx.lineWidth = 0.5
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, CANVAS_H)
     ctx.stroke()
   }
+}
+
+function drawTextTrack(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof canvasTheme>) {
+  const barTop = PAD_T + 18
+  const barHeight = 66
+  ctx.textBaseline = 'middle'
+
+  for (const item of textTrackObjects.value) {
+    const { trackObject, source } = item
+    const start = trackObject.trackObject.timelineStart
+    const end = trackObject.trackObject.timelineEnd
+    const x = timeToX(start)
+    const w = Math.max(8, (end - start) * project.pxPerSec)
+    const isSel = selection.isSelected(trackObject.id)
+    const baseColor = track.value?.color ?? theme.accent
+    const textColors = textColorsForSegment(baseColor, theme)
+
+    ctx.fillStyle = hexToRgba(baseColor, trackObject.trackObject.ignored ? 0.18 : 0.34)
+    roundRect(ctx, x, barTop, w, barHeight, 5)
+    ctx.fill()
+
+    const segments = normalizedTextSegments(source.text.segments, end - start)
+    for (const segment of segments) {
+      const sx = timeToX(start + segment.start)
+      const sw = Math.max(3, (segment.end - segment.start) * project.pxPerSec)
+      ctx.fillStyle = hexToRgba(baseColor, 0.42)
+      roundRect(ctx, sx, barTop + 5, sw, barHeight - 10, 4)
+      ctx.fill()
+      ctx.strokeStyle = hexToRgba(theme.border, 0.9)
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(sx, barTop + 6)
+      ctx.lineTo(sx, barTop + barHeight - 6)
+      ctx.stroke()
+
+      const pad = 5
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(sx + pad, barTop + 5, Math.max(0, sw - pad * 2), barHeight - 10)
+      ctx.clip()
+      ctx.font = '13px system-ui, sans-serif'
+      drawReadableText(ctx, displayRomaji(segment), sx + pad, barTop + 22, textColors.muted, textColors.outline)
+      ctx.font = '15px system-ui, sans-serif'
+      drawReadableText(ctx, segment.kana, sx + pad, barTop + 45, textColors.primary, textColors.outline)
+      ctx.restore()
+    }
+
+    if (isSel) {
+      ctx.strokeStyle = theme.accent
+      ctx.lineWidth = 2
+      roundRect(ctx, x, barTop, w, barHeight, 5)
+      ctx.stroke()
+    }
+  }
+}
+
+function displayRomaji(segment: Required<TextSegment>): string {
+  if (segment.romaji.includes(' ')) return segment.romaji
+  if (segment.kana) return kanaToRomaji(segment.kana)
+  return segment.romaji.replace(/([aeiou])/gi, '$1 ').replace(/\s+/g, ' ').trim()
+}
+
+function textColorsForSegment(baseColor: string, theme: ReturnType<typeof canvasTheme>) {
+  const rgb = parseColor(baseColor)
+  if (!rgb) return { primary: '#0d1117', muted: '#30363d', outline: 'rgba(255,255,255,0.72)' }
+  const luminance = relativeLuminance(rgb)
+  return luminance > 0.32
+    ? { primary: '#0d1117', muted: '#30363d', outline: 'rgba(255,255,255,0.75)' }
+    : { primary: theme.text, muted: theme.mutedText, outline: 'rgba(0,0,0,0.72)' }
+}
+
+function drawReadableText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fill: string, outline: string) {
+  ctx.lineWidth = 3
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = outline
+  ctx.strokeText(text, x, y)
+  ctx.fillStyle = fill
+  ctx.fillText(text, x, y)
+}
+
+function normalizedTextSegments(segments: TextSegment[], fallbackDuration: number): Array<Required<TextSegment>> {
+  const sorted = segments
+    .map((segment, index) => ({
+      id: segment.id || `textseg:local:${index}`,
+      start: Math.max(0, segment.start),
+      end: segment.end,
+      kana: segment.kana,
+      romaji: segment.romaji,
+    }))
+    .sort((a, b) => a.start - b.start)
+
+  return sorted.map((segment, index) => {
+    const nextStart = sorted[index + 1]?.start
+    const end = Math.max(segment.start + 0.1, segment.end ?? nextStart ?? fallbackDuration)
+    return { ...segment, end }
+  })
 }
 
 function drawPlayhead() {
@@ -250,12 +379,66 @@ function findSegmentAt(cx: number, cy: number): AudioSegment | null {
   return null
 }
 
+function findTextObjectAt(cx: number, cy: number): { trackObject: TrackObjectNode; source: TextObjectNode } | null {
+  const t = xToTime(cx)
+  const barTop = PAD_T + 18
+  const barHeight = 66
+  if (cy < barTop || cy > barTop + barHeight) return null
+  for (const item of textTrackObjects.value) {
+    const start = item.trackObject.trackObject.timelineStart
+    const end = item.trackObject.trackObject.timelineEnd
+    if (t >= start && t <= end) return item
+  }
+  return null
+}
+
+type TextBoundaryHit = {
+  trackObject: TrackObjectNode
+  source: TextObjectNode
+  segment: Required<TextSegment>
+  previous?: Required<TextSegment>
+  next?: Required<TextSegment>
+  edge: 'left' | 'right'
+}
+
+function findTextBoundaryAt(cx: number, cy: number): TextBoundaryHit | null {
+  const item = findTextObjectAt(cx, cy)
+  if (!item) return null
+  const localTime = xToTime(cx) - item.trackObject.trackObject.timelineStart
+  const duration = item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart
+  const handleSec = Math.max(0.04, 6 / project.pxPerSec)
+  const textSegments = normalizedTextSegments(item.source.text.segments, duration)
+  for (let index = 0; index < textSegments.length; index++) {
+    const segment = textSegments[index]
+    if (Math.abs(localTime - segment.start) <= handleSec) {
+      return { trackObject: item.trackObject, source: item.source, segment, previous: textSegments[index - 1], next: textSegments[index + 1], edge: 'left' }
+    }
+    if (Math.abs(localTime - segment.end) <= handleSec) {
+      return { trackObject: item.trackObject, source: item.source, segment, previous: textSegments[index - 1], next: textSegments[index + 1], edge: 'right' }
+    }
+  }
+  return null
+}
+
 function handleClick(e: MouseEvent) {
   const canvas = canvasRef.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
+
+  if (track.value?.trackType === 'text') {
+    const item = findTextObjectAt(cx, cy)
+    if (item) {
+      objectTreeUi.clearSelection()
+      selection.select(item.trackObject.id, e.ctrlKey || e.metaKey)
+      draw()
+      return
+    }
+    const t = xToTime(cx)
+    if (t >= 0) (window as any).__playbackSeek?.(t)
+    return
+  }
 
   if (e.altKey) {
     const seg = findSegmentAt(cx, cy)
@@ -282,20 +465,23 @@ function handleClick(e: MouseEvent) {
   }
 }
 
-function handleSplit(cutTime: number) {
+async function handleSplit(cutTime: number) {
   const tstore = useTracksStore()
   const hstore = useHistoryStore()
   for (const seg of segments.value) {
     if (cutTime > seg.timelineStart && cutTime < seg.timelineEnd) {
-      const elapsed = cutTime - seg.timelineStart
-      const cutSample = Math.round(seg.srcStartSample + elapsed * (track.value?.sampleRate ?? 44100))
+      const sourceSampleRate = await sampleRateForSegment(seg)
+      const elapsedSamples = Math.round((cutTime - seg.timelineStart) * sourceSampleRate)
+      const cutSample = seg.srcStartSample + elapsedSamples
+      const snappedCutTime = seg.timelineStart + elapsedSamples / sourceSampleRate
+      if (cutSample <= seg.srcStartSample || cutSample >= seg.srcEndSample) return
 
       const segAClone = { ...seg }
       const segBClone = { ...seg }
 
       if (seg.f0Data) {
-        const relCut = cutTime - seg.timelineStart
-        const cutIdx = seg.f0Data.findIndex(f => seg.timelineStart + f.t >= cutTime)
+        const relCut = snappedCutTime - seg.timelineStart
+        const cutIdx = seg.f0Data.findIndex(f => f.t >= relCut)
         if (cutIdx > 0) {
           segAClone.f0Data = seg.f0Data.slice(0, cutIdx)
           segBClone.f0Data = seg.f0Data.slice(cutIdx).map(f => ({ ...f, t: f.t - relCut }))
@@ -309,13 +495,13 @@ function handleSplit(cutTime: number) {
         ...segAClone,
         id: tstore.makeSegmentId(),
         srcEndSample: cutSample,
-        timelineEnd: cutTime,
+        timelineEnd: snappedCutTime,
       }
       const segB: AudioSegment = {
         ...segBClone,
         id: tstore.makeSegmentId(),
         srcStartSample: cutSample,
-        timelineStart: cutTime,
+        timelineStart: snappedCutTime,
       }
 
       const oldSegSnapshot = { ...seg }
@@ -324,7 +510,7 @@ function handleSplit(cutTime: number) {
       const splitSync = objectTree.syncSplitSegment(oldSegSnapshot, [segA, segB])
 
       const cmd = buildSplitCommand(
-        { trackId: props.trackId, segment: oldSegSnapshot, cutTime, sampleRate: track.value?.sampleRate ?? 44100 },
+        { trackId: props.trackId, segment: oldSegSnapshot, cutTime: snappedCutTime, sampleRate: sourceSampleRate },
         segA, segB
       )
       if (cmd.objectTree?.kind === 'splitSegment') cmd.objectTree.splitSnapshot = splitSync.snapshot
@@ -339,6 +525,70 @@ function handleSplit(cutTime: number) {
 const isDragging = ref(false)
 const dragStartClientX = ref(0)
 const dragSegments: Array<{ seg: AudioSegment; origStart: number; origEnd: number; origTrackId: TrackId; origColor: string }> = []
+const textBoundaryDrag = ref<{
+  hit: TextBoundaryHit
+  originalStart: number
+  originalEnd: number
+  beforeTree: ReturnType<typeof objectTree.snapshotTree>
+} | null>(null)
+
+function onTextBoundaryMove(e: MouseEvent) {
+  const drag = textBoundaryDrag.value
+  const canvas = canvasRef.value
+  if (!drag || !canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const candidate = xToTime(e.clientX - rect.left) - drag.hit.trackObject.trackObject.timelineStart
+  const minDuration = 0.1
+  let nextStart = drag.originalStart
+  let nextEnd = drag.originalEnd
+
+  if (drag.hit.edge === 'left') {
+    const min = drag.hit.previous?.end ?? 0
+    const max = nextEnd - minDuration
+    nextStart = Math.max(min, Math.min(max, candidate))
+    if (drag.hit.previous && Math.abs(drag.hit.previous.end - drag.originalStart) < 0.001) {
+      objectTree.updateTextSegmentTiming(drag.hit.source.id, drag.hit.previous.id, drag.hit.previous.start, nextStart)
+    }
+  } else {
+    const min = nextStart + minDuration
+    const max = drag.hit.next?.start ?? (drag.hit.trackObject.trackObject.timelineEnd - drag.hit.trackObject.trackObject.timelineStart)
+    nextEnd = Math.max(min, Math.min(max, candidate))
+    if (drag.hit.next && Math.abs(drag.hit.next.start - drag.originalEnd) < 0.001) {
+      objectTree.updateTextSegmentTiming(drag.hit.source.id, drag.hit.next.id, nextEnd, drag.hit.next.end)
+    }
+  }
+
+  objectTree.updateTextSegmentTiming(drag.hit.source.id, drag.hit.segment.id, nextStart, nextEnd)
+  project.bumpRedraw()
+  draw()
+}
+
+async function sampleRateForSegment(seg: AudioSegment): Promise<number> {
+  const blob = tracks.sourceBlobs.get(seg.sourceFile) ?? tracks.sourceBlobs.get(seg.trackId)
+  if (!blob) return track.value?.sampleRate || 44100
+  try {
+    const meta = await getAudioBlobMeta(blob)
+    return meta.sampleRate || track.value?.sampleRate || 44100
+  } catch {
+    return track.value?.sampleRate || 44100
+  }
+}
+
+function onTextBoundaryEnd() {
+  const drag = textBoundaryDrag.value
+  if (drag) {
+    const afterTree = objectTree.snapshotTree()
+    useHistoryStore().push({
+      description: '调整文本句子边界',
+      patches: [],
+      inversePatches: [],
+      objectTree: { kind: 'snapshot', before: drag.beforeTree, after: afterTree },
+    })
+  }
+  textBoundaryDrag.value = null
+  document.removeEventListener('mousemove', onTextBoundaryMove)
+  document.removeEventListener('mouseup', onTextBoundaryEnd)
+}
 
 function onDragMove(e: MouseEvent) {
   if (!isDragging.value) return
@@ -391,12 +641,84 @@ function onDragEnd() {
   })
 }
 
+function canvasTheme() {
+  const source = containerRef.value ?? document.documentElement
+  const style = getComputedStyle(source)
+  const surface = cssVar(style, '--app-surface', '#0d1117')
+  const panel = cssVar(style, '--app-panel', '#161b22')
+  const border = cssVar(style, '--app-border', '#21262d')
+  const accent = cssVar(style, '--app-accent', '#58a6ff')
+  const text = cssVar(style, '--app-text', '#e6edf3')
+  const mutedText = cssVar(style, '--app-muted', '#8b949e')
+  const canvasAlpha = Number(style.getPropertyValue('--track-canvas-bg-alpha').trim())
+  return {
+    surface,
+    panel,
+    border,
+    accent,
+    text,
+    mutedText,
+    canvasAlpha: Number.isFinite(canvasAlpha) ? Math.max(0.2, Math.min(1, canvasAlpha)) : 1,
+    subtleBorder: mixHex(surface, border, 0.45),
+  }
+}
+
+function cssVar(style: CSSStyleDeclaration, name: string, fallback: string): string {
+  return style.getPropertyValue(name).trim() || fallback
+}
+
+function mixHex(a: string, b: string, amount: number): string {
+  const left = parseHex(a)
+  const right = parseHex(b)
+  if (!left || !right) return b
+  const next = left.map((value, index) => Math.round(value * (1 - amount) + right[index] * amount))
+  return `rgb(${next[0]},${next[1]},${next[2]})`
+}
+
+function parseHex(value: string): [number, number, number] | null {
+  const match = value.match(/^#([0-9a-f]{6})$/i)
+  if (!match) return null
+  return [
+    parseInt(match[1].slice(0, 2), 16),
+    parseInt(match[1].slice(2, 4), 16),
+    parseInt(match[1].slice(4, 6), 16),
+  ]
+}
+
+function parseColor(value: string): [number, number, number] | null {
+  const hex = parseHex(value)
+  if (hex) return hex
+  const rgb = value.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/i)
+  if (!rgb) return null
+  return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const [rs, gs, bs] = [r, g, b].map(channel => {
+    const value = channel / 255
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs
+}
+
 function handleMousedown(e: MouseEvent) {
   const canvas = canvasRef.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
+
+  if (track.value?.trackType === 'text' && (e.ctrlKey || e.metaKey)) {
+    const hit = findTextBoundaryAt(cx, cy)
+    if (hit) {
+      textBoundaryDrag.value = { hit, originalStart: hit.segment.start, originalEnd: hit.segment.end, beforeTree: objectTree.snapshotTree() }
+      document.addEventListener('mousemove', onTextBoundaryMove)
+      document.addEventListener('mouseup', onTextBoundaryEnd)
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+  }
 
   const seg = findSegmentAt(cx, cy)
   if (!seg) return
@@ -420,10 +742,15 @@ function handleMousedown(e: MouseEvent) {
 
 function handleMousemove(e: MouseEvent) {
   const canvas = canvasRef.value
-  if (!canvas || isDragging.value) return
+  if (!canvas || isDragging.value || textBoundaryDrag.value) return
   const rect = canvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
+
+  if (track.value?.trackType === 'text' && (e.ctrlKey || e.metaKey) && findTextBoundaryAt(cx, cy)) {
+    canvas.style.cursor = 'ew-resize'
+    return
+  }
 
   const seg = findSegmentAt(cx, cy)
   if (seg && (e.ctrlKey || e.metaKey)) {
@@ -433,10 +760,24 @@ function handleMousemove(e: MouseEvent) {
   }
 }
 
+function handleDblClick(e: MouseEvent) {
+  if (track.value?.trackType !== 'text') return
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const item = findTextObjectAt(e.clientX - rect.left, e.clientY - rect.top)
+  if (item) editorWorkspace.openTextObjectTab(item.source.id, item.source.name)
+}
+
 // ── Watch: content redraw only (playhead separated) ──
 watch(() => [
   project.pxPerSec,
+  uiSettings.settings.theme,
+  uiSettings.settings.centerOpacity,
+  uiSettings.settings.backgroundImageEnabled,
+  uiSettings.settings.backgroundImageUrl,
   totalDuration.value,
+  textTrackObjects.value,
   segments.value.length,
   segments.value,
   selection.ids,
@@ -484,6 +825,7 @@ onUnmounted(() => {
       @click="handleClick"
       @mousedown="handleMousedown"
       @mousemove="handleMousemove"
+      @dblclick="handleDblClick"
     />
     <canvas
       ref="playheadRef"

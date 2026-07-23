@@ -5,6 +5,7 @@ import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import type { TrackId } from '@/types'
+import { NColorPicker } from 'naive-ui'
 
 const props = defineProps<{ trackId: TrackId }>()
 
@@ -79,6 +80,19 @@ function toggleSolo() {
   }
 }
 
+function moveTrack(delta: -1 | 1) {
+  const from = tracks.trackOrder.indexOf(props.trackId)
+  const to = from + delta
+  if (from < 0 || to < 0 || to >= tracks.trackOrder.length) return
+  tracks.reorderTracks(from, to)
+  objectTree.syncTrackFolderOrder([...tracks.trackOrder])
+}
+
+function setTrackColor(color: string) {
+  tracks.setTrackColor(props.trackId, color)
+  objectTree.syncTrackFolderColor(props.trackId, color)
+}
+
 function handleContextMenu(e: MouseEvent) {
   e.preventDefault()
   menuX.value = e.clientX
@@ -133,6 +147,8 @@ function setVolume(v: number | null) {
       <div class="track-controls">
         <button class="ctrl-btn" :class="{ active: track.muted }" title="静音 (M)" @click.stop="toggleMute">M</button>
         <button class="ctrl-btn" :class="{ active: track.solo }" title="独奏 (S)" @click.stop="toggleSolo">S</button>
+        <button class="ctrl-btn icon-ctrl" title="上移音轨" :disabled="tracks.trackOrder[0] === trackId" @click.stop="moveTrack(-1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3 3.5 8h3v5h3V8h3L8 3Z" /></svg></button>
+        <button class="ctrl-btn icon-ctrl" title="下移音轨" :disabled="tracks.trackOrder[tracks.trackOrder.length - 1] === trackId" @click.stop="moveTrack(1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13 3.5 8h3V3h3v5h3L8 13Z" /></svg></button>
       </div>
       <div class="track-volume">
         <input
@@ -145,7 +161,7 @@ function setVolume(v: number | null) {
         <span class="vol-val">{{ Math.round(track.volume * 100) }}%</span>
       </div>
       <div class="track-meta">
-        <span class="meta-item" v-if="track.ignored" title="已忽视">🚫</span>
+        <span class="meta-item" v-if="track.ignored" title="已忽视"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13ZM4.6 5.5a5 5 0 0 0 5.9 5.9L4.6 5.5Zm6.8 5a5 5 0 0 0-5.9-5.9l5.9 5.9Z" /></svg></span>
       </div>
       <div class="f0-progress" v-if="track.f0Total > 0 && track.f0Pending > 0">
         <div class="f0-progress-bar" :style="{ width: ((track.f0Total - track.f0Pending) / track.f0Total * 100) + '%' }" />
@@ -155,8 +171,12 @@ function setVolume(v: number | null) {
 
     <Teleport to="body">
       <div v-if="showMenu" class="ctx-menu" :style="{ left: menuX + 'px', top: menuY + 'px' }" @click.stop>
-        <div class="ctx-item" @click="startRename">✏️ 重命名</div>
-        <div class="ctx-item ctx-danger" @click="deleteTrack">🗑 删除音轨</div>
+        <div class="ctx-item" @click="startRename"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.9 1.8 14.2 4 5.6 12.6 2.8 13.2l.6-2.8 8.5-8.6ZM3 14h10v1H3v-1Z" /></svg>重命名</div>
+        <div class="ctx-color">
+          <span>音轨颜色</span>
+          <n-color-picker :value="track.color" size="small" :show-alpha="false" @update:value="setTrackColor" />
+        </div>
+        <div class="ctx-item ctx-danger" @click="deleteTrack"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2h3l.5 1H13v1H3V3h3l.5-1ZM4 5h8l-.5 9h-7L4 5Z" /></svg>删除音轨</div>
       </div>
     </Teleport>
   </div>
@@ -166,9 +186,9 @@ function setVolume(v: number | null) {
 .track-header {
   width: 130px;
   flex-shrink: 0;
-  background: #161b22;
-  border-left: 3px solid #58a6ff;
-  border-right: 1px solid #21262d;
+  background: var(--app-panel);
+  border-left: 3px solid var(--app-accent);
+  border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
   user-select: none;
@@ -187,7 +207,7 @@ function setVolume(v: number | null) {
 .track-name {
   font-size: 13px;
   font-weight: 500;
-  color: #c9d1d9;
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -196,10 +216,10 @@ function setVolume(v: number | null) {
 .track-name-input {
   font-size: 13px;
   font-weight: 500;
-  background: #0d1117;
-  border: 1px solid #58a6ff;
+  background: var(--app-surface);
+  border: 1px solid var(--app-accent);
   border-radius: 3px;
-  color: #c9d1d9;
+  color: var(--app-text);
   padding: 2px 4px;
   outline: none;
   width: 100%;
@@ -213,44 +233,48 @@ function setVolume(v: number | null) {
   display: flex;
   gap: 4px;
   margin-top: 2px;
+  flex-wrap: wrap;
 }
 .ctrl-btn {
   width: 22px; height: 18px;
   font-size: 10px; font-weight: 600;
-  border: 1px solid #30363d; border-radius: 3px;
-  background: #0d1117; color: #484f58;
+  border: 1px solid var(--app-border); border-radius: 3px;
+  background: var(--app-surface); color: var(--app-muted);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   padding: 0;
 }
-.ctrl-btn:hover { border-color: #58a6ff; color: #8b949e; }
-.ctrl-btn.active { background: #58a6ff; color: #fff; border-color: #58a6ff; }
+.ctrl-btn:hover { border-color: var(--app-accent); color: var(--app-text); }
+.ctrl-btn.active { background: var(--app-accent); color: #fff; border-color: var(--app-accent); }
+.ctrl-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-ctrl svg { width: 12px; height: 12px; fill: currentColor; }
 .track-meta {
   display: flex; gap: 4px; font-size: 10px; margin-top: auto;
 }
 .meta-item { opacity: 0.6; }
+.meta-item svg { width: 12px; height: 12px; fill: currentColor; }
 
 .track-volume {
   display: flex; align-items: center; gap: 3px; margin-top: 2px;
 }
 .vol-slider {
-  width: 60px; height: 4px; cursor: pointer; accent-color: #58a6ff; margin: 0;
+  width: 60px; height: 4px; cursor: pointer; accent-color: var(--app-accent); margin: 0;
 }
 .vol-val {
-  font-size: 9px; color: #484f58; min-width: 28px; text-align: right;
+  font-size: 9px; color: var(--app-muted); min-width: 28px; text-align: right;
 }
 
 .f0-progress {
   margin-top: 4px; height: 12px;
-  background: #21262d; border-radius: 6px;
+  background: var(--app-border); border-radius: 6px;
   overflow: hidden; position: relative;
 }
 .f0-progress-bar {
-  height: 100%; background: #58a6ff; border-radius: 6px;
+  height: 100%; background: var(--app-accent); border-radius: 6px;
 }
 .f0-progress-text {
   position: absolute; top: 0; left: 0; right: 0;
-  font-size: 8px; color: #c9d1d9;
+  font-size: 8px; color: var(--app-text);
   text-align: center; line-height: 12px;
 }
 </style>
@@ -259,8 +283,8 @@ function setVolume(v: number | null) {
 .ctx-menu {
   position: fixed;
   z-index: 9999;
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
   border-radius: 6px;
   padding: 4px 0;
   min-width: 120px;
@@ -269,11 +293,23 @@ function setVolume(v: number | null) {
 .ctx-item {
   padding: 6px 16px;
   font-size: 12px;
-  color: #c9d1d9;
+  color: var(--app-text);
   cursor: pointer;
   display: flex; align-items: center; gap: 8px;
 }
-.ctx-item:hover { background: #1f6feb22; }
+.ctx-item svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+.ctx-item:hover { background: var(--app-hover); }
 .ctx-danger { color: #f85149; }
 .ctx-danger:hover { background: #f8514922; }
+.ctx-color {
+  padding: 8px 12px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--app-text);
+}
 </style>

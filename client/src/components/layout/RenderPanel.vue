@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { NButton, NCheckbox, NInput, NInputNumber, NSelect, NSpace, NTag } from 'naive-ui'
+import { computed, onMounted, ref } from 'vue'
+import { NButton, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useSvcConfigStore } from '@/stores/svcConfig'
+import { useSvsConfigStore } from '@/stores/svsConfig'
 import { useRenderSvcPipeline } from '@/composables/useRenderSvcPipeline'
 import { useRenderSvsPipeline } from '@/composables/useRenderSvsPipeline'
+import { useRenderWhisperPipeline } from '@/composables/useRenderWhisperPipeline'
 import { validateRenderSlot, type RenderInputRef, type RenderSlotId } from '@/object-workbench'
 
 const renderPanel = useRenderPanelStore()
@@ -15,8 +17,10 @@ const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
 const svcConfig = useSvcConfigStore()
+const svsConfig = useSvsConfigStore()
 const renderSvcPipeline = useRenderSvcPipeline()
 const renderSvsPipeline = useRenderSvsPipeline()
+const renderWhisperPipeline = useRenderWhisperPipeline()
 const notice = ref('')
 
 const selectedObjectNodeId = computed(() => {
@@ -29,6 +33,7 @@ const selectedObjectNodeId = computed(() => {
 })
 
 const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
+const svsModelOptions = computed(() => svsConfig.models.map(m => ({ label: m.name, value: m.name })))
 const msstOutputOptions = [
   { label: '人声 + 伴奏', value: 'vocals_accompaniment' },
   { label: '仅人声', value: 'vocals' },
@@ -127,12 +132,9 @@ async function runSvs() {
   if (renderPanel.svsStatus === 'failed') flash(renderPanel.svsMessage || 'SVS 执行失败')
 }
 
-function runWhisperPlaceholder() {
-  if (!renderPanel.canRunWhisper) return
-  if (!renderPanel.setWhisperRunning('Whisper 后端尚未接入')) return
-  renderPanel.updateWhisperProgress(100, 'Whisper 后端尚未接入')
-  renderPanel.setWhisperFailed('Whisper 后端尚未接入')
-  flash('Whisper 后端尚未接入')
+async function runWhisper() {
+  await renderWhisperPipeline.startWhisper()
+  if (renderPanel.whisperStatus === 'failed') flash(renderPanel.whisperMessage || 'Whisper 执行失败')
 }
 
 function runMsstPlaceholder() {
@@ -142,6 +144,10 @@ function runMsstPlaceholder() {
   renderPanel.setMsstFailed('MSST 后端尚未接入')
   flash('MSST 后端尚未接入')
 }
+
+onMounted(() => {
+  svsConfig.fetchModels()
+})
 </script>
 
 <template>
@@ -250,7 +256,26 @@ function runMsstPlaceholder() {
       <n-space vertical :size="8">
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.svs.outputName" size="small" placeholder="SVS_output" />
-        <n-input v-model:value="renderPanel.svs.manualText" type="textarea" size="small" placeholder="假名歌词" @focus="renderPanel.svs.textMode = 'manual'" />
+        <label class="field-label">Kana</label>
+        <n-input
+          :value="renderPanel.svs.manualText"
+          type="textarea"
+          size="small"
+          placeholder="假名歌词"
+          @focus="renderPanel.svs.textMode = 'manual'"
+          @update:value="renderPanel.setSvsManualKana"
+        />
+        <label class="field-label">Romaji</label>
+        <n-input
+          :value="renderPanel.svs.manualRomaji"
+          type="textarea"
+          size="small"
+          placeholder="romaji"
+          @focus="renderPanel.svs.textMode = 'manual'"
+          @update:value="renderPanel.setSvsManualRomaji"
+        />
+        <label class="field-label">SVS 模型</label>
+        <n-select v-model:value="svsConfig.selectedName" size="small" :options="svsModelOptions" placeholder="默认模型" clearable />
         <label class="field-label">cfg</label>
         <n-input-number v-model:value="renderPanel.svs.cfg" size="small" :min="0" :max="10" :step="0.1" />
         <label class="field-label">step</label>
@@ -302,7 +327,16 @@ function runMsstPlaceholder() {
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.whisper.outputName" size="small" placeholder="Whisper_text" />
         <label class="field-label">语言</label>
-        <n-input v-model:value="renderPanel.whisper.language" size="small" placeholder="auto" />
+        <n-select v-model:value="renderPanel.whisper.language" size="small" :options="[
+          { label: '自动检测', value: 'auto' },
+          { label: '日本語', value: 'ja' },
+          { label: '中文', value: 'zh' },
+          { label: 'English', value: 'en' },
+        ]" />
+        <label class="field-label">
+          <n-switch v-model:value="renderPanel.whisper.vad" size="small" />
+          VAD 跳过静音
+        </label>
       </n-space>
       <div v-if="renderPanel.whisperStatus !== 'idle'" class="run-status">
         <div class="status-line">
@@ -313,7 +347,7 @@ function runMsstPlaceholder() {
           <div class="progress-bar" :style="{ width: `${renderPanel.whisperProgress}%` }" />
         </div>
       </div>
-      <n-button type="primary" size="small" :disabled="!renderPanel.canRunWhisper" :loading="renderPanel.whisperStatus === 'running'" block @click="runWhisperPlaceholder">
+      <n-button type="primary" size="small" :disabled="!renderPanel.canRunWhisper" :loading="renderPanel.whisperStatus === 'running'" block @click="runWhisper">
         转写
       </n-button>
     </div>
@@ -364,21 +398,22 @@ function runMsstPlaceholder() {
 .render-panel {
   width: 230px;
   flex-shrink: 0;
-  background: #161b22;
-  border-left: 1px solid #21262d;
+  background: color-mix(in srgb, var(--app-panel) var(--side-opacity-percent), transparent);
+  border-left: 1px solid var(--app-border);
+  backdrop-filter: var(--sidebar-backdrop-filter);
   display: flex;
   flex-direction: column;
 }
 .panel-header {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--app-border);
 }
 .mode-btn {
   height: 34px;
   border: 0;
   background: transparent;
-  color: #8b949e;
+  color: var(--app-muted);
   cursor: pointer;
   font-size: 11px;
   min-width: 0;
@@ -387,7 +422,7 @@ function runMsstPlaceholder() {
 }
 .mode-btn.active {
   color: #fff;
-  background: #1f6feb;
+  background: var(--app-accent);
 }
 .panel-body {
   padding: 10px;
@@ -404,11 +439,11 @@ function runMsstPlaceholder() {
   border-radius: 4px;
   padding: 4px;
 }
-.slot-row:hover { border-color: #30363d; }
+.slot-row:hover { border-color: var(--app-border); }
 .slot-title {
   grid-column: 1 / -1;
   font-size: 11px;
-  color: #8b949e;
+  color: var(--app-muted);
 }
 .slot-actions {
   display: flex;
@@ -417,17 +452,17 @@ function runMsstPlaceholder() {
 .slot-error {
   grid-column: 1 / -1;
   font-size: 11px;
-  color: #f0b72f;
+  color: var(--app-warning);
 }
 .field-label {
   font-size: 11px;
-  color: #8b949e;
+  color: var(--app-muted);
 }
 .notice {
   min-height: 18px;
   padding: 0 10px 10px;
   font-size: 11px;
-  color: #f0b72f;
+  color: var(--app-warning);
 }
 .run-status {
   display: flex;
@@ -447,7 +482,7 @@ function runMsstPlaceholder() {
   justify-content: space-between;
   gap: 8px;
   font-size: 11px;
-  color: #8b949e;
+  color: var(--app-muted);
 }
 .status-line span:first-child {
   min-width: 0;
@@ -458,12 +493,12 @@ function runMsstPlaceholder() {
 .progress-track {
   height: 4px;
   border-radius: 2px;
-  background: #21262d;
+  background: var(--app-border);
   overflow: hidden;
 }
 .progress-bar {
   height: 100%;
-  background: #1f6feb;
+  background: var(--app-accent);
   transition: width 160ms ease;
 }
 </style>

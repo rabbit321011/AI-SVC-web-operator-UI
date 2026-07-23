@@ -80,7 +80,7 @@ export async function resolveAudioRenderInputToSegmentInputs(options: ResolveAud
 
     const timelineStart = legacySegment?.timelineStart ?? item.timelineStart
     const timelineEnd = legacySegment?.timelineEnd ?? item.timelineEnd
-    const sampleRate = legacyTrack?.sampleRate || asset.sampleRate || defaultSampleRate
+    const sampleRate = asset.sampleRate || legacyTrack?.sampleRate || defaultSampleRate
     const duration = Math.max(0, timelineEnd - timelineStart)
     const startSample = legacySegment?.srcStartSample ?? 0
     const endSample = legacySegment?.srcEndSample ?? inferEndSample(asset.duration || duration, sampleRate)

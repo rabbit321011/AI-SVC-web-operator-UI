@@ -19,6 +19,31 @@ describe('object tree sync from legacy timeline edits', () => {
     expect(store.node('node:trackFolder:trk_a')?.name).toBe('Renamed')
   })
 
+  it('syncs TrackFolder color and order from timeline controls', () => {
+    setActivePinia(createPinia())
+    const store = useObjectTreeStore()
+    const tree = createEmptyProjectObjectTree()
+    const tracksRoot = tree.root.children.find(child => child.id === TOP_LEVEL_IDS.tracks)
+    if (!tracksRoot || tracksRoot.kind !== 'folder') throw new Error('missing tracks root')
+    tracksRoot.children.push(
+      trackFolderWith('node:trackFolder:trk_a', 'trk_a', []),
+      trackFolderWith('node:trackFolder:trk_b', 'trk_b', []),
+    )
+    store.loadObjectTree(tree)
+
+    expect(store.syncTrackFolderColor('trk_a', '#ff0000').ok).toBe(true)
+    const trackA = store.node('node:trackFolder:trk_a')
+    expect(trackA?.kind).toBe('trackFolder')
+    if (trackA?.kind !== 'trackFolder') throw new Error('expected TrackFolder')
+    expect(trackA.trackFolder.color).toBe('#ff0000')
+
+    expect(store.syncTrackFolderOrder(['trk_b', 'trk_a']).ok).toBe(true)
+    const reorderedRoot = store.node(TOP_LEVEL_IDS.tracks)
+    expect(reorderedRoot?.kind).toBe('folder')
+    if (reorderedRoot?.kind !== 'folder') throw new Error('expected tracks folder')
+    expect(reorderedRoot.children.map(child => child.id)).toEqual(['node:trackFolder:trk_b', 'node:trackFolder:trk_a'])
+  })
+
   it('syncs legacy track name when renaming TrackFolder from the object tree', () => {
     setActivePinia(createPinia())
     const store = useObjectTreeStore()

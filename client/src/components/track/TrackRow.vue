@@ -35,7 +35,7 @@ const isIgnored = computed(() => track.value?.ignored ?? false)
 <style scoped>
 .track-row {
   display: flex;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--app-border);
   min-height: 140px;
   transition: opacity 0.2s;
   width: max-content;

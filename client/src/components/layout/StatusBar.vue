@@ -48,14 +48,14 @@ function fmtTime(s: number): string {
   align-items: center;
   justify-content: space-between;
   padding: 4px 16px;
-  background: #161b22;
-  border-top: 1px solid #21262d;
+  background: var(--app-panel);
+  border-top: 1px solid var(--app-border);
   font-size: 11px;
-  color: #6e7681;
+  color: var(--app-muted);
   flex-shrink: 0;
 }
 .status-right { display: flex; gap: 16px; }
 .playback-time { color: #e94560; font-weight: 500; }
-.sel-count { color: #58a6ff; }
-.history-hint { color: #484f58; }
+.sel-count { color: var(--app-accent); }
+.history-hint { color: var(--app-muted); }
 </style>

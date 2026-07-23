@@ -3,15 +3,23 @@ import { computed, nextTick, ref } from 'vue'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useSelectionStore } from '@/stores/selection'
+import { useUiSettingsStore } from '@/stores/uiSettings'
+import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import type { NodeId, TreeNode } from '@/object-workbench'
 import ObjectTreeRows from './ObjectTreeRows.vue'
 
 const objectTree = useObjectTreeStore()
 const ui = useObjectTreeUiStore()
 const selection = useSelectionStore()
+const uiSettings = useUiSettingsStore()
+const editorWorkspace = useEditorWorkspaceStore()
 const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
 const rootChildren = computed(() => objectTree.tree.root.children)
+const sidebarStyle = computed(() => ({
+  width: uiSettings.settings.l1Collapsed && uiSettings.settings.l2Collapsed ? '80px' : uiSettings.settings.l1Collapsed || uiSettings.settings.l2Collapsed ? '160px' : '260px',
+  gridTemplateColumns: `${uiSettings.settings.l1Collapsed ? '34px' : 'minmax(0, 1fr)'} ${uiSettings.settings.l2Collapsed ? '34px' : 'minmax(0, 1fr)'}`,
+}))
 
 function hasChildren(node: TreeNode): node is Extract<TreeNode, { children: TreeNode[] }> {
   return (node.kind === 'folder' || node.kind === 'trackFolder') && node.children.length > 0
@@ -32,6 +40,10 @@ function handleNodeClick(pane: 'L1' | 'L2', node: TreeNode, event: MouseEvent) {
     return
   }
   ui.selectNode(node, event.ctrlKey || event.metaKey)
+}
+
+function handleNodeDblClick(node: TreeNode) {
+  if (node.kind === 'text') editorWorkspace.openTextObjectTab(node.id, node.name)
 }
 
 function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
@@ -109,6 +121,12 @@ function deleteFolder() {
   flash(result.ok ? '已删除' : result.reason ?? '无法删除')
 }
 
+function openTextEditor() {
+  const node = menu.value.node
+  closeMenu()
+  if (node?.kind === 'text') editorWorkspace.openTextObjectTab(node.id, node.name)
+}
+
 function locateInL2(id: NodeId) {
   ui.locateInL2(objectTree.index.parentById, id)
   nextTick(() => {
@@ -126,13 +144,18 @@ function cssSafeId(id: NodeId) {
 </script>
 
 <template>
-  <div class="sidebar">
-    <div class="tree-pane">
+  <div class="sidebar" :style="sidebarStyle">
+    <div class="tree-pane" :class="{ collapsed: uiSettings.settings.l1Collapsed }">
       <div class="pane-header">
         <span>L1</span>
-        <button class="mini-btn" :disabled="ui.selectedIds.length !== 1" @click="locateInL2(ui.selectedIds[0])">→L2</button>
+        <div class="pane-actions">
+          <button v-if="!uiSettings.settings.l1Collapsed" class="mini-btn" :disabled="ui.selectedIds.length !== 1" @click="locateInL2(ui.selectedIds[0])">L2</button>
+          <button class="collapse-btn" title="收起/展开 L1" @click="uiSettings.settings.l1Collapsed = !uiSettings.settings.l1Collapsed">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="uiSettings.settings.l1Collapsed ? 'M6 3l5 5-5 5V3Z' : 'M10 3 5 8l5 5V3Z'" /></svg>
+          </button>
+        </div>
       </div>
-      <div class="tree-scroll">
+      <div v-if="!uiSettings.settings.l1Collapsed" class="tree-scroll">
         <ObjectTreeRows
           v-for="node in rootChildren"
           :key="'l1-' + node.id"
@@ -145,14 +168,20 @@ function cssSafeId(id: NodeId) {
           :handle-node-drop="handleNodeDrop"
           :allow-tree-drop="allowTreeDrop"
           :handle-context-menu="handleContextMenu"
+          :handle-node-dbl-click="handleNodeDblClick"
           :row-dom-id="rowDomId"
         />
       </div>
     </div>
 
-    <div class="tree-pane">
-      <div class="pane-header"><span>L2</span></div>
-      <div class="tree-scroll">
+    <div class="tree-pane" :class="{ collapsed: uiSettings.settings.l2Collapsed }">
+      <div class="pane-header">
+        <span>L2</span>
+        <button class="collapse-btn" title="收起/展开 L2" @click="uiSettings.settings.l2Collapsed = !uiSettings.settings.l2Collapsed">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="uiSettings.settings.l2Collapsed ? 'M10 3 5 8l5 5V3Z' : 'M6 3l5 5-5 5V3Z'" /></svg>
+        </button>
+      </div>
+      <div v-if="!uiSettings.settings.l2Collapsed" class="tree-scroll">
         <ObjectTreeRows
           v-for="node in rootChildren"
           :key="'l2-' + node.id"
@@ -165,6 +194,7 @@ function cssSafeId(id: NodeId) {
           :handle-node-drop="handleNodeDrop"
           :allow-tree-drop="allowTreeDrop"
           :handle-context-menu="handleContextMenu"
+          :handle-node-dbl-click="handleNodeDblClick"
           :row-dom-id="rowDomId"
         />
       </div>
@@ -179,6 +209,7 @@ function cssSafeId(id: NodeId) {
       >
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="createFolderHere">新建文件夹</div>
         <div v-if="menu.node && !menu.node.id.startsWith('project:/')" class="tree-menu-item" @click="renameNode">重命名</div>
+        <div v-if="menu.node?.kind === 'text'" class="tree-menu-item" @click="openTextEditor">打开文本编辑器</div>
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除文件夹</div>
         <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
       </div>
@@ -188,40 +219,53 @@ function cssSafeId(id: NodeId) {
 
 <style scoped>
 .sidebar {
-  width: 260px;
-  background: #161b22;
-  border-right: 1px solid #21262d;
+  background: color-mix(in srgb, var(--app-panel) var(--side-opacity-percent), transparent);
+  border-right: 1px solid var(--app-border);
+  backdrop-filter: var(--sidebar-backdrop-filter);
   display: grid;
-  grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr auto;
   flex-shrink: 0;
-  min-width: 240px;
+  width: 260px;
+  min-width: 80px;
 }
 .tree-notice {
   grid-column: 1 / -1;
   min-height: 18px;
   padding: 2px 8px 6px;
   font-size: 11px;
-  color: #f0b72f;
-  border-top: 1px solid #21262d;
+  color: var(--app-warning, #b7791f);
+  border-top: 1px solid var(--app-border);
 }
 .tree-pane {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #21262d;
+  border-right: 1px solid var(--app-border);
+}
+.tree-pane.collapsed {
+  min-width: 32px;
 }
 .tree-pane:last-child { border-right: 0; }
 .pane-header {
   height: 34px;
   padding: 0 8px;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
-  color: #8b949e;
+  color: var(--app-muted);
   font-weight: 600;
+}
+.tree-pane.collapsed .pane-header {
+  padding: 0 4px;
+  writing-mode: vertical-rl;
+  gap: 6px;
+}
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .tree-scroll {
   flex: 1;
@@ -229,13 +273,27 @@ function cssSafeId(id: NodeId) {
   padding: 4px 0;
 }
 .mini-btn {
-  border: 1px solid #30363d;
-  background: #0d1117;
-  color: #8b949e;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-muted);
   border-radius: 3px;
   font-size: 10px;
   padding: 1px 4px;
 }
+.collapse-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--app-border);
+  border-radius: 3px;
+  background: var(--app-surface);
+  color: var(--app-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+.collapse-btn svg { width: 12px; height: 12px; fill: currentColor; }
 .mini-btn:disabled {
   opacity: 0.35;
 }
@@ -249,19 +307,21 @@ function cssSafeId(id: NodeId) {
   gap: 4px;
   height: 24px;
   font-size: 12px;
-  color: #c9d1d9;
+  color: var(--app-text);
   cursor: default;
   user-select: none;
 }
-.tree-row:hover { background: #21262d; }
-.tree-row.selected { background: #1f3a5f; outline: 1px solid #58a6ff; }
-.tree-row.located { background: #3a2f14; }
-.tree-row.folder { color: #8b949e; }
-.tree-row.virtual-member { color: #8b949e; font-size: 11px; }
-.twisty { color: #8b949e; text-align: center; font-size: 13px; }
+.tree-row:hover { background: var(--app-hover); }
+.tree-row.selected { background: var(--app-selected); outline: 1px solid var(--app-accent); }
+.tree-row.located { background: var(--app-located); }
+.tree-row.folder { color: var(--app-muted); }
+.tree-row.virtual-member { color: var(--app-muted); font-size: 11px; }
+.twisty { color: var(--app-muted); text-align: center; font-size: 13px; }
+.twisty svg { width: 12px; height: 12px; fill: currentColor; transition: transform 120ms ease; }
+.twisty svg.expanded { transform: rotate(90deg); }
 .kind {
   font-size: 9px;
-  color: #6e7681;
+  color: var(--app-muted);
   text-transform: uppercase;
 }
 .name {
@@ -272,35 +332,36 @@ function cssSafeId(id: NodeId) {
 .tree-play-btn {
   width: 18px;
   height: 18px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--app-border);
   border-radius: 3px;
-  background: #0d1117;
-  color: #8b949e;
+  background: var(--app-surface);
+  color: var(--app-muted);
   font-size: 9px;
   line-height: 16px;
   padding: 0;
   cursor: pointer;
 }
+.tree-play-btn svg { width: 11px; height: 11px; fill: currentColor; }
 .tree-play-btn:hover {
-  border-color: #58a6ff;
-  color: #c9d1d9;
+  border-color: var(--app-accent);
+  color: var(--app-text);
 }
 .tree-context-menu {
   position: fixed;
   z-index: 10000;
   min-width: 130px;
   padding: 4px 0;
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.35);
 }
 .tree-menu-item {
   padding: 6px 12px;
   font-size: 12px;
-  color: #c9d1d9;
+  color: var(--app-text);
   cursor: pointer;
 }
-.tree-menu-item:hover { background: #21262d; }
+.tree-menu-item:hover { background: var(--app-hover); }
 .tree-menu-item.danger { color: #f85149; }
 </style>

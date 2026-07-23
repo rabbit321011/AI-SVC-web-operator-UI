@@ -70,6 +70,19 @@ describe('right tool panel store', () => {
     expect(renderPanel.canRunWhisper).toBe(false)
     expect(renderPanel.canRunMsst).toBe(false)
   })
+
+  it('syncs SVS manual kana and romaji fields', () => {
+    setActivePinia(createPinia())
+    const renderPanel = useRenderPanelStore()
+
+    renderPanel.setSvsManualKana('きみのこえ')
+    expect(renderPanel.svs.manualRomaji).toBe('ki mi no ko e')
+    expect(renderPanel.svs.textMode).toBe('manual')
+
+    renderPanel.setSvsManualRomaji('to o ku')
+    expect(renderPanel.svs.manualText).toBe('とおく')
+    expect(renderPanel.svs.textMode).toBe('manual')
+  })
 })
 
 function workspace(tree: ReturnType<typeof createEmptyProjectObjectTree>): FolderNode {

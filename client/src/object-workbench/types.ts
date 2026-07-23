@@ -72,7 +72,9 @@ export interface TextObjectNode extends BaseTreeNode {
 }
 
 export interface TextSegment {
+  id?: string
   start: number
+  end?: number
   kana: string
   romaji: string
 }

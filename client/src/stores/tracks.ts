@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
 import type { Track, TrackId, SegmentId, AudioSegment } from '@/types'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 const TRACK_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
@@ -51,6 +52,7 @@ export const useTracksStore = defineStore('tracks', () => {
     const track: Track = {
       id,
       name: name || `音轨 ${trkNum}`,
+      trackType: 'audio',
       color,
       segments: [segId],
       sourceFile,
@@ -75,6 +77,33 @@ export const useTracksStore = defineStore('tracks', () => {
     return id
   }
 
+  function addObjectTrack(trackType: 'midi' | 'text', name?: string): TrackId {
+    const id = makeTrackId()
+    const color = trackType === 'text' ? '#56d4dd' : nextColor()
+    const trkNum = trackOrder.value.length + 1
+    tracks[id] = {
+      id,
+      name: name || `${trackType} ${trkNum}`,
+      trackType,
+      color,
+      segments: [],
+      sourceFile: '',
+      sampleRate: 0,
+      totalSamples: 0,
+      f0Cache: null,
+      f0Pending: 0,
+      f0Total: 0,
+      collapsed: false,
+      muted: false,
+      solo: false,
+      volume: 1,
+      ignored: false,
+      boundCompGroupId: null,
+    }
+    trackOrder.value.push(id)
+    return id
+  }
+
   function removeTrack(id: TrackId) {
     const track = tracks[id]
     if (!track) return
@@ -87,6 +116,15 @@ export const useTracksStore = defineStore('tracks', () => {
 
   function renameTrack(id: TrackId, newName: string) {
     if (tracks[id]) tracks[id].name = newName
+  }
+
+  function setTrackColor(id: TrackId, color: string) {
+    const track = tracks[id]
+    if (!track) return
+    track.color = color
+    for (const segmentId of track.segments) {
+      if (segmentsMap[segmentId]) segmentsMap[segmentId].color = color
+    }
   }
 
   function reorderTracks(fromIdx: number, toIdx: number) {
@@ -154,7 +192,7 @@ export const useTracksStore = defineStore('tracks', () => {
     if (f0RunningForTrack === trackId) return
 
     const segs = getTrackSegments(trackId)
-    const needsExtraction = segs.filter(s => !s.f0Extracted && s.sourceFile && getSegBlob(s))
+    const needsExtraction = segs.filter(s => (!s.f0Extracted || hasStaleF0Window(s)) && s.sourceFile && getSegBlob(s))
 
     track.f0Total = needsExtraction.length
     track.f0Pending = needsExtraction.length
@@ -175,15 +213,25 @@ export const useTracksStore = defineStore('tracks', () => {
           projectBump()
           continue
         }
+        const meta = await getAudioBlobMeta(blob)
+        const sourceSampleRate = meta.sampleRate || track.sampleRate || 44100
+        const startSec = Math.max(0, seg.srcStartSample / sourceSampleRate)
+        const endSec = Math.max(startSec, seg.srcEndSample / sourceSampleRate)
+        const segmentDuration = Math.max(0, seg.timelineEnd - seg.timelineStart)
         const b64 = await blobToBase64(blob)
         const resp = await fetch('/api/f0/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wavBase64: b64, sourceFile: seg.sourceFile, sampleRate: track.sampleRate }),
+          body: JSON.stringify({ wavBase64: b64, sourceFile: seg.sourceFile, startSec, endSec }),
         })
         const json = await resp.json()
         if (json.data?.length) {
           seg.f0Data = json.data
+            .map((frame: { t: number; freq: number; prob: number }) => ({
+              ...frame,
+              t: Math.max(0, Number((frame.t - startSec).toFixed(6))),
+            }))
+            .filter((frame: { t: number }) => frame.t <= segmentDuration + 0.05)
           seg.f0Extracted = true
         } else {
           seg.f0Extracted = true
@@ -208,11 +256,18 @@ export const useTracksStore = defineStore('tracks', () => {
     })
   }
 
+  function hasStaleF0Window(seg: AudioSegment): boolean {
+    if (!seg.f0Data?.length) return false
+    const duration = Math.max(0, seg.timelineEnd - seg.timelineStart)
+    const maxT = Math.max(...seg.f0Data.map(frame => frame.t))
+    return maxT > duration + 0.25
+  }
+
   function projectBump() { useProjectStore().bumpRedraw() }
 
   return {
     tracks, trackOrder, segmentsMap, sourceBlobs,
-    addTrack, removeTrack, renameTrack, reorderTracks,
+    addTrack, addObjectTrack, removeTrack, renameTrack, setTrackColor, reorderTracks,
     getSegment, updateSegment, replaceSegments, insertSegment,
     getAllSegments, getTrackSegments,
     reconcileF0ForTrack,
