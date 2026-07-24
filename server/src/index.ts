@@ -13,11 +13,14 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { runSvc } from './services/svc.service.js'
 import { buildSvsArgs, runSvs, verifySvsResources } from './services/svs.service.js'
 import { runWhisper } from './services/whisper.service.js'
+import { MSST_MODEL_IDS, MSST_OUTPUT_IDS, runMsst, verifyMsstResources } from './services/msst.service.js'
+import { GlobalResourceRepository } from './services/global-resource.service.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '500mb' }))
 app.use('/api/projects/:name/blobs', express.raw({ type: 'application/octet-stream', limit: '500mb' }))
+app.use('/api/global-resources/:id/blobs', express.raw({ type: 'application/octet-stream', limit: '500mb' }))
 
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws/svc' })
@@ -26,6 +29,7 @@ const wss = new WebSocketServer({ server, path: '/ws/svc' })
 const svcJobs = new Map<string, WebSocket>()
 const svsJobs = new Map<string, WebSocket>()
 const whisperJobs = new Map<string, WebSocket>()
+const msstJobs = new Map<string, WebSocket>()
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WS] client connected')
@@ -37,6 +41,7 @@ wss.on('connection', (ws: WebSocket) => {
         svcJobs.set(msg.jobId, ws)
         svsJobs.set(msg.jobId, ws)
         whisperJobs.set(msg.jobId, ws)
+        msstJobs.set(msg.jobId, ws)
         console.log(`[WS] registered job ${msg.jobId}`)
       }
     } catch {}
@@ -125,6 +130,7 @@ app.get('/api/demo/audio', (_req, res) => {
 // Demo F0 data (extracted on first request, cached to disk)
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const PROJECTS_DIR = path.join(PROJECT_ROOT, 'projects')
+const globalResources = new GlobalResourceRepository(PROJECT_ROOT)
 const DEMO_F0_CACHE = path.join(PROJECT_ROOT, 'data', 'demo_f0.json')
 const PYTHON_EXE = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const F0_SCRIPT = path.join(PROJECT_ROOT, 'server', 'scripts', 'f0_extract.py')
@@ -501,6 +507,54 @@ app.post('/api/whisper/run', (req, res) => {
   }
 })
 
+app.post('/api/msst/run', (req, res) => {
+  const { jobId: clientJobId, inputWav, model, device } = req.body
+  if (!inputWav || !fs.existsSync(inputWav)) {
+    res.status(400).json({ error: 'missing or invalid inputWav' })
+    return
+  }
+  if (!(MSST_MODEL_IDS as readonly string[]).includes(model)) {
+    res.status(400).json({ error: 'invalid MSST model id' })
+    return
+  }
+  try {
+    verifyMsstResources()
+  } catch (error: any) {
+    res.status(503).json({ error: error?.message || String(error) })
+    return
+  }
+  const jobId = clientJobId || crypto.randomUUID().slice(0, 8)
+  const outputDir = path.resolve(PROJECT_ROOT, 'data', `render_${jobId}_msst`)
+  res.json({ ok: true, jobId, status: 'started' })
+
+  function tryRun() {
+    const ws = msstJobs.get(jobId)
+    if (!ws) return false
+    runMsst({ model, inputWav, outputDir, device: device === 'cpu' ? 'cpu' : 'cuda' }, ws)
+    return true
+  }
+  if (!tryRun()) {
+    setTimeout(() => {
+      if (!tryRun()) console.error(`[MSST] job ${jobId} WS never connected`)
+    }, 2000)
+  }
+})
+
+app.get('/api/msst/result/:jobId/:outputId.wav', (req, res) => {
+  const outputId = req.params.outputId
+  if (!(MSST_OUTPUT_IDS as readonly string[]).includes(outputId)) {
+    res.status(400).json({ error: 'invalid MSST output id' })
+    return
+  }
+  const outputPath = path.resolve(PROJECT_ROOT, 'data', `render_${req.params.jobId}_msst`, `${outputId}.wav`)
+  if (!fs.existsSync(outputPath)) {
+    res.status(404).json({ error: 'MSST output not found' })
+    return
+  }
+  res.setHeader('Content-Type', 'audio/wav')
+  fs.createReadStream(outputPath).pipe(res)
+})
+
 app.get('/api/svs/result/:jobId.wav', (req, res) => {
   const outDir = path.resolve(PROJECT_ROOT, 'data', `render_${req.params.jobId}_svs_timbre`)
   if (!fs.existsSync(outDir)) {
@@ -550,28 +604,33 @@ function uiDir(name: string) { return path.join(projectDir(name), 'ui') }
 
 type BlobManifest = Record<string, string>
 
-function readProjectBlobs(name: string): Record<string, string> {
+function listProjectBlobKeys(name: string): string[] {
   const bDir = blobsDir(name)
-  const blobs: Record<string, string> = {}
-  if (!fs.existsSync(bDir)) return blobs
-
+  if (!fs.existsSync(bDir)) return []
   const manifest = readBlobManifest(name)
-  for (const [fileName, originalKey] of Object.entries(manifest)) {
-    const filePath = path.join(bDir, fileName)
-    if (!fileName.endsWith('.blob') || !fs.existsSync(filePath)) continue
-    blobs[originalKey] = fs.readFileSync(filePath, 'base64')
-  }
+  const keys = Object.entries(manifest)
+    .filter(([fileName]) => fileName.endsWith('.blob') && fs.existsSync(path.join(bDir, fileName)))
+    .map(([, originalKey]) => originalKey)
 
   // Backward compatibility for projects saved before the short-name manifest.
-  for (const f of fs.readdirSync(bDir)) {
-    if (!f.endsWith('.blob') || manifest[f]) continue
-    const raw = f.replace(/\.blob$/, '')
-    const originalKey = decodeURIComponent(raw)
-    if (!blobs[originalKey]) {
-      blobs[originalKey] = fs.readFileSync(path.join(bDir, f), 'base64')
-    }
+  for (const fileName of fs.readdirSync(bDir)) {
+    if (!fileName.endsWith('.blob') || manifest[fileName]) continue
+    const originalKey = decodeURIComponent(fileName.replace(/\.blob$/, ''))
+    if (!keys.includes(originalKey)) keys.push(originalKey)
   }
-  return blobs
+  return keys
+}
+
+function projectBlobPath(name: string, key: string): string | null {
+  const bDir = blobsDir(name)
+  const manifest = readBlobManifest(name)
+  const fileName = Object.entries(manifest).find(([, originalKey]) => originalKey === key)?.[0]
+  if (fileName) {
+    const filePath = path.join(bDir, fileName)
+    return fs.existsSync(filePath) ? filePath : null
+  }
+  const legacyPath = path.join(bDir, `${encodeURIComponent(key)}.blob`)
+  return fs.existsSync(legacyPath) ? legacyPath : null
 }
 
 function writeProjectBlobs(name: string, sourceBlobs: Record<string, string>) {
@@ -649,6 +708,51 @@ function imageExtension(fileName?: string, mimeType?: string): string | null {
   return null
 }
 
+app.get('/api/global-resources', (_req, res) => {
+  res.json(globalResources.list().map(entry => ({ id: entry.id, name: entry.name, publishedAt: entry.publishedAt })))
+})
+
+app.put('/api/global-resources/:id/blobs', (req, res) => {
+  const encodedKey = req.header('x-blob-key')
+  if (!encodedKey) { res.status(400).json({ error: 'missing x-blob-key' }); return }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) { res.status(400).json({ error: 'missing blob body' }); return }
+  try {
+    globalResources.writeStagedBlob(req.params.id, decodeURIComponent(encodedKey), req.body)
+    res.json({ ok: true })
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) })
+  }
+})
+
+app.post('/api/global-resources/:id', (req, res) => {
+  const { node, assets, blobKeys } = req.body ?? {}
+  if (!node || node.id !== req.params.id || !assets || !Array.isArray(blobKeys)) {
+    res.status(400).json({ error: 'invalid Global Resource payload' })
+    return
+  }
+  try {
+    const entry = globalResources.publish({ id: req.params.id, name: String(node.name || req.params.id), node, assets, blobKeys })
+    res.json({ ok: true, id: entry.id })
+  } catch (error: any) {
+    res.status(error?.message === 'Resource is already global' ? 409 : 500).json({ error: error?.message || String(error) })
+  }
+})
+
+app.delete('/api/global-resources/:id', (req, res) => {
+  const removed = globalResources.remove(req.params.id)
+  if (!removed) { res.status(404).json({ error: 'Global Resource not found' }); return }
+  res.json({ ok: true })
+})
+
+app.post('/api/projects/:name/resources/sync', (req, res) => {
+  try {
+    res.json({ ok: true, ...globalResources.syncProject(req.params.name) })
+  } catch (error: any) {
+    const message = error?.message || String(error)
+    res.status(message === 'Project not found' ? 404 : 500).json({ error: message })
+  }
+})
+
 app.get('/api/projects', (_req, res) => {
   fs.mkdirSync(PROJECTS_DIR, { recursive: true })
   const entries = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
@@ -674,6 +778,20 @@ app.post('/api/projects', (req, res) => {
     id: crypto.randomUUID(),
     name: safe,
     version: '1.0.0',
+    objectTree: {
+      schemaVersion: 'object-workbench.v1',
+      root: {
+        id: 'project:/', kind: 'folder', name: 'project', children: [
+          { id: 'project:/workspace', kind: 'folder', name: 'workspace', children: [] },
+          { id: 'project:/resource', kind: 'folder', name: 'resource', children: [] },
+          { id: 'project:/trackSources', kind: 'folder', name: 'trackSources', children: [] },
+          { id: 'project:/tracks', kind: 'folder', name: 'tracks', children: [] },
+          { id: 'project:/groups', kind: 'folder', name: 'groups', children: [] },
+          { id: 'project:/renders', kind: 'folder', name: 'renders', children: [] },
+        ],
+      },
+      assets: {},
+    },
     tracks: {}, trackOrder: [], segments: {},
     compGroups: {}, compGroupOrder: [],
     timelineOffset: 0, pxPerSec: 60,
@@ -690,9 +808,26 @@ app.get('/api/projects/:name', (req, res) => {
   if (!fs.existsSync(p)) { res.status(404).json({ error: 'not found' }); return }
   try {
     const json = JSON.parse(fs.readFileSync(p, 'utf-8'))
-    json._sourceBlobsBase64 = readProjectBlobs(req.params.name)
+    json._sourceBlobKeys = listProjectBlobKeys(req.params.name)
     res.json(json)
   } catch (e: any) { res.status(500).json({ error: e.message }) }
+})
+
+app.get('/api/projects/:name/blobs', (req, res) => {
+  const encodedKey = req.header('x-blob-key')
+  if (!encodedKey) { res.status(400).json({ error: 'missing x-blob-key' }); return }
+  let key = ''
+  try {
+    key = decodeURIComponent(encodedKey)
+  } catch {
+    res.status(400).json({ error: 'invalid x-blob-key' })
+    return
+  }
+  const filePath = projectBlobPath(req.params.name, key)
+  if (!filePath) { res.status(404).json({ error: 'blob not found' }); return }
+  res.setHeader('Content-Type', 'application/octet-stream')
+  res.setHeader('Content-Length', fs.statSync(filePath).size)
+  fs.createReadStream(filePath).pipe(res)
 })
 
 app.put('/api/projects/:name/blobs', (req, res) => {

@@ -10,6 +10,7 @@ import { useSvsConfigStore } from '@/stores/svsConfig'
 import { useRenderSvcPipeline } from '@/composables/useRenderSvcPipeline'
 import { useRenderSvsPipeline } from '@/composables/useRenderSvsPipeline'
 import { useRenderWhisperPipeline } from '@/composables/useRenderWhisperPipeline'
+import { useRenderMsstPipeline } from '@/composables/useRenderMsstPipeline'
 import { validateRenderSlot, type RenderInputRef, type RenderSlotId } from '@/object-workbench'
 
 const renderPanel = useRenderPanelStore()
@@ -21,6 +22,7 @@ const svsConfig = useSvsConfigStore()
 const renderSvcPipeline = useRenderSvcPipeline()
 const renderSvsPipeline = useRenderSvsPipeline()
 const renderWhisperPipeline = useRenderWhisperPipeline()
+const renderMsstPipeline = useRenderMsstPipeline()
 const notice = ref('')
 
 const selectedObjectNodeId = computed(() => {
@@ -34,13 +36,20 @@ const selectedObjectNodeId = computed(() => {
 
 const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
 const svsModelOptions = computed(() => svsConfig.models.map(m => ({ label: m.name, value: m.name })))
-const msstOutputOptions = [
-  { label: '人声 + 伴奏', value: 'vocals_accompaniment' },
-  { label: '仅人声', value: 'vocals' },
-  { label: '仅伴奏', value: 'accompaniment' },
-  { label: '去噪输出', value: 'denoise' },
-  { label: '其他 stem', value: 'other' },
+const msstModelOptions = [
+  { label: '人声 / 伴奏分离', value: 'duality' },
+  { label: '去混响 / 回声', value: 'dereverb' },
+  { label: '降噪', value: 'denoise' },
 ]
+const msstOutputOptions = computed(() => {
+  const primary = renderPanel.msst.model === 'duality' ? '人声' : 'Dry'
+  const secondary = renderPanel.msst.model === 'duality' ? '伴奏' : 'Other'
+  return [
+    { label: `${primary} + ${secondary}`, value: 'both' },
+    { label: `仅 ${primary}`, value: 'primary' },
+    { label: `仅 ${secondary}`, value: 'secondary' },
+  ]
+})
 
 function pickSelected(slotId: RenderSlotId) {
   if (isSlotLocked(slotId)) {
@@ -137,12 +146,9 @@ async function runWhisper() {
   if (renderPanel.whisperStatus === 'failed') flash(renderPanel.whisperMessage || 'Whisper 执行失败')
 }
 
-function runMsstPlaceholder() {
-  if (!renderPanel.canRunMsst) return
-  if (!renderPanel.setMsstRunning('MSST 后端尚未接入')) return
-  renderPanel.updateMsstProgress(100, 'MSST 后端尚未接入')
-  renderPanel.setMsstFailed('MSST 后端尚未接入')
-  flash('MSST 后端尚未接入')
+async function runMsst() {
+  await renderMsstPipeline.startMsst()
+  if (renderPanel.msstStatus === 'failed') flash(renderPanel.msstMessage || 'MSST 执行失败')
 }
 
 onMounted(() => {
@@ -357,9 +363,11 @@ onMounted(() => {
       <n-space vertical :size="8">
         <label class="field-label">输出名</label>
         <n-input v-model:value="renderPanel.msst.outputName" size="small" placeholder="MSST_output" />
+        <label class="field-label">模型</label>
+        <n-select v-model:value="renderPanel.msst.model" :options="msstModelOptions" size="small" />
         <label class="field-label">输出</label>
         <n-select v-model:value="renderPanel.msst.outputMode" :options="msstOutputOptions" size="small" />
-        <n-checkbox v-model:checked="renderPanel.msst.backfillAll">输出后回填 timeline</n-checkbox>
+        <n-checkbox v-model:checked="renderPanel.msst.backfillAll">双输出时全部回填 timeline</n-checkbox>
       </n-space>
       <div v-if="renderPanel.msstStatus !== 'idle'" class="run-status">
         <div class="status-line">
@@ -370,7 +378,7 @@ onMounted(() => {
           <div class="progress-bar" :style="{ width: `${renderPanel.msstProgress}%` }" />
         </div>
       </div>
-      <n-button type="primary" size="small" :disabled="!renderPanel.canRunMsst" :loading="renderPanel.msstStatus === 'running'" block @click="runMsstPlaceholder">
+      <n-button type="primary" size="small" :disabled="!renderPanel.canRunMsst" :loading="renderPanel.msstStatus === 'running'" block @click="runMsst">
         分离/增强
       </n-button>
     </div>

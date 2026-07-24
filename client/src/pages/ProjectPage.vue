@@ -9,6 +9,7 @@ import { useProjectStore } from '@/stores/project'
 import { usePlaybackStore } from '@/stores/playback'
 import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useObjectTreeStore } from '@/stores/objectTree'
+import { useGlobalResourcesStore } from '@/stores/globalResources'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 import type { AudioSegment } from '@/types'
 import TopBar from '@/components/layout/TopBar.vue'
@@ -29,6 +30,7 @@ const tracks = useTracksStore()
 const pb = usePlaybackStore()
 const uiSettings = useUiSettingsStore()
 const objectTree = useObjectTreeStore()
+const globalResources = useGlobalResourcesStore()
 
 async function syncProject() {
   await normalizeSegmentTimingFromSamples()
@@ -163,10 +165,11 @@ onMounted(async () => {
   if (!projectName) { router.push('/'); return }
 
   try {
+    await globalResources.syncProject(projectName)
     const resp = await fetch(`/api/projects/${encodeURIComponent(projectName)}`)
-    if (!resp.ok) throw new Error('not found')
+    if (!resp.ok) throw new Error(await readApiError(resp) || `加载项目失败 (${resp.status})`)
     const data = await resp.json()
-    const { _sourceBlobsBase64, ...projectData } = data
+    const { _sourceBlobsBase64, _sourceBlobKeys, ...projectData } = data
     project.load(projectData)
     if (_sourceBlobsBase64) {
       for (const [k, b64] of Object.entries(_sourceBlobsBase64) as [string, string][]) {
@@ -175,12 +178,30 @@ onMounted(async () => {
         tracks.sourceBlobs.set(k, new Blob([arr], { type: 'audio/wav' }))
       }
     }
+    if (Array.isArray(_sourceBlobKeys)) {
+      for (const key of _sourceBlobKeys as string[]) {
+        const blobResp = await fetch(`/api/projects/${encodeURIComponent(projectName)}/blobs`, {
+          headers: { 'x-blob-key': encodeURIComponent(key) },
+        })
+        if (!blobResp.ok) throw new Error(await readApiError(blobResp) || `音频加载失败: ${key}`)
+        tracks.sourceBlobs.set(key, await blobResp.blob())
+      }
+    }
     await syncProject()
-  } catch {
-    alert(`项目 "${projectName}" 未找到`)
+  } catch (error: any) {
+    alert(`项目 "${projectName}" 加载失败: ${error?.message || '未知错误'}`)
     router.push('/')
   }
 })
+
+async function readApiError(response: Response): Promise<string> {
+  try {
+    const body = await response.json()
+    return body.error || body.message || ''
+  } catch {
+    return response.statusText
+  }
+}
 </script>
 
 <template>

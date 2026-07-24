@@ -20,6 +20,8 @@ export interface UiSettingsState {
   backgroundImageDataUrl: string
   sidebarGlassEnabled: boolean
   centerGlassEnabled: boolean
+  sidebarWidth: number
+  l1Width: number
   l1Collapsed: boolean
   l2Collapsed: boolean
 }
@@ -40,6 +42,8 @@ const defaults: UiSettingsState = {
   backgroundImageDataUrl: '',
   sidebarGlassEnabled: false,
   centerGlassEnabled: false,
+  sidebarWidth: 360,
+  l1Width: 230,
   l1Collapsed: false,
   l2Collapsed: false,
 }
@@ -104,6 +108,8 @@ export const useUiSettingsStore = defineStore('uiSettings', () => {
     settings.centerOpacity = clamp01(settings.centerOpacity)
     settings.sideOpacity = clamp01(settings.sideOpacity)
     settings.topbarOpacity = clamp01(settings.topbarOpacity)
+    settings.sidebarWidth = clampNumber(settings.sidebarWidth, 240, 600)
+    settings.l1Width = clampNumber(settings.l1Width, 140, settings.sidebarWidth - 100)
   }
 
   return {

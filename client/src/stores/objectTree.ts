@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AudioSegment, GroupElementSnapshot, Project } from '@/types'
 import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TextSegment, TrackFolderNode, TrackObjectContentType, TrackObjectNode, TreeNode } from '@/object-workbench'
@@ -42,6 +42,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   const tree = ref<ProjectObjectTree>(createEmptyProjectObjectTree())
   const legacyWarnings = ref<string[]>([])
   const legacyMaps = ref<LegacyObjectTreeMaps | null>(null)
+  const textEditRevision = ref(0)
+  const textEditRevisionBySource = reactive<Record<string, number>>({})
 
   const index = computed(() => buildNodeIndex(tree.value.root))
 
@@ -907,6 +909,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     segment.start = Math.max(0, start)
     segment.end = Math.max(segment.start + 0.1, end)
     source.text.segments.sort((a, b) => a.start - b.start)
+    markTextEdited(sourceObjectId)
     return { ok: true }
   }
 
@@ -917,7 +920,39 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (!segment) return { ok: false, reason: '句子不存在' }
     if (patch.kana !== undefined) segment.kana = patch.kana
     if (patch.romaji !== undefined) segment.romaji = patch.romaji
+    markTextEdited(sourceObjectId)
     return { ok: true }
+  }
+
+  function addTextSegment(sourceObjectId: NodeId, segment: TextSegment): { ok: boolean; reason?: string; segmentId?: string } {
+    const source = index.value.nodes[sourceObjectId]
+    if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
+    const next = clonePlain(segment)
+    next.id ||= `textseg:${crypto.randomUUID()}`
+    if (source.text.segments.some(item => item.id === next.id)) return { ok: false, reason: '句子 ID 已存在' }
+    source.text.segments.push(next)
+    source.text.segments.sort((a, b) => a.start - b.start)
+    markTextEdited(sourceObjectId)
+    return { ok: true, segmentId: next.id }
+  }
+
+  function deleteTextSegment(sourceObjectId: NodeId, segmentId: string): { ok: boolean; reason?: string } {
+    const source = index.value.nodes[sourceObjectId]
+    if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
+    const indexToDelete = source.text.segments.findIndex(item => item.id === segmentId)
+    if (indexToDelete < 0) return { ok: false, reason: '句子不存在' }
+    source.text.segments.splice(indexToDelete, 1)
+    markTextEdited(sourceObjectId)
+    return { ok: true }
+  }
+
+  function markTextEdited(sourceObjectId: NodeId) {
+    textEditRevision.value++
+    textEditRevisionBySource[sourceObjectId] = (textEditRevisionBySource[sourceObjectId] ?? 0) + 1
+  }
+
+  function textRevision(sourceObjectId: NodeId): number {
+    return textEditRevisionBySource[sourceObjectId] ?? 0
   }
 
   function snapshotGroups() {
@@ -1141,6 +1176,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     tree,
     legacyWarnings,
     legacyMaps,
+    textEditRevision,
+    textRevision,
     index,
     createEmpty,
     loadFromLegacyProject,
@@ -1173,6 +1210,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     syncUndoSplitSegment,
     updateTextSegmentTiming,
     updateTextSegmentContent,
+    addTextSegment,
+    deleteTextSegment,
   }
 })
 

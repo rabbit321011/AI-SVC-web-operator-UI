@@ -29,6 +29,18 @@ describe('ui settings store', () => {
     expect(settings.cssVars['--center-opacity-percent']).toBe('55%')
   })
 
+  it('persists the resizable L1-first sidebar layout', async () => {
+    const settings = useUiSettingsStore()
+
+    settings.update('sidebarWidth', 420)
+    settings.update('l1Width', 280)
+    await Promise.resolve()
+
+    const stored = JSON.parse(localStorage.getItem('aisvc-ui-settings.v0.32') || '{}')
+    expect(stored.sidebarWidth).toBe(420)
+    expect(stored.l1Width).toBe(280)
+  })
+
   it('stores backend background image urls instead of large local data urls', () => {
     const settings = useUiSettingsStore()
     const result = settings.setBackgroundImageUrl('/api/projects/demo/ui/background.png')

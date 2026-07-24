@@ -11,6 +11,7 @@ __pycache__/
 # 项目数据目录（生成的音频文件）
 data/
 server/data/
+resources/
 
 # 项目 blob 文件（大二进制音频文件）
 projects/*/blobs/

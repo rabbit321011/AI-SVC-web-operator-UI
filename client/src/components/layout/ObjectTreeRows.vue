@@ -4,6 +4,7 @@ import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectAudioPreview } from '@/composables/useObjectAudioPreview'
+import { useGlobalResourcesStore } from '@/stores/globalResources'
 import type { TreeNode } from '@/object-workbench'
 
 const props = defineProps<{
@@ -24,6 +25,7 @@ const ui = useObjectTreeUiStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
 const audioPreview = useObjectAudioPreview()
+const globalResources = useGlobalResourcesStore()
 const expandable = computed(() => props.hasChildren(props.node) || (props.node.kind === 'group' && props.node.group.trackObjectIds.length > 0))
 const expanded = computed(() => ui.isExpanded(props.pane, props.node.id))
 const children = computed(() => props.hasChildren(props.node) ? props.node.children : [])
@@ -82,8 +84,8 @@ function memberName(trackObjectId: string) {
       <span class="twisty" @click="toggleExpanded">
         <svg v-if="expandable" viewBox="0 0 16 16" aria-hidden="true" :class="{ expanded }"><path d="M6 3l5 5-5 5V3Z" /></svg>
       </span>
-      <span class="kind">{{ icon(node) }}</span>
-      <span class="name">{{ node.name }}</span>
+      <span class="kind"><span v-if="globalResources.isGlobal(node.id)" class="global-resource-dot" />{{ icon(node) }}</span>
+      <span class="name" :title="node.name">{{ node.name }}</span>
       <button
         v-if="node.kind === 'audio'"
         class="tree-play-btn"

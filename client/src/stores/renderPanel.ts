@@ -53,7 +53,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
   const msst = reactive({
     audio: null as RenderInputRef | null,
     outputName: '',
-    outputMode: 'vocals_accompaniment' as 'vocals' | 'accompaniment' | 'vocals_accompaniment' | 'denoise' | 'other',
+    model: 'duality' as 'duality' | 'dereverb' | 'denoise',
+    outputMode: 'both' as 'primary' | 'secondary' | 'both',
     backfillAll: true,
   })
 

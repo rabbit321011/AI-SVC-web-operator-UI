@@ -11,7 +11,7 @@ import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import type { TrackId, AudioSegment, F0Frame } from '@/types'
 import type { TextObjectNode, TextSegment, TrackObjectNode } from '@/object-workbench'
-import { kanaToRomaji } from '@/utils/kanaRomaji'
+import { kanaToRomaji, romajiToKana } from '@/utils/kanaRomaji'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 import { buildSplitCommand } from '@/commands/split'
 
@@ -37,6 +37,22 @@ const PAD_B = 20
 const CHART_H = 100
 const SEG_H = 16
 const CANVAS_H = PAD_T + CHART_H + PAD_B + SEG_H + 6
+const TEXT_BAR_TOP = PAD_T + 18
+const TEXT_BAR_HEIGHT = 66
+
+const selectedTextSegmentId = ref<string | null>(null)
+const inlineKanaInput = ref<HTMLInputElement | null>(null)
+const inlineEditor = ref<{
+  trackObjectId: string
+  sourceId: string
+  segmentId: string
+  originalKana: string
+  originalRomaji: string
+  beforeTree: ReturnType<typeof objectTree.snapshotTree>
+} | null>(null)
+const inlineKana = ref('')
+const inlineRomaji = ref('')
+const composingField = ref<'kana' | 'romaji' | null>(null)
 
 const track = computed(() => tracks.tracks[props.trackId])
 const segments = computed(() => tracks.getTrackSegments(props.trackId))
@@ -51,6 +67,10 @@ const textTrackObjects = computed(() => {
     })
     .filter((item): item is { trackObject: TrackObjectNode; source: TextObjectNode } => Boolean(item))
 })
+const textTrackRevision = computed(() => textTrackObjects.value.reduce(
+  (revision, item) => revision + objectTree.textRevision(item.source.id),
+  0,
+))
 
 const totalDuration = computed(() => {
   if (track.value?.trackType === 'text') {
@@ -229,8 +249,8 @@ function drawTimeGrid(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof ca
 }
 
 function drawTextTrack(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof canvasTheme>) {
-  const barTop = PAD_T + 18
-  const barHeight = 66
+  const barTop = TEXT_BAR_TOP
+  const barHeight = TEXT_BAR_HEIGHT
   ctx.textBaseline = 'middle'
 
   for (const item of textTrackObjects.value) {
@@ -248,7 +268,8 @@ function drawTextTrack(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof c
     ctx.fill()
 
     const segments = normalizedTextSegments(source.text.segments, end - start)
-    for (const segment of segments) {
+    for (let index = 0; index < segments.length; index++) {
+      const segment = segments[index]
       const sx = timeToX(start + segment.start)
       const sw = Math.max(3, (segment.end - segment.start) * project.pxPerSec)
       ctx.fillStyle = hexToRgba(baseColor, 0.42)
@@ -271,6 +292,28 @@ function drawTextTrack(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof c
       ctx.font = '15px system-ui, sans-serif'
       drawReadableText(ctx, segment.kana, sx + pad, barTop + 45, textColors.primary, textColors.outline)
       ctx.restore()
+
+      const previous = segments[index - 1]
+      const invalidTiming = segment.start < 0
+        || segment.end <= segment.start
+        || segment.end > end - start + 1e-6
+        || Boolean(previous && segment.start < previous.end - 1e-6)
+      if (invalidTiming || (!segment.kana.trim() && !segment.romaji.trim())) {
+        ctx.strokeStyle = invalidTiming ? '#f85149' : '#d29922'
+        ctx.lineWidth = 2
+        roundRect(ctx, sx, barTop + 5, sw, barHeight - 10, 4)
+        ctx.stroke()
+      }
+
+      if (selectedTextSegmentId.value === segment.id && selection.isSelected(trackObject.id)) {
+        ctx.strokeStyle = theme.accent
+        ctx.lineWidth = 2
+        roundRect(ctx, sx, barTop + 3, sw, barHeight - 6, 4)
+        ctx.stroke()
+        ctx.fillStyle = theme.accent
+        ctx.fillRect(sx - 2, barTop + 10, 4, barHeight - 20)
+        ctx.fillRect(sx + sw - 2, barTop + 10, 4, barHeight - 20)
+      }
     }
 
     if (isSel) {
@@ -381,13 +424,36 @@ function findSegmentAt(cx: number, cy: number): AudioSegment | null {
 
 function findTextObjectAt(cx: number, cy: number): { trackObject: TrackObjectNode; source: TextObjectNode } | null {
   const t = xToTime(cx)
-  const barTop = PAD_T + 18
-  const barHeight = 66
+  const barTop = TEXT_BAR_TOP
+  const barHeight = TEXT_BAR_HEIGHT
   if (cy < barTop || cy > barTop + barHeight) return null
   for (const item of textTrackObjects.value) {
     const start = item.trackObject.trackObject.timelineStart
     const end = item.trackObject.trackObject.timelineEnd
     if (t >= start && t <= end) return item
+  }
+  return null
+}
+
+type TextSegmentHit = {
+  trackObject: TrackObjectNode
+  source: TextObjectNode
+  segment: Required<TextSegment>
+  previous?: Required<TextSegment>
+  next?: Required<TextSegment>
+}
+
+function findTextSegmentAt(cx: number, cy: number): TextSegmentHit | null {
+  const item = findTextObjectAt(cx, cy)
+  if (!item) return null
+  const localTime = xToTime(cx) - item.trackObject.trackObject.timelineStart
+  const duration = item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart
+  const textSegments = normalizedTextSegments(item.source.text.segments, duration)
+  for (let index = textSegments.length - 1; index >= 0; index--) {
+    const segment = textSegments[index]
+    if (localTime >= segment.start && localTime <= segment.end) {
+      return { trackObject: item.trackObject, source: item.source, segment, previous: textSegments[index - 1], next: textSegments[index + 1] }
+    }
   }
   return null
 }
@@ -428,10 +494,20 @@ function handleClick(e: MouseEvent) {
   const cy = e.clientY - rect.top
 
   if (track.value?.trackType === 'text') {
+    if (inlineEditor.value) finishInlineEdit()
+    const segmentHit = findTextSegmentAt(cx, cy)
+    if (segmentHit) {
+      objectTreeUi.clearSelection()
+      selection.select(segmentHit.trackObject.id, e.ctrlKey || e.metaKey)
+      selectedTextSegmentId.value = segmentHit.segment.id
+      draw()
+      return
+    }
     const item = findTextObjectAt(cx, cy)
     if (item) {
       objectTreeUi.clearSelection()
       selection.select(item.trackObject.id, e.ctrlKey || e.metaKey)
+      selectedTextSegmentId.value = null
       draw()
       return
     }
@@ -531,6 +607,140 @@ const textBoundaryDrag = ref<{
   originalEnd: number
   beforeTree: ReturnType<typeof objectTree.snapshotTree>
 } | null>(null)
+const textSegmentDrag = ref<{
+  hit: TextSegmentHit
+  startClientX: number
+  originalStart: number
+  originalEnd: number
+  beforeTree: ReturnType<typeof objectTree.snapshotTree>
+  moved: boolean
+} | null>(null)
+
+const inlineEditorStyle = computed(() => {
+  const editing = inlineEditor.value
+  if (!editing) return {}
+  const item = textTrackObjects.value.find(candidate => candidate.trackObject.id === editing.trackObjectId)
+  if (!item) return {}
+  const duration = item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart
+  const segment = normalizedTextSegments(item.source.text.segments, duration).find(candidate => candidate.id === editing.segmentId)
+  if (!segment) return {}
+  const segmentLeft = timeToX(item.trackObject.trackObject.timelineStart + segment.start)
+  const desiredWidth = Math.max(320, (segment.end - segment.start) * project.pxPerSec)
+  const width = Math.min(desiredWidth, Math.max(220, totalW.value - PAD_R - 8))
+  const left = Math.max(PAD_L, Math.min(segmentLeft, totalW.value - PAD_R - width))
+  return { left: `${left}px`, top: `${TEXT_BAR_TOP + 3}px`, width: `${width}px` }
+})
+
+function activeTextItem() {
+  const selected = selection.ids.length === 1 ? selection.ids[0] : null
+  return textTrackObjects.value.find(item => item.trackObject.id === selected) ?? textTrackObjects.value[0] ?? null
+}
+
+function startInlineEdit(hit: TextSegmentHit) {
+  const actual = hit.source.text.segments.find(segment => segment.id === hit.segment.id)
+  if (!actual?.id) return
+  if (inlineEditor.value) finishInlineEdit()
+  objectTreeUi.clearSelection()
+  selection.select(hit.trackObject.id, false)
+  selectedTextSegmentId.value = actual.id
+  inlineKana.value = actual.kana
+  inlineRomaji.value = actual.romaji
+  inlineEditor.value = {
+    trackObjectId: hit.trackObject.id,
+    sourceId: hit.source.id,
+    segmentId: actual.id,
+    originalKana: actual.kana,
+    originalRomaji: actual.romaji,
+    beforeTree: objectTree.snapshotTree(),
+  }
+  nextTick(() => {
+    inlineKanaInput.value?.focus()
+    inlineKanaInput.value?.select()
+  })
+}
+
+function updateInlineFromKana(value: string) {
+  const editing = inlineEditor.value
+  if (!editing) return
+  inlineKana.value = value
+  inlineRomaji.value = kanaToRomaji(value)
+  objectTree.updateTextSegmentContent(editing.sourceId, editing.segmentId, { kana: inlineKana.value, romaji: inlineRomaji.value })
+}
+
+function updateInlineFromRomaji(value: string) {
+  const editing = inlineEditor.value
+  if (!editing) return
+  inlineRomaji.value = value
+  inlineKana.value = romajiToKana(value)
+  objectTree.updateTextSegmentContent(editing.sourceId, editing.segmentId, { kana: inlineKana.value, romaji: inlineRomaji.value })
+}
+
+function handleInlineInput(field: 'kana' | 'romaji', event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  if (field === 'kana') inlineKana.value = value
+  else inlineRomaji.value = value
+  if (composingField.value === field) return
+  if (field === 'kana') updateInlineFromKana(value)
+  else updateInlineFromRomaji(value)
+}
+
+function finishComposition(field: 'kana' | 'romaji', event: CompositionEvent) {
+  composingField.value = null
+  const value = (event.target as HTMLInputElement).value
+  if (field === 'kana') updateInlineFromKana(value)
+  else updateInlineFromRomaji(value)
+}
+
+function finishInlineEdit() {
+  const editing = inlineEditor.value
+  if (!editing) return
+  const changed = inlineKana.value !== editing.originalKana || inlineRomaji.value !== editing.originalRomaji
+  if (changed) {
+    useHistoryStore().push({
+      description: '编辑文本句子',
+      patches: [],
+      inversePatches: [],
+      objectTree: { kind: 'snapshot', before: editing.beforeTree, after: objectTree.snapshotTree() },
+    })
+  }
+  inlineEditor.value = null
+  composingField.value = null
+  project.bumpRedraw()
+}
+
+function handleInlineFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null
+  const current = event.currentTarget as HTMLElement
+  if (!next || !current.contains(next)) finishInlineEdit()
+}
+
+function addTextSegment() {
+  const item = activeTextItem()
+  if (!item) return
+  if (inlineEditor.value) finishInlineEdit()
+  const duration = Math.max(0.1, item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart)
+  const textSegments = normalizedTextSegments(item.source.text.segments, duration)
+  const selected = textSegments.find(segment => segment.id === selectedTextSegmentId.value)
+  const playheadLocal = playback.currentTime - item.trackObject.trackObject.timelineStart
+  const preferredStart = selected?.end ?? (playheadLocal >= 0 && playheadLocal < duration ? playheadLocal : textSegments.at(-1)?.end ?? 0)
+  const start = Math.max(0, Math.min(duration - 0.1, preferredStart))
+  const end = Math.min(duration, start + 1)
+  const beforeTree = objectTree.snapshotTree()
+  const result = objectTree.addTextSegment(item.source.id, { start, end, kana: '', romaji: '' })
+  if (!result.ok || !result.segmentId) return
+  selection.select(item.trackObject.id, false)
+  selectedTextSegmentId.value = result.segmentId
+  project.bumpRedraw()
+  useHistoryStore().push({
+    description: '新增文本句子',
+    patches: [],
+    inversePatches: [],
+    objectTree: { kind: 'snapshot', before: beforeTree, after: objectTree.snapshotTree() },
+  })
+  nextTick(draw)
+}
+
+defineExpose({ addTextSegment })
 
 function onTextBoundaryMove(e: MouseEvent) {
   const drag = textBoundaryDrag.value
@@ -588,6 +798,36 @@ function onTextBoundaryEnd() {
   textBoundaryDrag.value = null
   document.removeEventListener('mousemove', onTextBoundaryMove)
   document.removeEventListener('mouseup', onTextBoundaryEnd)
+}
+
+function onTextSegmentMove(e: MouseEvent) {
+  const drag = textSegmentDrag.value
+  if (!drag) return
+  const duration = drag.hit.trackObject.trackObject.timelineEnd - drag.hit.trackObject.trackObject.timelineStart
+  const segmentDuration = drag.originalEnd - drag.originalStart
+  const min = drag.hit.previous?.end ?? 0
+  const max = Math.max(min, (drag.hit.next?.start ?? duration) - segmentDuration)
+  const delta = (e.clientX - drag.startClientX) / project.pxPerSec
+  const nextStart = Math.max(min, Math.min(max, drag.originalStart + delta))
+  const nextEnd = nextStart + segmentDuration
+  if (Math.abs(nextStart - drag.originalStart) > 0.0005) drag.moved = true
+  objectTree.updateTextSegmentTiming(drag.hit.source.id, drag.hit.segment.id, nextStart, nextEnd)
+  draw()
+}
+
+function onTextSegmentEnd() {
+  const drag = textSegmentDrag.value
+  if (drag?.moved) {
+    useHistoryStore().push({
+      description: '平移文本句子',
+      patches: [],
+      inversePatches: [],
+      objectTree: { kind: 'snapshot', before: drag.beforeTree, after: objectTree.snapshotTree() },
+    })
+  }
+  textSegmentDrag.value = null
+  document.removeEventListener('mousemove', onTextSegmentMove)
+  document.removeEventListener('mouseup', onTextSegmentEnd)
 }
 
 function onDragMove(e: MouseEvent) {
@@ -708,14 +948,36 @@ function handleMousedown(e: MouseEvent) {
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
 
-  if (track.value?.trackType === 'text' && (e.ctrlKey || e.metaKey)) {
+  if (track.value?.trackType === 'text') {
     const hit = findTextBoundaryAt(cx, cy)
-    if (hit) {
+    const boundaryIsSelected = hit?.segment.id === selectedTextSegmentId.value && selection.isSelected(hit.trackObject.id)
+    if (hit && (boundaryIsSelected || e.ctrlKey || e.metaKey)) {
       textBoundaryDrag.value = { hit, originalStart: hit.segment.start, originalEnd: hit.segment.end, beforeTree: objectTree.snapshotTree() }
       document.addEventListener('mousemove', onTextBoundaryMove)
       document.addEventListener('mouseup', onTextBoundaryEnd)
       e.preventDefault()
       e.stopPropagation()
+      return
+    }
+    const segmentHit = findTextSegmentAt(cx, cy)
+    if (segmentHit) {
+      if (inlineEditor.value) finishInlineEdit()
+      objectTreeUi.clearSelection()
+      selection.select(segmentHit.trackObject.id, false)
+      selectedTextSegmentId.value = segmentHit.segment.id
+      textSegmentDrag.value = {
+        hit: segmentHit,
+        startClientX: e.clientX,
+        originalStart: segmentHit.segment.start,
+        originalEnd: segmentHit.segment.end,
+        beforeTree: objectTree.snapshotTree(),
+        moved: false,
+      }
+      document.addEventListener('mousemove', onTextSegmentMove)
+      document.addEventListener('mouseup', onTextSegmentEnd)
+      e.preventDefault()
+      e.stopPropagation()
+      draw()
       return
     }
   }
@@ -742,14 +1004,21 @@ function handleMousedown(e: MouseEvent) {
 
 function handleMousemove(e: MouseEvent) {
   const canvas = canvasRef.value
-  if (!canvas || isDragging.value || textBoundaryDrag.value) return
+  if (!canvas || isDragging.value || textBoundaryDrag.value || textSegmentDrag.value) return
   const rect = canvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
 
-  if (track.value?.trackType === 'text' && (e.ctrlKey || e.metaKey) && findTextBoundaryAt(cx, cy)) {
-    canvas.style.cursor = 'ew-resize'
-    return
+  if (track.value?.trackType === 'text') {
+    const hit = findTextBoundaryAt(cx, cy)
+    if (hit && ((hit.segment.id === selectedTextSegmentId.value && selection.isSelected(hit.trackObject.id)) || e.ctrlKey || e.metaKey)) {
+      canvas.style.cursor = 'ew-resize'
+      return
+    }
+    if (findTextSegmentAt(cx, cy)) {
+      canvas.style.cursor = 'grab'
+      return
+    }
   }
 
   const seg = findSegmentAt(cx, cy)
@@ -765,8 +1034,29 @@ function handleDblClick(e: MouseEvent) {
   const canvas = canvasRef.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
-  const item = findTextObjectAt(e.clientX - rect.left, e.clientY - rect.top)
-  if (item) editorWorkspace.openTextObjectTab(item.source.id, item.source.name)
+  const hit = findTextSegmentAt(e.clientX - rect.left, e.clientY - rect.top)
+  if (hit) startInlineEdit(hit)
+}
+
+function handleTextKeyboard(e: KeyboardEvent) {
+  if (inlineEditor.value) return
+  const item = activeTextItem()
+  if (!item || !selection.isSelected(item.trackObject.id)) return
+  const ctrl = e.ctrlKey || e.metaKey
+  if (ctrl && e.key.toLowerCase() === 'e') {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    editorWorkspace.openTextObjectTab(item.source.id, item.source.name)
+    return
+  }
+  if (e.key !== 'Enter' || !selectedTextSegmentId.value) return
+  const duration = item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart
+  const textSegments = normalizedTextSegments(item.source.text.segments, duration)
+  const segment = textSegments.find(candidate => candidate.id === selectedTextSegmentId.value)
+  if (!segment) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  startInlineEdit({ trackObject: item.trackObject, source: item.source, segment })
 }
 
 // ── Watch: content redraw only (playhead separated) ──
@@ -777,14 +1067,18 @@ watch(() => [
   uiSettings.settings.backgroundImageEnabled,
   uiSettings.settings.backgroundImageUrl,
   totalDuration.value,
-  textTrackObjects.value,
+  objectTree.tree,
   segments.value.length,
   segments.value,
   selection.ids,
   project.redrawTick,
 ], () => {
   nextTick(() => { setupCanvas(); draw(); drawPlayhead(); })
-}, { deep: true })
+})
+
+watch(textTrackRevision, () => {
+  nextTick(draw)
+})
 
 // ── Seek/stop playhead update (cheap: 1 line clear + 1 line draw) ──
 watch(() => playback.currentTime, () => {
@@ -809,10 +1103,16 @@ watch(() => playback.isPlaying, (playing) => {
 }, { immediate: false })
 
 onMounted(() => {
+  document.addEventListener('keydown', handleTextKeyboard, true)
   nextTick(() => { setupCanvas(); draw(); drawPlayhead(); })
 })
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleTextKeyboard, true)
+  document.removeEventListener('mousemove', onTextBoundaryMove)
+  document.removeEventListener('mouseup', onTextBoundaryEnd)
+  document.removeEventListener('mousemove', onTextSegmentMove)
+  document.removeEventListener('mouseup', onTextSegmentEnd)
   if (playheadRaf) cancelAnimationFrame(playheadRaf)
 })
 </script>
@@ -827,6 +1127,20 @@ onUnmounted(() => {
       @mousemove="handleMousemove"
       @dblclick="handleDblClick"
     />
+    <div
+      v-if="inlineEditor"
+      class="inline-text-editor"
+      :style="inlineEditorStyle"
+      @focusout="handleInlineFocusOut"
+      @mousedown.stop
+      @click.stop
+      @keydown.ctrl.enter.prevent="finishInlineEdit"
+      @keydown.meta.enter.prevent="finishInlineEdit"
+      @keydown.esc.prevent="finishInlineEdit"
+    >
+      <label><span>Kana</span><input ref="inlineKanaInput" :value="inlineKana" @input="handleInlineInput('kana', $event)" @compositionstart="composingField = 'kana'" @compositionend="finishComposition('kana', $event)" /></label>
+      <label><span>Romaji</span><input :value="inlineRomaji" @input="handleInlineInput('romaji', $event)" @compositionstart="composingField = 'romaji'" @compositionend="finishComposition('romaji', $event)" /></label>
+    </div>
     <canvas
       ref="playheadRef"
       class="playhead-canvas"
@@ -854,4 +1168,42 @@ canvas {
   left: 0;
   z-index: 2;
 }
+.inline-text-editor {
+  position: absolute;
+  z-index: 3;
+  height: 60px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  padding: 4px 6px;
+  border: 1px solid var(--app-accent);
+  border-radius: 4px;
+  background: var(--app-panel);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.inline-text-editor label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  color: var(--app-muted);
+  font-size: 10px;
+}
+.inline-text-editor input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  box-sizing: border-box;
+  border: 1px solid var(--app-border);
+  border-radius: 3px;
+  outline: none;
+  background: var(--app-surface);
+  color: var(--app-text);
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+}
+.inline-text-editor input:focus { border-color: var(--app-accent); }
 </style>

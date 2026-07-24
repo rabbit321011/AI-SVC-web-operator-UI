@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import TrackHeader from './TrackHeader.vue'
@@ -12,6 +12,7 @@ const tracks = useTracksStore()
 const selection = useSelectionStore()
 
 const track = computed(() => tracks.tracks[props.trackId])
+const canvas = ref<InstanceType<typeof TrackCanvas> | null>(null)
 
 const isSelected = computed(() => selection.isSelected(props.trackId))
 const isIgnored = computed(() => track.value?.ignored ?? false)
@@ -27,8 +28,8 @@ const isIgnored = computed(() => track.value?.ignored ?? false)
       ignored: isIgnored,
     }"
   >
-    <TrackHeader :track-id="trackId" />
-    <TrackCanvas :track-id="trackId" />
+    <TrackHeader :track-id="trackId" @add-text-segment="canvas?.addTextSegment()" />
+    <TrackCanvas ref="canvas" :track-id="trackId" />
   </div>
 </template>
 

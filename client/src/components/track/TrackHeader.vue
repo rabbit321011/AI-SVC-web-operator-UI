@@ -8,6 +8,7 @@ import type { TrackId } from '@/types'
 import { NColorPicker } from 'naive-ui'
 
 const props = defineProps<{ trackId: TrackId }>()
+const emit = defineEmits<{ addTextSegment: [] }>()
 
 const tracks = useTracksStore()
 const selection = useSelectionStore()
@@ -147,6 +148,7 @@ function setVolume(v: number | null) {
       <div class="track-controls">
         <button class="ctrl-btn" :class="{ active: track.muted }" title="静音 (M)" @click.stop="toggleMute">M</button>
         <button class="ctrl-btn" :class="{ active: track.solo }" title="独奏 (S)" @click.stop="toggleSolo">S</button>
+        <button v-if="track.trackType === 'text'" class="ctrl-btn icon-ctrl" title="新增句子" @click.stop="emit('addTextSegment')"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.25 2h1.5v5.25H14v1.5H8.75V14h-1.5V8.75H2v-1.5h5.25V2Z" /></svg></button>
         <button class="ctrl-btn icon-ctrl" title="上移音轨" :disabled="tracks.trackOrder[0] === trackId" @click.stop="moveTrack(-1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3 3.5 8h3v5h3V8h3L8 3Z" /></svg></button>
         <button class="ctrl-btn icon-ctrl" title="下移音轨" :disabled="tracks.trackOrder[tracks.trackOrder.length - 1] === trackId" @click.stop="moveTrack(1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13 3.5 8h3V3h3v5h3L8 13Z" /></svg></button>
       </div>
