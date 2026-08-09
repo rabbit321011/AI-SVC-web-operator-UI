@@ -5,11 +5,13 @@ export interface SvsModelPreset {
   name: string
   checkpoint: string
   vaeCheckpoint?: string
+  engine: 't1' | 'v4h_phone_pul'
 }
 
 interface SvsModelPayload {
   checkpoint: string
   vaeCheckpoint?: string
+  engine?: 't1' | 'v4h_phone_pul'
 }
 
 export const useSvsConfigStore = defineStore('svsConfig', () => {
@@ -26,7 +28,7 @@ export const useSvsConfigStore = defineStore('svsConfig', () => {
       models.length = 0
       for (const [name, value] of Object.entries(data)) {
         if (typeof value === 'string') {
-          models.push({ name, checkpoint: value })
+          models.push({ name, checkpoint: value, engine: 't1' })
           continue
         }
         const preset = value as SvsModelPayload
@@ -35,6 +37,7 @@ export const useSvsConfigStore = defineStore('svsConfig', () => {
           name,
           checkpoint: String(preset.checkpoint),
           vaeCheckpoint: preset.vaeCheckpoint ? String(preset.vaeCheckpoint) : undefined,
+          engine: preset.engine === 'v4h_phone_pul' ? 'v4h_phone_pul' : 't1',
         })
       }
       loaded.value = true

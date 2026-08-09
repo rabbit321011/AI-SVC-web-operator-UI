@@ -23,6 +23,7 @@ import {
 } from '@/object-workbench'
 import { useTracksStore } from './tracks'
 import { useCompGroupsStore } from './compGroups'
+import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 export interface SplitSegmentObjectTreeSnapshot {
   oldTrackObject: TrackObjectNode
@@ -107,7 +108,36 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       return { ok: false, reason: '目标不是文件夹' }
     }
     insertChild(refreshedTarget, removed)
+    if (removed.kind === 'trackObject' && refreshedTarget.kind === 'trackFolder') {
+      syncMovedTrackObjectToLegacy(removed, refreshedTarget)
+    }
     return { ok: true }
+  }
+
+  function syncMovedTrackObjectToLegacy(trackObject: TrackObjectNode, targetFolder: TrackFolderNode) {
+    const targetTrackId = targetFolder.legacy?.trackId ?? trackIdFromTrackFolderId(targetFolder.id)
+    if (!targetTrackId) return
+    const oldTrackId = trackObject.legacy?.trackId
+    const segmentId = trackObject.legacy?.segmentId ?? segmentIdFromTrackObjectId(trackObject.id)
+    if (!segmentId) return
+    trackObject.legacy = { ...(trackObject.legacy ?? {}), segmentId, trackId: targetTrackId }
+
+    const source = index.value.nodes[trackObject.trackObject.sourceObjectId]
+    if (source?.kind === 'audio') {
+      source.legacy = { ...(source.legacy ?? {}), segmentId, trackId: targetTrackId }
+    }
+
+    const tracksStore = useTracksStore()
+    const segment = tracksStore.segmentsMap[segmentId]
+    if (!segment) return
+    if (oldTrackId && tracksStore.tracks[oldTrackId]) {
+      tracksStore.tracks[oldTrackId].segments = tracksStore.tracks[oldTrackId].segments.filter(id => id !== segmentId)
+    }
+    segment.trackId = targetTrackId
+    if (tracksStore.tracks[targetTrackId] && !tracksStore.tracks[targetTrackId].segments.includes(segmentId)) {
+      tracksStore.tracks[targetTrackId].segments.push(segmentId)
+      tracksStore.tracks[targetTrackId].segments.sort((a, b) => (tracksStore.segmentsMap[a]?.timelineStart ?? 0) - (tracksStore.segmentsMap[b]?.timelineStart ?? 0))
+    }
   }
 
   function createFolder(parentId: NodeId, name: string): { ok: boolean; reason?: string; id?: NodeId } {
@@ -267,7 +297,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     const blob = tracksStore.sourceBlobs.get(asset.blobKey)
     if (!blob) return { ok: false, reason: '音频 blob 不存在' }
 
-    const meta = await decodeAudioMeta(blob)
+    const meta = await getAudioBlobMeta(blob)
     const trackSourceAssetId = `asset:trackSource:${crypto.randomUUID()}`
     const trackSourceObjectId = `node:trackSource:audio:${crypto.randomUUID()}`
     const sourceFile = `${trackSourceObjectId}:${sourceNode.name}`
@@ -351,7 +381,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     outputFileName?: string
   }> {
     const tracksStore = useTracksStore()
-    const meta = await decodeAudioMeta(options.blob)
+    const meta = await getAudioBlobMeta(options.blob)
     const timelineStart = options.timelineStart ?? 0
     const renderFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.renders, options.renderKind)
     const outputFileName = uniqueChildName(renderFolder, ensureWavFileName(options.outputFileName))
@@ -382,18 +412,15 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
     const trackSourceAssetId = `asset:trackSource:${crypto.randomUUID()}`
     const trackSourceObjectId = `node:trackSource:audio:${crypto.randomUUID()}`
-    const trackSourceBlobKey = `${trackSourceObjectId}:${outputFileName}`
     tree.value.assets[trackSourceAssetId] = {
       id: trackSourceAssetId,
       storage: 'projectBlob',
-      blobKey: trackSourceBlobKey,
+      blobKey: renderBlobKey,
       sampleRate: meta.sampleRate,
       duration: meta.duration,
       channels: meta.channels,
     }
-    tracksStore.sourceBlobs.set(trackSourceBlobKey, options.blob)
-
-    const trackId = tracksStore.addTrack(trackSourceBlobKey, meta.sampleRate, meta.totalSamples, outputFileName, options.blob)
+    const trackId = tracksStore.addTrack(renderBlobKey, meta.sampleRate, meta.totalSamples, outputFileName, options.blob)
     const segment = tracksStore.getTrackSegments(trackId)[0]
     if (!segment) return { ok: false, reason: '创建时间线片段失败' }
     segment.timelineStart = timelineStart
@@ -1214,26 +1241,6 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     deleteTextSegment,
   }
 })
-
-async function decodeAudioMeta(blob: Blob): Promise<{ sampleRate: number; totalSamples: number; duration: number; channels: number }> {
-  const root = globalThis as typeof globalThis & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }
-  const AudioContextCtor = root.AudioContext || root.webkitAudioContext
-  if (!AudioContextCtor) {
-    return { sampleRate: 44100, totalSamples: Math.max(1, Math.round(blob.size / 2)), duration: Math.max(0.01, blob.size / 88200), channels: 1 }
-  }
-  const audioCtx = new AudioContextCtor()
-  try {
-    const audioBuf = await audioCtx.decodeAudioData(await blob.arrayBuffer())
-    return {
-      sampleRate: audioBuf.sampleRate,
-      totalSamples: Math.round(audioBuf.duration * audioBuf.sampleRate),
-      duration: audioBuf.duration,
-      channels: audioBuf.numberOfChannels,
-    }
-  } finally {
-    audioCtx.close()
-  }
-}
 
 function ensureWavFileName(name: string): string {
   const clean = sanitizeFileName(name) || 'SVC_output'

@@ -50,6 +50,7 @@ export const useGlobalResourcesStore = defineStore('globalResources', () => {
     if (!node || !canPublish(node)) throw new Error('第一版只支持发布 Resource 中的音频或纯音频文件夹')
     const assets: Record<string, AudioAsset> = {}
     const blobs = new Map<string, Blob>()
+    const ancestors = collectResourceAncestors(node.id, objectTree)
     collectResourcePayload(node, node.id, objectTree.tree.assets, tracks.sourceBlobs, assets, blobs)
 
     for (const [key, blob] of blobs) {
@@ -63,7 +64,7 @@ export const useGlobalResourcesStore = defineStore('globalResources', () => {
     const response = await fetch(`/api/global-resources/${encodeURIComponent(node.id)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node: cloneSerializable(node), assets, blobKeys: [...blobs.keys()] }),
+      body: JSON.stringify({ node: cloneSerializable(node), ancestors, assets, blobKeys: [...blobs.keys()] }),
     })
     if (!response.ok) throw new Error(await readError(response) || '加入全局 Resource 失败')
     globalIds.value = new Set([...globalIds.value, node.id])
@@ -77,11 +78,48 @@ export const useGlobalResourcesStore = defineStore('globalResources', () => {
     globalIds.value = next
   }
 
-  return { globalIds, isGlobal, isResourceItem, canPublish, refresh, syncProject, publish, unpublish }
+  async function updatePathsForSubtree(nodeId: NodeId): Promise<void> {
+    const objectTree = useObjectTreeStore()
+    const root = objectTree.node(nodeId)
+    if (!root) return
+    const subtreeIds = collectNodeIds(root)
+    const affected = [...globalIds.value].filter(id => subtreeIds.has(id) && isResourceItem(id))
+    for (const id of affected) {
+      const response = await fetch(`/api/global-resources/${encodeURIComponent(id)}/path`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ancestors: collectResourceAncestors(id, objectTree) }),
+      })
+      if (!response.ok) throw new Error(await readError(response) || '全局 Resource 路径更新失败')
+    }
+  }
+
+  return { globalIds, isGlobal, isResourceItem, canPublish, refresh, syncProject, publish, unpublish, updatePathsForSubtree }
 })
 
 function canPublishTreeNode(node: TreeNode): boolean {
   return node.kind === 'audio' || (node.kind === 'folder' && node.children.every(canPublishTreeNode))
+}
+
+function collectResourceAncestors(nodeId: NodeId, objectTree: ReturnType<typeof useObjectTreeStore>) {
+  const ancestors: Array<{ id: NodeId; kind: 'folder'; name: string; children: [] }> = []
+  let parentId = objectTree.index.parentById[nodeId]
+  while (parentId && parentId !== TOP_LEVEL_IDS.resource) {
+    const parent = objectTree.node(parentId)
+    if (!parent || parent.kind !== 'folder') throw new Error('Resource 路径包含无效的父级')
+    ancestors.unshift({ id: parent.id, kind: 'folder', name: parent.name, children: [] })
+    parentId = objectTree.index.parentById[parentId]
+  }
+  if (parentId !== TOP_LEVEL_IDS.resource) throw new Error('Resource 不在项目 Resource 目录中')
+  return ancestors
+}
+
+function collectNodeIds(node: TreeNode, ids = new Set<NodeId>()): Set<NodeId> {
+  ids.add(node.id)
+  if (node.kind === 'folder') {
+    for (const child of node.children) collectNodeIds(child, ids)
+  }
+  return ids
 }
 
 function collectResourcePayload(

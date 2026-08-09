@@ -321,6 +321,11 @@ function drawTextTrack(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof c
       ctx.lineWidth = 2
       roundRect(ctx, x, barTop, w, barHeight, 5)
       ctx.stroke()
+      ctx.fillStyle = theme.accent
+      ctx.fillRect(x - 2, barTop, 4, 8)
+      ctx.fillRect(x - 2, barTop + barHeight - 8, 4, 8)
+      ctx.fillRect(x + w - 2, barTop, 4, 8)
+      ctx.fillRect(x + w - 2, barTop + barHeight - 8, 4, 8)
     }
   }
 }
@@ -465,6 +470,29 @@ type TextBoundaryHit = {
   previous?: Required<TextSegment>
   next?: Required<TextSegment>
   edge: 'left' | 'right'
+}
+
+type TextObjectBoundaryHit = {
+  trackObject: TrackObjectNode
+  source: TextObjectNode
+  edge: 'left' | 'right'
+}
+
+function findTextObjectBoundaryAt(cx: number, cy: number): TextObjectBoundaryHit | null {
+  const barTop = TEXT_BAR_TOP
+  const barBottom = barTop + TEXT_BAR_HEIGHT
+  const onOuterRail = cy >= barTop && cy <= barBottom && (cy <= barTop + 7 || cy >= barBottom - 7)
+  if (!onOuterRail) return null
+  const time = xToTime(cx)
+  const handleSec = Math.max(0.04, 7 / project.pxPerSec)
+  for (const item of textTrackObjects.value) {
+    if (!selection.isSelected(item.trackObject.id)) continue
+    const start = item.trackObject.trackObject.timelineStart
+    const end = item.trackObject.trackObject.timelineEnd
+    if (Math.abs(time - start) <= handleSec) return { ...item, edge: 'left' }
+    if (Math.abs(time - end) <= handleSec) return { ...item, edge: 'right' }
+  }
+  return null
 }
 
 function findTextBoundaryAt(cx: number, cy: number): TextBoundaryHit | null {
@@ -615,6 +643,15 @@ const textSegmentDrag = ref<{
   beforeTree: ReturnType<typeof objectTree.snapshotTree>
   moved: boolean
 } | null>(null)
+const textObjectBoundaryDrag = ref<{
+  trackObject: TrackObjectNode
+  source: TextObjectNode
+  edge: 'left' | 'right'
+  originalStart: number
+  originalEnd: number
+  originalSegments: Array<{ id: string; start: number; end: number }>
+  beforeTree: ReturnType<typeof objectTree.snapshotTree>
+} | null>(null)
 
 const inlineEditorStyle = computed(() => {
   const editing = inlineEditor.value
@@ -708,6 +745,31 @@ function finishInlineEdit() {
   project.bumpRedraw()
 }
 
+function deleteSelectedTextSegment() {
+  const item = activeTextItem()
+  const segmentId = selectedTextSegmentId.value
+  if (!item || !segmentId) return
+  const segment = item.source.text.segments.find(candidate => candidate.id === segmentId)
+  if (!segment) return
+  const beforeTree = objectTree.snapshotTree()
+  const result = objectTree.deleteTextSegment(item.source.id, segmentId)
+  if (!result.ok) return
+  if (inlineEditor.value?.segmentId === segmentId) {
+    inlineEditor.value = null
+    composingField.value = null
+  }
+  const remaining = item.source.text.segments
+  selectedTextSegmentId.value = remaining[0]?.id ?? null
+  useHistoryStore().push({
+    description: '删除文本句子',
+    patches: [],
+    inversePatches: [],
+    objectTree: { kind: 'snapshot', before: beforeTree, after: objectTree.snapshotTree() },
+  })
+  project.bumpRedraw()
+  nextTick(draw)
+}
+
 function handleInlineFocusOut(event: FocusEvent) {
   const next = event.relatedTarget as Node | null
   const current = event.currentTarget as HTMLElement
@@ -798,6 +860,45 @@ function onTextBoundaryEnd() {
   textBoundaryDrag.value = null
   document.removeEventListener('mousemove', onTextBoundaryMove)
   document.removeEventListener('mouseup', onTextBoundaryEnd)
+}
+
+function onTextObjectBoundaryMove(e: MouseEvent) {
+  const drag = textObjectBoundaryDrag.value
+  const canvas = canvasRef.value
+  if (!drag || !canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const candidate = xToTime(e.clientX - rect.left)
+  if (drag.edge === 'left') {
+    const firstSegmentStart = Math.min(...drag.originalSegments.map(segment => segment.start), drag.originalEnd - drag.originalStart)
+    const maxStart = Math.min(drag.originalEnd - 0.1, drag.originalStart + firstSegmentStart)
+    const nextStart = Math.max(0, Math.min(maxStart, candidate))
+    const delta = nextStart - drag.originalStart
+    drag.trackObject.trackObject.timelineStart = nextStart
+    for (const segment of drag.originalSegments) {
+      objectTree.updateTextSegmentTiming(drag.source.id, segment.id, segment.start - delta, segment.end - delta)
+    }
+  } else {
+    const lastSegmentEnd = Math.max(0.1, ...drag.originalSegments.map(segment => segment.end))
+    const minEnd = drag.originalStart + lastSegmentEnd
+    drag.trackObject.trackObject.timelineEnd = Math.max(minEnd, candidate)
+  }
+  project.bumpRedraw()
+  draw()
+}
+
+function onTextObjectBoundaryEnd() {
+  const drag = textObjectBoundaryDrag.value
+  if (drag) {
+    useHistoryStore().push({
+      description: '调整 TextObject 边界',
+      patches: [],
+      inversePatches: [],
+      objectTree: { kind: 'snapshot', before: drag.beforeTree, after: objectTree.snapshotTree() },
+    })
+  }
+  textObjectBoundaryDrag.value = null
+  document.removeEventListener('mousemove', onTextObjectBoundaryMove)
+  document.removeEventListener('mouseup', onTextObjectBoundaryEnd)
 }
 
 function onTextSegmentMove(e: MouseEvent) {
@@ -949,6 +1050,25 @@ function handleMousedown(e: MouseEvent) {
   const cy = e.clientY - rect.top
 
   if (track.value?.trackType === 'text') {
+    const objectBoundary = findTextObjectBoundaryAt(cx, cy)
+    if (objectBoundary) {
+      if (inlineEditor.value) finishInlineEdit()
+      const originalSegments = objectBoundary.source.text.segments
+        .filter((segment): segment is TextSegment & { id: string } => Boolean(segment.id))
+        .map(segment => ({ id: segment.id, start: segment.start, end: segment.end ?? segment.start + 0.1 }))
+      textObjectBoundaryDrag.value = {
+        ...objectBoundary,
+        originalStart: objectBoundary.trackObject.trackObject.timelineStart,
+        originalEnd: objectBoundary.trackObject.trackObject.timelineEnd,
+        originalSegments,
+        beforeTree: objectTree.snapshotTree(),
+      }
+      document.addEventListener('mousemove', onTextObjectBoundaryMove)
+      document.addEventListener('mouseup', onTextObjectBoundaryEnd)
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
     const hit = findTextBoundaryAt(cx, cy)
     const boundaryIsSelected = hit?.segment.id === selectedTextSegmentId.value && selection.isSelected(hit.trackObject.id)
     if (hit && (boundaryIsSelected || e.ctrlKey || e.metaKey)) {
@@ -1004,12 +1124,16 @@ function handleMousedown(e: MouseEvent) {
 
 function handleMousemove(e: MouseEvent) {
   const canvas = canvasRef.value
-  if (!canvas || isDragging.value || textBoundaryDrag.value || textSegmentDrag.value) return
+  if (!canvas || isDragging.value || textBoundaryDrag.value || textSegmentDrag.value || textObjectBoundaryDrag.value) return
   const rect = canvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
 
   if (track.value?.trackType === 'text') {
+    if (findTextObjectBoundaryAt(cx, cy)) {
+      canvas.style.cursor = 'ew-resize'
+      return
+    }
     const hit = findTextBoundaryAt(cx, cy)
     if (hit && ((hit.segment.id === selectedTextSegmentId.value && selection.isSelected(hit.trackObject.id)) || e.ctrlKey || e.metaKey)) {
       canvas.style.cursor = 'ew-resize'
@@ -1039,9 +1163,17 @@ function handleDblClick(e: MouseEvent) {
 }
 
 function handleTextKeyboard(e: KeyboardEvent) {
-  if (inlineEditor.value) return
   const item = activeTextItem()
   if (!item || !selection.isSelected(item.trackObject.id)) return
+  const target = e.target as HTMLElement | null
+  const editingInput = target?.matches('input, textarea, [contenteditable="true"]')
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !editingInput && selectedTextSegmentId.value) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    deleteSelectedTextSegment()
+    return
+  }
+  if (inlineEditor.value) return
   const ctrl = e.ctrlKey || e.metaKey
   if (ctrl && e.key.toLowerCase() === 'e') {
     e.preventDefault()
@@ -1113,6 +1245,8 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onTextBoundaryEnd)
   document.removeEventListener('mousemove', onTextSegmentMove)
   document.removeEventListener('mouseup', onTextSegmentEnd)
+  document.removeEventListener('mousemove', onTextObjectBoundaryMove)
+  document.removeEventListener('mouseup', onTextObjectBoundaryEnd)
   if (playheadRaf) cancelAnimationFrame(playheadRaf)
 })
 </script>
@@ -1138,6 +1272,7 @@ onUnmounted(() => {
       @keydown.meta.enter.prevent="finishInlineEdit"
       @keydown.esc.prevent="finishInlineEdit"
     >
+      <button type="button" class="inline-delete" title="删除当前句子" @click="deleteSelectedTextSegment">删除句子</button>
       <label><span>Kana</span><input ref="inlineKanaInput" :value="inlineKana" @input="handleInlineInput('kana', $event)" @compositionstart="composingField = 'kana'" @compositionend="finishComposition('kana', $event)" /></label>
       <label><span>Romaji</span><input :value="inlineRomaji" @input="handleInlineInput('romaji', $event)" @compositionstart="composingField = 'romaji'" @compositionend="finishComposition('romaji', $event)" /></label>
     </div>
@@ -1181,6 +1316,17 @@ canvas {
   border-radius: 4px;
   background: var(--app-panel);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.inline-delete {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  border: 0;
+  padding: 1px 4px;
+  color: var(--app-danger, #d85b5b);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
 }
 .inline-text-editor label {
   min-width: 0;

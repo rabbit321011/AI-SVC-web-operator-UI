@@ -16,6 +16,11 @@ describe('SVS model metadata', () => {
           checkpoint: 'models/v4fg.pt',
           vaeCheckpoint: 'ckpts/autoencoder_285k.ckpt',
         },
+        V4H_24k: {
+          engine: 'v4h_phone_pul',
+          checkpoint: 'models/v4h.pt',
+          vaeCheckpoint: 'ckpts/official.ckpt',
+        },
         legacy: 'models/legacy.pt',
       }),
     })))
@@ -31,6 +36,8 @@ describe('SVS model metadata', () => {
     expect(store.models.find(model => model.name === 'legacy')).toEqual({
       name: 'legacy',
       checkpoint: 'models/legacy.pt',
+      engine: 't1',
     })
+    expect(store.models.find(model => model.name === 'V4H_24k')?.engine).toBe('v4h_phone_pul')
   })
 })

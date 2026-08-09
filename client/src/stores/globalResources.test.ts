@@ -44,7 +44,7 @@ describe('global Resource client store', () => {
     }
   })
 
-  it('publishes audio nested in multiple Resource folders', async () => {
+  it('publishes a deeply nested audio with its Resource ancestor path', async () => {
     const objectTree = useObjectTreeStore()
     const tracks = useTracksStore()
     const tree = createEmptyProjectObjectTree()
@@ -58,6 +58,7 @@ describe('global Resource client store', () => {
         }],
       }],
     })
+    resource.children.push({ id: 'node:folder:collection', kind: 'folder', name: 'Collection', children: [] })
     tree.assets['asset:vocal'] = {
       id: 'asset:vocal', storage: 'projectBlob', blobKey: 'Vocal.wav',
       sampleRate: 44100, duration: 1, channels: 2,
@@ -71,11 +72,22 @@ describe('global Resource client store', () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }))
     try {
-      await useGlobalResourcesStore().publish('node:folder:album')
+      const store = useGlobalResourcesStore()
+      await store.publish('node:audio:vocal')
       expect(calls).toHaveLength(2)
       const payload = JSON.parse(String(calls[1].init?.body))
-      expect(payload.node.children[0].children[0].id).toBe('node:audio:vocal')
-      expect(payload.assets['asset:vocal'].blobKey).toContain('global-resource:node:folder:album:asset:vocal:Vocal.wav')
+      expect(payload.node.id).toBe('node:audio:vocal')
+      expect(payload.ancestors.map((node: { id: string }) => node.id)).toEqual(['node:folder:album', 'node:folder:stems'])
+      expect(payload.assets['asset:vocal'].blobKey).toContain('global-resource:node:audio:vocal:asset:vocal:Vocal.wav')
+
+      expect(objectTree.moveNode('node:folder:album', 'node:folder:collection').ok).toBe(true)
+      await store.updatePathsForSubtree('node:folder:album')
+      expect(calls).toHaveLength(3)
+      expect(calls[2].init?.method).toBe('PATCH')
+      const pathPayload = JSON.parse(String(calls[2].init?.body))
+      expect(pathPayload.ancestors.map((node: { id: string }) => node.id)).toEqual([
+        'node:folder:collection', 'node:folder:album', 'node:folder:stems',
+      ])
     } finally {
       vi.unstubAllGlobals()
     }

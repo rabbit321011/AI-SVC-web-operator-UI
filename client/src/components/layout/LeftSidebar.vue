@@ -118,7 +118,7 @@ function handleNodeDblClick(node: TreeNode) {
   if (node.kind === 'text') editorWorkspace.openTextObjectTab(node.id, node.name)
 }
 
-function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
+async function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
   event.preventDefault()
   if (event.dataTransfer?.files?.length) {
     importDroppedFiles(pane, target, Array.from(event.dataTransfer.files))
@@ -130,6 +130,7 @@ function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
   if (result.ok) {
     if (target.kind === 'folder' || target.kind === 'trackFolder') ui.expanded[pane].add(target.id)
     flash('已移动')
+    await persistTreePathChange(sourceId)
   } else {
     flash(result.reason ?? '无法移动')
   }
@@ -174,7 +175,7 @@ function createFolderHere() {
   flash(result.ok ? '已新建文件夹' : result.reason ?? '无法新建文件夹')
 }
 
-function renameNode() {
+async function renameNode() {
   const node = menu.value.node
   closeMenu()
   if (!node) return
@@ -182,6 +183,16 @@ function renameNode() {
   if (name == null) return
   const result = objectTree.renameNode(node.id, name)
   flash(result.ok ? '已重命名' : result.reason ?? '无法重命名')
+  if (result.ok) await persistTreePathChange(node.id)
+}
+
+async function persistTreePathChange(nodeId: NodeId) {
+  try {
+    await globalResources.updatePathsForSubtree(nodeId)
+  } catch (error: any) {
+    flash(error?.message || '全局 Resource 路径更新失败')
+  }
+  await (window as any).__saveProject?.()
 }
 
 function deleteFolder() {
@@ -332,6 +343,8 @@ function cssSafeId(id: NodeId) {
   flex-shrink: 0;
   width: 260px;
   min-width: 80px;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
   z-index: 2;
 }
@@ -368,6 +381,8 @@ function cssSafeId(id: NodeId) {
 }
 .tree-pane {
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--app-border);
@@ -407,7 +422,10 @@ function cssSafeId(id: NodeId) {
 }
 .tree-scroll {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 4px 0;
 }
 .mini-btn {

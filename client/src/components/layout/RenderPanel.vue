@@ -36,6 +36,7 @@ const selectedObjectNodeId = computed(() => {
 
 const modelOptions = computed(() => svcConfig.presets.map(p => ({ label: p.modelName, value: p.modelName })))
 const svsModelOptions = computed(() => svsConfig.models.map(m => ({ label: m.name, value: m.name })))
+const isV4hSelected = computed(() => svsConfig.selectedModel?.engine === 'v4h_phone_pul')
 const msstModelOptions = [
   { label: '人声 / 伴奏分离', value: 'duality' },
   { label: '去混响 / 回声', value: 'dereverb' },
@@ -139,6 +140,21 @@ async function runSvsDryRun() {
 async function runSvs() {
   await renderSvsPipeline.startSvs()
   if (renderPanel.svsStatus === 'failed') flash(renderPanel.svsMessage || 'SVS 执行失败')
+}
+
+async function measureSvsPitch() {
+  await renderSvsPipeline.measurePitchDifference()
+}
+
+function setPitchShiftTarget(target: 'melody' | 'reference') {
+  if (renderPanel.svs.pitchShiftTarget === target) return
+  renderPanel.svs.pitchShiftTarget = target
+  renderPanel.svs.pitchShiftSemitones = -renderPanel.svs.pitchShiftSemitones
+  if (renderPanel.svs.pitchSuggestion != null) renderPanel.svs.pitchSuggestion = -renderPanel.svs.pitchSuggestion
+  if (renderPanel.svs.pitchMeasureStatus === 'done') {
+    const suggestion = renderPanel.svs.pitchSuggestion ?? 0
+    renderPanel.svs.pitchMeasureMessage = `建议 ${suggestion > 0 ? '+' : ''}${suggestion} 半音`
+  }
 }
 
 async function runWhisper() {
@@ -275,6 +291,29 @@ onMounted(() => {
         <n-input v-model:value="renderPanel.svs.outputName" size="small" placeholder="SVS_output" />
         <label class="field-label">SVS 模型</label>
         <n-select v-model:value="svsConfig.selectedName" size="small" :options="svsModelOptions" placeholder="默认模型" clearable />
+        <template v-if="isV4hSelected">
+          <label class="field-label">SOFA 逸散程度</label>
+          <div class="pitch-controls">
+            <n-input-number v-model:value="renderPanel.svs.sofaEscapeSeconds" size="small" :min="0" :max="2" :step="0.05" :precision="2" />
+            <span class="pitch-unit">秒</span>
+          </div>
+        </template>
+        <div class="pitch-tool">
+          <div class="pitch-tool-head">
+            <span class="field-label">整体移调</span>
+            <n-switch v-model:value="renderPanel.svs.pitchShiftEnabled" size="small" />
+          </div>
+          <div class="pitch-targets">
+            <n-button size="tiny" :type="renderPanel.svs.pitchShiftTarget === 'melody' ? 'primary' : 'default'" @click="setPitchShiftTarget('melody')">目标旋律</n-button>
+            <n-button size="tiny" :type="renderPanel.svs.pitchShiftTarget === 'reference' ? 'primary' : 'default'" @click="setPitchShiftTarget('reference')">参考音频</n-button>
+          </div>
+          <div class="pitch-controls">
+            <n-input-number v-model:value="renderPanel.svs.pitchShiftSemitones" size="small" :min="-24" :max="24" :step="1" />
+            <span class="pitch-unit">半音</span>
+            <n-button size="tiny" :loading="renderPanel.svs.pitchMeasureStatus === 'running'" :disabled="renderPanel.isLocalProcessingRunning" @click="measureSvsPitch">测量</n-button>
+          </div>
+          <div v-if="renderPanel.svs.pitchMeasureMessage" class="pitch-message" :class="renderPanel.svs.pitchMeasureStatus">{{ renderPanel.svs.pitchMeasureMessage }}</div>
+        </div>
         <label class="field-label">cfg</label>
         <n-input-number v-model:value="renderPanel.svs.cfg" size="small" :min="0" :max="10" :step="0.1" />
         <label class="field-label">step</label>
@@ -456,6 +495,33 @@ onMounted(() => {
   font-size: 11px;
   color: var(--app-muted);
 }
+.pitch-tool {
+  padding: 8px 0;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--app-border);
+}
+.pitch-tool-head,
+.pitch-controls,
+.pitch-targets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pitch-tool-head { justify-content: space-between; }
+.pitch-targets > * { flex: 1; }
+.pitch-controls :deep(.n-input-number) { min-width: 0; flex: 1; }
+.pitch-unit { flex: 0 0 auto; color: var(--app-muted); font-size: 10px; }
+.pitch-message {
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pitch-message.done { color: #3fb950; }
+.pitch-message.failed { color: #f85149; }
 .notice {
   min-height: 18px;
   padding: 0 10px 10px;

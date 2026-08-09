@@ -185,7 +185,7 @@ export const useTracksStore = defineStore('tracks', () => {
     return sourceBlobs.get(seg.sourceFile) || sourceBlobs.get(seg.trackId)
   }
 
-  async function reconcileF0ForTrack(trackId: TrackId) {
+  async function reconcileF0ForTrack(trackId: TrackId, force = false) {
     const track = tracks[trackId]
     if (!track) return
 
@@ -207,7 +207,7 @@ export const useTracksStore = defineStore('tracks', () => {
       if (!tracks[trackId]) { f0RunningForTrack = null; return }
       try {
         const blob = getSegBlob(seg)
-        if (!blob || blob.size > 100 * 1024 * 1024) {
+        if (!blob || (blob.size > 100 * 1024 * 1024 && !force)) {
           track.f0Pending = Math.max(0, track.f0Pending - 1)
           seg.f0Extracted = true
           projectBump()
@@ -248,6 +248,20 @@ export const useTracksStore = defineStore('tracks', () => {
     f0RunningForTrack = null
   }
 
+  async function forceReconcileF0ForTrack(trackId: TrackId) {
+    const track = tracks[trackId]
+    if (!track || (track.trackType ?? 'audio') !== 'audio') return
+    for (const segment of getTrackSegments(trackId)) {
+      segment.f0Data = null
+      segment.f0Extracted = false
+    }
+    track.f0Cache = null
+    track.f0Pending = 0
+    track.f0Total = 0
+    projectBump()
+    await reconcileF0ForTrack(trackId, true)
+  }
+
   function blobToBase64(blob: Blob): Promise<string> {
     return new Promise(resolve => {
       const r = new FileReader()
@@ -270,7 +284,7 @@ export const useTracksStore = defineStore('tracks', () => {
     addTrack, addObjectTrack, removeTrack, renameTrack, setTrackColor, reorderTracks,
     getSegment, updateSegment, replaceSegments, insertSegment,
     getAllSegments, getTrackSegments,
-    reconcileF0ForTrack,
+    reconcileF0ForTrack, forceReconcileF0ForTrack,
     makeSegmentId, makeTrackId, nextColor,
   }
 })

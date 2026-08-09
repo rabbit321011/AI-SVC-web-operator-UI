@@ -50,7 +50,477 @@
           "id": "project:/resource",
           "kind": "folder",
           "name": "resource",
-          "children": []
+          "children": [
+            {
+              "id": "node:folder:08247e95-8e00-4518-bb30-16c77b9fd082",
+              "kind": "folder",
+              "name": "温柔风",
+              "children": [
+                {
+                  "id": "node:audio:c76fb1fa-7c51-46ae-8b57-59312db79370",
+                  "kind": "audio",
+                  "name": "A-平",
+                  "audio": {
+                    "assetId": "asset:import:b38ae381-072b-418f-8745-ef554dff7ec6",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:aa119c23-9718-4efd-9195-67eb1f336a08",
+                  "kind": "audio",
+                  "name": "A-温柔",
+                  "audio": {
+                    "assetId": "asset:import:17b9941c-9add-410b-aa7a-04add64c97e9",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:30401d39-880c-41f4-9c38-7f1ebb5f5e62",
+                  "kind": "audio",
+                  "name": "A-2",
+                  "audio": {
+                    "assetId": "asset:import:6d232b1c-17fc-457a-aa91-dd0c76e022d3",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:eed924f3-9627-4746-9b09-acef849895b1",
+                  "kind": "audio",
+                  "name": "A-high",
+                  "audio": {
+                    "assetId": "asset:import:8bc61480-4221-430a-82b7-e258d3328c55",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:b493c48b-16c8-4954-bb0e-134179a30a11",
+                  "kind": "audio",
+                  "name": "B-渐起",
+                  "audio": {
+                    "assetId": "asset:import:929dac1e-fc0c-4428-a39e-a0259a5d0e02",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:6374399b-02bf-4fa7-927f-5034971af09c",
+                  "kind": "audio",
+                  "name": "B-认真",
+                  "audio": {
+                    "assetId": "asset:import:69a81d25-f079-4e50-848a-9cc8a5de451f",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:e0d2848c-4b1d-4aaa-a09e-6b9af437d421",
+                  "kind": "audio",
+                  "name": "B-高",
+                  "audio": {
+                    "assetId": "asset:import:1e6d7edc-9238-4d72-a107-f37f92e607a5",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:ba5590f0-aa85-49b4-9774-efd20ecde808",
+                  "kind": "audio",
+                  "name": "B-低-温柔",
+                  "audio": {
+                    "assetId": "asset:import:29cad413-6f84-4dfd-a94c-0fbfab0a6bb2",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:8cda6c24-2ca8-4215-9dbd-626e64f3123a",
+                  "kind": "audio",
+                  "name": "B-赤城",
+                  "audio": {
+                    "assetId": "asset:import:66ae604b-e28a-47ea-9be7-d98c9a9185fc",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:85c9c567-a553-4910-a7bf-5fcc26856c25",
+                  "kind": "audio",
+                  "name": "C-普通",
+                  "audio": {
+                    "assetId": "asset:import:47289c22-b0ce-470d-9f0a-5c26ac2d40dd",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:054755a8-131e-4239-90ba-09e05c1a3f8d",
+                  "kind": "audio",
+                  "name": "C-高",
+                  "audio": {
+                    "assetId": "asset:import:f51deb01-f806-4dd1-9ad1-08c74363d253",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:4b95a03a-9655-4a63-803d-c51279782323",
+                  "kind": "audio",
+                  "name": "坚强.wav",
+                  "audio": {
+                    "assetId": "asset:import:ec45fa8b-ac3e-44fd-a650-a53b1375604c",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:d23af687-bd2e-492d-ac48-c01a26eb9c66",
+                  "kind": "audio",
+                  "name": "高-美.wav",
+                  "audio": {
+                    "assetId": "asset:import:477b9a20-cab7-4319-89c3-f8b8fc4e2342",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:0e047632-0d7a-4403-8396-f5a80a9d3582",
+                  "kind": "audio",
+                  "name": "温柔.wav",
+                  "audio": {
+                    "assetId": "asset:import:4fadb2e8-3162-45ba-a235-af291c3df676",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:e3ee6cae-f3aa-45fd-96b4-9f5c9fc7c9fc",
+                  "kind": "audio",
+                  "name": "高.wav",
+                  "audio": {
+                    "assetId": "asset:import:8273de01-21b6-444e-a025-7563b76a92cc",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:0dbe81ed-ae05-4ce1-a114-a87ce0af281b",
+                  "kind": "audio",
+                  "name": "低.wav",
+                  "audio": {
+                    "assetId": "asset:import:90761f08-e131-4547-b1c2-503f7bb2239a",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:e6adb6ed-8a62-4ece-993e-e0cdc7ae8d66",
+              "kind": "folder",
+              "name": "哭腔",
+              "children": [
+                {
+                  "id": "node:audio:4521dfc2-3081-4ad5-899f-587899da4b69",
+                  "kind": "audio",
+                  "name": "A-高",
+                  "audio": {
+                    "assetId": "asset:import:67afe446-818d-410f-a801-4412a42e1cd4",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:79a715a2-57a2-4f5d-be58-fe091436a581",
+                  "kind": "audio",
+                  "name": "A-中",
+                  "audio": {
+                    "assetId": "asset:import:23358b6d-2f8c-4874-ae8f-f20a07504c6a",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:1bac4bf7-6ee6-4e9c-84bf-d765866fdb31",
+              "kind": "folder",
+              "name": "美丽",
+              "children": [
+                {
+                  "id": "node:audio:5fef3136-7f74-4af3-b39d-523d589e37f6",
+                  "kind": "audio",
+                  "name": "A-低",
+                  "audio": {
+                    "assetId": "asset:import:cfbf1b73-4f91-41fa-8218-cc266bc36250",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:614e942b-9024-4558-aa64-8071003f7a0f",
+                  "kind": "audio",
+                  "name": "A-高To更高",
+                  "audio": {
+                    "assetId": "asset:import:10d23c12-beef-4b63-9830-93c45cc9301a",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:5bdf969d-f3fb-4bf6-8e41-7dd00489b748",
+                  "kind": "audio",
+                  "name": "A-中To高",
+                  "audio": {
+                    "assetId": "asset:import:28b4971d-3cea-4691-a395-b6a79a49bd33",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:84668cb5-c3d3-4add-81f6-5393700aed20",
+                  "kind": "audio",
+                  "name": "极高.wav",
+                  "audio": {
+                    "assetId": "asset:import:128b901a-69ce-47f7-b6aa-12d76dfa81cc",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:da0d2763-ba0f-4d9a-a7b0-02e5bee8f419",
+                  "kind": "audio",
+                  "name": "沙-美丽.wav",
+                  "audio": {
+                    "assetId": "asset:import:f89ed007-f399-4780-9236-6b72913a3624",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:bbe29763-241a-4323-90c2-e8dbc0806b97",
+                  "kind": "audio",
+                  "name": "高-美.wav",
+                  "audio": {
+                    "assetId": "asset:import:41292883-9aea-4107-944d-bcc03833be17",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:56475bdd-0668-47f3-9540-1eb580e0e87c",
+                  "kind": "audio",
+                  "name": "长-美.wav",
+                  "audio": {
+                    "assetId": "asset:import:ea0a6e62-c82b-4674-aa8a-b341c9ba864a",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:f25584d5-033c-4d32-96b7-579bc6626951",
+                  "kind": "audio",
+                  "name": "沙-断句-美.wav",
+                  "audio": {
+                    "assetId": "asset:import:80b75407-342b-47c8-9000-a3921c451a56",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:c89491e4-9531-4aae-ad22-4bf5f092f5ca",
+              "kind": "folder",
+              "name": "帅气",
+              "children": [
+                {
+                  "id": "node:audio:99774806-5ffb-4136-b669-88eb262fe595",
+                  "kind": "audio",
+                  "name": "帅气-低音质.wav",
+                  "audio": {
+                    "assetId": "asset:import:744f8418-20f6-4c97-8ba2-5f15f96edd6c",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:efeb47c1-1426-4c3c-bc61-361122d17f54",
+                  "kind": "audio",
+                  "name": "帅气-3.wav",
+                  "audio": {
+                    "assetId": "asset:import:655381d3-8780-44b9-a6d3-b2a04c941691",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:cba54b00-b772-47fc-9da0-da6914257e47",
+                  "kind": "audio",
+                  "name": "帅气-最好.wav",
+                  "audio": {
+                    "assetId": "asset:import:f4c46171-ad06-4e51-89e4-a2be4e3d97e2",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:a0c1caf7-bd9a-4028-b35a-2d8e95e91965",
+                  "kind": "audio",
+                  "name": "帅气-歌-悲伤.wav",
+                  "audio": {
+                    "assetId": "asset:import:8ca9a084-7be8-4f8e-96e2-9717f09c4a93",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:2d10dc8d-f8d1-4654-867c-a8bdc96541e3",
+                  "kind": "audio",
+                  "name": "帅气-2.wav",
+                  "audio": {
+                    "assetId": "asset:import:e98b14a5-e08d-4efa-a4ab-210ec21cdf30",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:f670a71b-f112-4622-ad5e-dad0361b0868",
+              "kind": "folder",
+              "name": "萌",
+              "children": [
+                {
+                  "id": "node:audio:330a3bc3-0a9e-4503-ae4a-7350d74bddaf",
+                  "kind": "audio",
+                  "name": "萌-高.wav",
+                  "audio": {
+                    "assetId": "asset:import:07e9eb85-7b47-4414-9602-08fed41085aa",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:2483955b-8d91-4c42-956b-d35b31f4ff39",
+                  "kind": "audio",
+                  "name": "卖萌.wav",
+                  "audio": {
+                    "assetId": "asset:import:381af6c6-4e82-49c6-a93a-163bd59c3832",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:ccb0d30e-5ef0-446d-9fdf-dfac1e9fe707",
+              "kind": "folder",
+              "name": "成熟",
+              "children": [
+                {
+                  "id": "node:audio:8a688a0d-1a2a-4a4b-904c-4237a2323282",
+                  "kind": "audio",
+                  "name": "成熟-高.wav",
+                  "audio": {
+                    "assetId": "asset:import:2790d78b-deac-416e-a500-ac2ffefd74d9",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:5f652971-6475-48c7-8bab-493e832cfab6",
+                  "kind": "audio",
+                  "name": "成熟悲伤.wav",
+                  "audio": {
+                    "assetId": "asset:import:29d6db03-aa57-40bc-b18a-e12ca9650215",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:c03eb8a0-484f-4557-9ae7-6ec50c27b383",
+                  "kind": "audio",
+                  "name": "成熟-抒情.wav",
+                  "audio": {
+                    "assetId": "asset:import:ddf14c7a-7f3b-4f71-bb99-f11f4cb46435",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            },
+            {
+              "id": "node:folder:140022e9-c8db-42dc-840f-478f86d2fb99",
+              "kind": "folder",
+              "name": "普通",
+              "children": [
+                {
+                  "id": "node:audio:de3a395a-9896-45ef-be7b-f80f3db121ee",
+                  "kind": "audio",
+                  "name": "悠扬.wav",
+                  "audio": {
+                    "assetId": "asset:import:2e04cebf-b036-467c-9159-703f4cc43794",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:c9715a3d-090e-481d-b9cc-73a46378c96b",
+                  "kind": "audio",
+                  "name": "端庄.wav",
+                  "audio": {
+                    "assetId": "asset:import:e75991ca-f8a8-4152-b754-d90f67db5c0c",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:63ca2951-a0a6-41f7-9604-5c3abe43476a",
+                  "kind": "audio",
+                  "name": "普通-偏温柔.wav",
+                  "audio": {
+                    "assetId": "asset:import:4f8f820a-c233-4532-a51c-e2cc10599f85",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:f636614d-8e25-4d35-ae32-e605428a6fab",
+                  "kind": "audio",
+                  "name": "普通-悲伤.wav",
+                  "audio": {
+                    "assetId": "asset:import:673e8df7-59ed-4f13-94b7-137b93fca0ed",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:2067b75c-00bd-404e-bf0c-6d71faeba18e",
+                  "kind": "audio",
+                  "name": "普通-抒情.wav",
+                  "audio": {
+                    "assetId": "asset:import:c8b06129-3d1b-4695-8cb4-f2531b3a35fd",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                },
+                {
+                  "id": "node:audio:0cba286e-8b33-4a80-a2c1-50b2666080c8",
+                  "kind": "audio",
+                  "name": "普通-长.wav",
+                  "audio": {
+                    "assetId": "asset:import:186b5796-97f1-4fd6-a915-ce666774848c",
+                    "midiObjectId": null,
+                    "textObjectId": null
+                  }
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "project:/trackSources",
@@ -562,6 +1032,342 @@
         "sampleRate": 44100,
         "duration": 145.9057625325521,
         "channels": 1
+      },
+      "asset:import:b38ae381-072b-418f-8745-ef554dff7ec6": {
+        "id": "asset:import:b38ae381-072b-418f-8745-ef554dff7ec6",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:b38ae381-072b-418f-8745-ef554dff7ec6:BV1NDRhYkEzt_致我重要的人们《大切な人たちへ》翻唱【花丸晴琉】_2_seg005.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:17b9941c-9add-410b-aa7a-04add64c97e9": {
+        "id": "asset:import:17b9941c-9add-410b-aa7a-04add64c97e9",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:17b9941c-9add-410b-aa7a-04add64c97e9:BV1NDRhYkEzt_致我重要的人们《大切な人たちへ》翻唱【花丸晴琉】_2_seg000.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:6d232b1c-17fc-457a-aa91-dd0c76e022d3": {
+        "id": "asset:import:6d232b1c-17fc-457a-aa91-dd0c76e022d3",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:6d232b1c-17fc-457a-aa91-dd0c76e022d3:BV1NDRhYkEzt_致我重要的人们《大切な人たちへ》翻唱【花丸晴琉】_2_seg003.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:8bc61480-4221-430a-82b7-e258d3328c55": {
+        "id": "asset:import:8bc61480-4221-430a-82b7-e258d3328c55",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:8bc61480-4221-430a-82b7-e258d3328c55:BV1NDRhYkEzt_致我重要的人们《大切な人たちへ》翻唱【花丸晴琉】_2_seg001.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:929dac1e-fc0c-4428-a39e-a0259a5d0e02": {
+        "id": "asset:import:929dac1e-fc0c-4428-a39e-a0259a5d0e02",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:929dac1e-fc0c-4428-a39e-a0259a5d0e02:BV1TdC9Y7EXR_【油管歌回】 Wishing_2_seg007.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:69a81d25-f079-4e50-848a-9cc8a5de451f": {
+        "id": "asset:import:69a81d25-f079-4e50-848a-9cc8a5de451f",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:69a81d25-f079-4e50-848a-9cc8a5de451f:BV1TdC9Y7EXR_【油管歌回】 Wishing_2_seg004_hard.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:1e6d7edc-9238-4d72-a107-f37f92e607a5": {
+        "id": "asset:import:1e6d7edc-9238-4d72-a107-f37f92e607a5",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:1e6d7edc-9238-4d72-a107-f37f92e607a5:BV1TdC9Y7EXR_【油管歌回】 Wishing_2_seg008_hard.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:29cad413-6f84-4dfd-a94c-0fbfab0a6bb2": {
+        "id": "asset:import:29cad413-6f84-4dfd-a94c-0fbfab0a6bb2",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:29cad413-6f84-4dfd-a94c-0fbfab0a6bb2:BV1TdC9Y7EXR_【油管歌回】 Wishing_2_seg001.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:66ae604b-e28a-47ea-9be7-d98c9a9185fc": {
+        "id": "asset:import:66ae604b-e28a-47ea-9be7-d98c9a9185fc",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:08247e95-8e00-4518-bb30-16c77b9fd082:asset:import:66ae604b-e28a-47ea-9be7-d98c9a9185fc:BV1TdC9Y7EXR_【油管歌回】 Wishing_2_seg011.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:47289c22-b0ce-470d-9f0a-5c26ac2d40dd": {
+        "id": "asset:import:47289c22-b0ce-470d-9f0a-5c26ac2d40dd",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:85c9c567-a553-4910-a7bf-5fcc26856c25:asset:import:47289c22-b0ce-470d-9f0a-5c26ac2d40dd:BV1px4y1N7s9_【花丸晴琉】なんでもないや_Vocals_dry_dry_seg006.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:f51deb01-f806-4dd1-9ad1-08c74363d253": {
+        "id": "asset:import:f51deb01-f806-4dd1-9ad1-08c74363d253",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:054755a8-131e-4239-90ba-09e05c1a3f8d:asset:import:f51deb01-f806-4dd1-9ad1-08c74363d253:BV1px4y1N7s9_【花丸晴琉】なんでもないや_Vocals_dry_dry_seg003.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:67afe446-818d-410f-a801-4412a42e1cd4": {
+        "id": "asset:import:67afe446-818d-410f-a801-4412a42e1cd4",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:4521dfc2-3081-4ad5-899f-587899da4b69:asset:import:67afe446-818d-410f-a801-4412a42e1cd4:BV1pzqVY5Evo_【花丸晴琉の翻唱】「プラネタリウム」（20241204 油管歌回）_2_seg008.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:23358b6d-2f8c-4874-ae8f-f20a07504c6a": {
+        "id": "asset:import:23358b6d-2f8c-4874-ae8f-f20a07504c6a",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:79a715a2-57a2-4f5d-be58-fe091436a581:asset:import:23358b6d-2f8c-4874-ae8f-f20a07504c6a:BV1pzqVY5Evo_【花丸晴琉の翻唱】「プラネタリウム」（20241204 油管歌回）_2_seg011.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:cfbf1b73-4f91-41fa-8218-cc266bc36250": {
+        "id": "asset:import:cfbf1b73-4f91-41fa-8218-cc266bc36250",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:5fef3136-7f74-4af3-b39d-523d589e37f6:asset:import:cfbf1b73-4f91-41fa-8218-cc266bc36250:BV1QEhfe9E1N_【歌切】sincerely_2_seg004.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:10d23c12-beef-4b63-9830-93c45cc9301a": {
+        "id": "asset:import:10d23c12-beef-4b63-9830-93c45cc9301a",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:614e942b-9024-4558-aa64-8071003f7a0f:asset:import:10d23c12-beef-4b63-9830-93c45cc9301a:BV1QEhfe9E1N_【歌切】sincerely_2_seg009.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:28b4971d-3cea-4691-a395-b6a79a49bd33": {
+        "id": "asset:import:28b4971d-3cea-4691-a395-b6a79a49bd33",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:5bdf969d-f3fb-4bf6-8e41-7dd00489b748:asset:import:28b4971d-3cea-4691-a395-b6a79a49bd33:BV1QEhfe9E1N_【歌切】sincerely_2_seg008.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:ec45fa8b-ac3e-44fd-a650-a53b1375604c": {
+        "id": "asset:import:ec45fa8b-ac3e-44fd-a650-a53b1375604c",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:4b95a03a-9655-4a63-803d-c51279782323:asset:import:ec45fa8b-ac3e-44fd-a650-a53b1375604c:温柔-坚强.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:477b9a20-cab7-4319-89c3-f8b8fc4e2342": {
+        "id": "asset:import:477b9a20-cab7-4319-89c3-f8b8fc4e2342",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:d23af687-bd2e-492d-ac48-c01a26eb9c66:asset:import:477b9a20-cab7-4319-89c3-f8b8fc4e2342:温柔-高-美.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:4fadb2e8-3162-45ba-a235-af291c3df676": {
+        "id": "asset:import:4fadb2e8-3162-45ba-a235-af291c3df676",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:0e047632-0d7a-4403-8396-f5a80a9d3582:asset:import:4fadb2e8-3162-45ba-a235-af291c3df676:温柔.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:8273de01-21b6-444e-a025-7563b76a92cc": {
+        "id": "asset:import:8273de01-21b6-444e-a025-7563b76a92cc",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:e3ee6cae-f3aa-45fd-96b4-9f5c9fc7c9fc:asset:import:8273de01-21b6-444e-a025-7563b76a92cc:温柔-高.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:90761f08-e131-4547-b1c2-503f7bb2239a": {
+        "id": "asset:import:90761f08-e131-4547-b1c2-503f7bb2239a",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:0dbe81ed-ae05-4ce1-a114-a87ce0af281b:asset:import:90761f08-e131-4547-b1c2-503f7bb2239a:温柔-低.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:744f8418-20f6-4c97-8ba2-5f15f96edd6c": {
+        "id": "asset:import:744f8418-20f6-4c97-8ba2-5f15f96edd6c",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:99774806-5ffb-4136-b669-88eb262fe595:asset:import:744f8418-20f6-4c97-8ba2-5f15f96edd6c:帅气-低音质.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:655381d3-8780-44b9-a6d3-b2a04c941691": {
+        "id": "asset:import:655381d3-8780-44b9-a6d3-b2a04c941691",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:efeb47c1-1426-4c3c-bc61-361122d17f54:asset:import:655381d3-8780-44b9-a6d3-b2a04c941691:帅气-3.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:f4c46171-ad06-4e51-89e4-a2be4e3d97e2": {
+        "id": "asset:import:f4c46171-ad06-4e51-89e4-a2be4e3d97e2",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:cba54b00-b772-47fc-9da0-da6914257e47:asset:import:f4c46171-ad06-4e51-89e4-a2be4e3d97e2:帅气-最好.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:8ca9a084-7be8-4f8e-96e2-9717f09c4a93": {
+        "id": "asset:import:8ca9a084-7be8-4f8e-96e2-9717f09c4a93",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:a0c1caf7-bd9a-4028-b35a-2d8e95e91965:asset:import:8ca9a084-7be8-4f8e-96e2-9717f09c4a93:帅气-歌-悲伤.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:e98b14a5-e08d-4efa-a4ab-210ec21cdf30": {
+        "id": "asset:import:e98b14a5-e08d-4efa-a4ab-210ec21cdf30",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:2d10dc8d-f8d1-4654-867c-a8bdc96541e3:asset:import:e98b14a5-e08d-4efa-a4ab-210ec21cdf30:帅气-2.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:07e9eb85-7b47-4414-9602-08fed41085aa": {
+        "id": "asset:import:07e9eb85-7b47-4414-9602-08fed41085aa",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:folder:f670a71b-f112-4622-ad5e-dad0361b0868:asset:import:07e9eb85-7b47-4414-9602-08fed41085aa:萌-高.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:381af6c6-4e82-49c6-a93a-163bd59c3832": {
+        "id": "asset:import:381af6c6-4e82-49c6-a93a-163bd59c3832",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:2483955b-8d91-4c42-956b-d35b31f4ff39:asset:import:381af6c6-4e82-49c6-a93a-163bd59c3832:卖萌.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:128b901a-69ce-47f7-b6aa-12d76dfa81cc": {
+        "id": "asset:import:128b901a-69ce-47f7-b6aa-12d76dfa81cc",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:84668cb5-c3d3-4add-81f6-5393700aed20:asset:import:128b901a-69ce-47f7-b6aa-12d76dfa81cc:极高.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:2790d78b-deac-416e-a500-ac2ffefd74d9": {
+        "id": "asset:import:2790d78b-deac-416e-a500-ac2ffefd74d9",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:8a688a0d-1a2a-4a4b-904c-4237a2323282:asset:import:2790d78b-deac-416e-a500-ac2ffefd74d9:成熟-高.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:2e04cebf-b036-467c-9159-703f4cc43794": {
+        "id": "asset:import:2e04cebf-b036-467c-9159-703f4cc43794",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:de3a395a-9896-45ef-be7b-f80f3db121ee:asset:import:2e04cebf-b036-467c-9159-703f4cc43794:悠扬.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:e75991ca-f8a8-4152-b754-d90f67db5c0c": {
+        "id": "asset:import:e75991ca-f8a8-4152-b754-d90f67db5c0c",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:c9715a3d-090e-481d-b9cc-73a46378c96b:asset:import:e75991ca-f8a8-4152-b754-d90f67db5c0c:端庄.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:29d6db03-aa57-40bc-b18a-e12ca9650215": {
+        "id": "asset:import:29d6db03-aa57-40bc-b18a-e12ca9650215",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:5f652971-6475-48c7-8bab-493e832cfab6:asset:import:29d6db03-aa57-40bc-b18a-e12ca9650215:成熟悲伤.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:f89ed007-f399-4780-9236-6b72913a3624": {
+        "id": "asset:import:f89ed007-f399-4780-9236-6b72913a3624",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:da0d2763-ba0f-4d9a-a7b0-02e5bee8f419:asset:import:f89ed007-f399-4780-9236-6b72913a3624:沙-美丽.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:41292883-9aea-4107-944d-bcc03833be17": {
+        "id": "asset:import:41292883-9aea-4107-944d-bcc03833be17",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:bbe29763-241a-4323-90c2-e8dbc0806b97:asset:import:41292883-9aea-4107-944d-bcc03833be17:高-美.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:4f8f820a-c233-4532-a51c-e2cc10599f85": {
+        "id": "asset:import:4f8f820a-c233-4532-a51c-e2cc10599f85",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:63ca2951-a0a6-41f7-9604-5c3abe43476a:asset:import:4f8f820a-c233-4532-a51c-e2cc10599f85:普通-偏温柔.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:ea0a6e62-c82b-4674-aa8a-b341c9ba864a": {
+        "id": "asset:import:ea0a6e62-c82b-4674-aa8a-b341c9ba864a",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:56475bdd-0668-47f3-9540-1eb580e0e87c:asset:import:ea0a6e62-c82b-4674-aa8a-b341c9ba864a:长-美.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:80b75407-342b-47c8-9000-a3921c451a56": {
+        "id": "asset:import:80b75407-342b-47c8-9000-a3921c451a56",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:f25584d5-033c-4d32-96b7-579bc6626951:asset:import:80b75407-342b-47c8-9000-a3921c451a56:沙-断句-美.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:ddf14c7a-7f3b-4f71-bb99-f11f4cb46435": {
+        "id": "asset:import:ddf14c7a-7f3b-4f71-bb99-f11f4cb46435",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:c03eb8a0-484f-4557-9ae7-6ec50c27b383:asset:import:ddf14c7a-7f3b-4f71-bb99-f11f4cb46435:成熟-抒情.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:673e8df7-59ed-4f13-94b7-137b93fca0ed": {
+        "id": "asset:import:673e8df7-59ed-4f13-94b7-137b93fca0ed",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:f636614d-8e25-4d35-ae32-e605428a6fab:asset:import:673e8df7-59ed-4f13-94b7-137b93fca0ed:普通-悲伤.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:c8b06129-3d1b-4695-8cb4-f2531b3a35fd": {
+        "id": "asset:import:c8b06129-3d1b-4695-8cb4-f2531b3a35fd",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:2067b75c-00bd-404e-bf0c-6d71faeba18e:asset:import:c8b06129-3d1b-4695-8cb4-f2531b3a35fd:普通-抒情.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
+      },
+      "asset:import:186b5796-97f1-4fd6-a915-ce666774848c": {
+        "id": "asset:import:186b5796-97f1-4fd6-a915-ce666774848c",
+        "storage": "projectBlob",
+        "blobKey": "global-resource:node:audio:0cba286e-8b33-4a80-a2c1-50b2666080c8:asset:import:186b5796-97f1-4fd6-a915-ce666774848c:普通-长.wav",
+        "sampleRate": 0,
+        "duration": 0,
+        "channels": 0
       }
     }
   },
@@ -54311,5 +55117,5 @@
     "hopMs": 16
   },
   "createdAt": "2026-05-07T06:50:20.381Z",
-  "modifiedAt": "2026-06-09T15:56:05.642Z"
+  "modifiedAt": "2026-08-09T18:30:41.620Z"
 }

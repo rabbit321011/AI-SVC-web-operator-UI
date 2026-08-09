@@ -11,6 +11,38 @@ describe('SVS text render resolver', () => {
     expect(normalizeSvsText('  、。 !  ')).toBe('')
   })
 
+  it('preserves TextObject kana punctuation for the V4H training frontend', () => {
+    const tree = makeTextTree()
+    const source = tree.root.children
+      .flatMap(node => node.kind === 'folder' ? node.children : [])
+      .find(node => node.id === 'node:text:a')
+    if (!source || source.kind !== 'text') throw new Error('missing text source')
+    source.text.segments[1].kana = 'きみ、の'
+
+    const resolved = resolveTextRenderInput(tree, {
+      kind: 'trackObject',
+      id: 'node:trackObject:text_a',
+      displayName: 'Text A',
+    }, { preservePhrasePunctuation: true, requireKana: true })
+
+    expect(resolved.phrases[0].text).toBe('きみ、の')
+  })
+
+  it('does not allow romaji fallback in the V4H text frontend', () => {
+    const tree = makeTextTree()
+    const source = tree.root.children
+      .flatMap(node => node.kind === 'folder' ? node.children : [])
+      .find(node => node.id === 'node:text:a')
+    if (!source || source.kind !== 'text') throw new Error('missing text source')
+    source.text.segments[1].kana = ''
+
+    expect(() => resolveTextRenderInput(tree, {
+      kind: 'trackObject',
+      id: 'node:trackObject:text_a',
+      displayName: 'Text A',
+    }, { preservePhrasePunctuation: true, requireKana: true })).toThrow(/requires kana for V4H/)
+  })
+
   it('resolves a text TrackObject by segment start order', () => {
     const tree = makeTextTree()
     const resolved = resolveTextRenderInput(tree, {
@@ -64,6 +96,23 @@ describe('SVS text render resolver', () => {
       { start: 2, text: 'こえ' },
     ])
     expect(() => rebaseTimedSvsPhrases(resolved, 5, 4, 'A')).toThrow(/起点不在对应音频范围内/)
+  })
+
+  it('clamps a sub-millisecond T1 end rounding error to the clip boundary', () => {
+    const tree = makeTextTree()
+    const source = tree.root.children
+      .flatMap(node => node.kind === 'folder' ? node.children : [])
+      .find(node => node.id === 'node:text:a')
+    if (!source || source.kind !== 'text') throw new Error('missing text source')
+    source.text.segments[0].end = 2.0005
+
+    const resolved = resolveTextRenderInput(tree, {
+      kind: 'trackObject',
+      id: 'node:trackObject:text_a',
+      displayName: 'Text A',
+    })
+
+    expect(resolved.phrases.find(phrase => phrase.text === 'こえ')?.end).toBe(2)
   })
 })
 

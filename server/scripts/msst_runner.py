@@ -89,18 +89,74 @@ def run_model(model_id, input_wav, output_dir, device):
     emit("result", outputs=saved)
 
 
+def run_folder(model_id, input_dir, output_dir, device, output_only=None):
+    sys.path.insert(0, str(MSST_ROOT))
+    os.chdir(MSST_ROOT)
+    from inference.msst_infer import MSSeparator
+
+    input_files = sorted(input_dir.glob("*.wav"))
+    if not input_files:
+        raise RuntimeError("MSST batch input directory has no WAV files")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    step = MODELS[model_id]
+
+    with tempfile.TemporaryDirectory(prefix="aisvc_msst_batch_") as temp_root:
+        stage_output = Path(temp_root) / "output"
+        stage_output.mkdir()
+        separator = MSSeparator(
+            model_type="mel_band_roformer",
+            config_path=str(MSST_ROOT / step["config"]),
+            model_path=str(MSST_ROOT / step["model"]),
+            device=device,
+            device_ids=[0],
+            output_format="wav",
+            use_tta=False,
+            store_dirs=str(stage_output),
+        )
+        try:
+            emit("progress", progress=5, stage=model_id, files=len(input_files))
+            separator.process_folder(str(input_dir))
+            saved = {}
+            for index, input_file in enumerate(input_files, start=1):
+                for instrument, result_id in step["outputs"].items():
+                    if output_only and result_id != output_only:
+                        continue
+                    source = find_output(stage_output, input_file.stem, instrument)
+                    destination = output_dir / f"{input_file.stem}.{result_id}.wav"
+                    shutil.copy2(source, destination)
+                    saved[f"{input_file.stem}:{result_id}"] = str(destination)
+                emit("progress", progress=90 + round(index / len(input_files) * 10), stage="copy", file=input_file.name)
+        finally:
+            separator.del_cache()
+            del separator
+            gc.collect()
+
+    emit("progress", progress=100, stage="complete")
+    emit("result", outputs=saved)
+
+
 def main():
     parser = argparse.ArgumentParser(description="AISVC single-model MSST runner")
     parser.add_argument("--model", choices=sorted(MODELS), required=True)
-    parser.add_argument("--input", required=True)
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--input")
+    input_group.add_argument("--input-dir")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument("--output-only", choices=["vocals", "instrumental", "dry", "other"])
     args = parser.parse_args()
 
-    input_wav = Path(args.input).resolve()
-    if not input_wav.is_file():
-        raise FileNotFoundError(f"Input WAV does not exist: {input_wav}")
-    run_model(args.model, input_wav, Path(args.output_dir).resolve(), args.device)
+    output_dir = Path(args.output_dir).resolve()
+    if args.input_dir:
+        input_dir = Path(args.input_dir).resolve()
+        if not input_dir.is_dir():
+            raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
+        run_folder(args.model, input_dir, output_dir, args.device, args.output_only)
+    else:
+        input_wav = Path(args.input).resolve()
+        if not input_wav.is_file():
+            raise FileNotFoundError(f"Input WAV does not exist: {input_wav}")
+        run_model(args.model, input_wav, output_dir, args.device)
 
 
 if __name__ == "__main__":

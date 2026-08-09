@@ -43,6 +43,13 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     steps: 32,
     seed: 42,
     device: 'cuda:0',
+    sofaEscapeSeconds: 0,
+    pitchShiftEnabled: false,
+    pitchShiftTarget: 'melody' as 'melody' | 'reference',
+    pitchShiftSemitones: 0,
+    pitchSuggestion: null as number | null,
+    pitchMeasureStatus: 'idle' as 'idle' | 'running' | 'done' | 'failed',
+    pitchMeasureMessage: '',
   })
   const whisper = reactive({
     audio: null as RenderInputRef | null,

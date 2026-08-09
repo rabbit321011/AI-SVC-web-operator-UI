@@ -34,8 +34,23 @@ export function useRenderSvsPipeline() {
     const jobId = crypto.randomUUID().slice(0, 8)
     if (!renderPanel.setSvsRunning(jobId, '解析 SVS 输入')) return
 
+    let ws: WebSocket | null = null
     try {
-      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: true, uploadAudio: false })
+      const isV4h = svsConfig.selectedModel?.engine === 'v4h_phone_pul'
+      const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: !isV4h, uploadAudio: isV4h })
+      if (isV4h) {
+        renderPanel.updateSvsProgress(65, '连接 V4H 对齐检查')
+        ws = await openRenderWebSocket(jobId)
+        const done = waitForV4hDryRunDone(ws)
+        const resp = await fetch('/api/svs/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...prepared.body, jobId, dryRun: true }),
+        })
+        if (!resp.ok) throw new Error(await readError(resp) || 'V4H 对齐检查启动失败')
+        await done
+        return
+      }
       renderPanel.updateSvsProgress(80, prepared.melodyType === 'midi' ? 'MIDI 旋律 dryRun 暂不上传 melody_audio' : '请求 SVS dryRun')
       const resp = await fetch('/api/svs/run', {
         method: 'POST',
@@ -51,6 +66,8 @@ export function useRenderSvsPipeline() {
       renderPanel.setSvsDone(`SVS dryRun OK: ${result.args?.length ?? 0} args, ${melodyLabel}`)
     } catch (error: any) {
       renderPanel.setSvsFailed(error?.message || 'SVS dryRun 失败')
+    } finally {
+      if (ws) ws.close()
     }
   }
 
@@ -69,11 +86,12 @@ export function useRenderSvsPipeline() {
 
     try {
       const prepared = await prepareSvsRequest(jobId, { allowMidiMelody: false, uploadAudio: true })
-      renderPanel.updateSvsProgress(70, '连接 SVS')
+      const isV4h = svsConfig.selectedModel?.engine === 'v4h_phone_pul'
+      renderPanel.updateSvsProgress(isV4h ? 66 : 70, isV4h ? '连接 V4H' : '连接 SVS')
       ws = await openRenderWebSocket(jobId)
       const done = waitForSvsDone(ws, jobId, prepared.timelineStart)
 
-      renderPanel.updateSvsProgress(75, '启动 SVS')
+      renderPanel.updateSvsProgress(isV4h ? 66 : 75, isV4h ? '启动 V4H' : '启动 SVS')
       const runResp = await fetch('/api/svs/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,6 +111,65 @@ export function useRenderSvsPipeline() {
     }
   }
 
+  async function measurePitchDifference() {
+    if (renderPanel.isLocalProcessingRunning || renderPanel.svs.pitchMeasureStatus === 'running') return
+    const timbreInput = renderPanel.svs.timbreAudio
+    const melodyInput = renderPanel.svs.melody
+    if (!timbreInput || !melodyInput) {
+      renderPanel.svs.pitchMeasureStatus = 'failed'
+      renderPanel.svs.pitchMeasureMessage = '请先放入参考音频和目标旋律'
+      return
+    }
+    const melodyType = getRenderInputMediaType(buildNodeIndex(objectTree.tree.root), melodyInput)
+    if (melodyType !== 'audio') {
+      renderPanel.svs.pitchMeasureStatus = 'failed'
+      renderPanel.svs.pitchMeasureMessage = '调差测量只支持音频旋律'
+      return
+    }
+    renderPanel.svs.pitchMeasureStatus = 'running'
+    renderPanel.svs.pitchMeasureMessage = '正在测量调差'
+    try {
+      const reference = await resolveAudioRenderInputToSegmentInputs({
+        tree: objectTree.tree,
+        input: timbreInput,
+        sourceBlobs: tracks.sourceBlobs,
+        segments: tracks.segmentsMap,
+        tracks: tracks.tracks,
+      })
+      const target = await resolveAudioRenderInputToSegmentInputs({
+        tree: objectTree.tree,
+        input: melodyInput,
+        sourceBlobs: tracks.sourceBlobs,
+        segments: tracks.segmentsMap,
+        tracks: tracks.tracks,
+      })
+      const referenceBlob = await combineSegmentsToBlob(reference.segmentInputs, reference.duration, reference.sampleRate)
+      const targetBlob = await combineSegmentsToBlob(target.segmentInputs, target.duration, target.sampleRate)
+      const measureId = crypto.randomUUID().slice(0, 8)
+      const [referenceUpload, targetUpload] = await Promise.all([
+        uploadTempWav(`pitch_${measureId}_reference`, referenceBlob, reference.sampleRate),
+        uploadTempWav(`pitch_${measureId}_target`, targetBlob, target.sampleRate),
+      ])
+      const response = await fetch('/api/svs/pitch/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ referencePath: referenceUpload.path, targetPath: targetUpload.path }),
+      })
+      if (!response.ok) throw new Error(await readError(response) || '调差测量失败')
+      const result = await response.json() as { suggestedTargetShift: number; suggestedReferenceShift: number }
+      const suggestion = renderPanel.svs.pitchShiftTarget === 'melody'
+        ? result.suggestedTargetShift
+        : result.suggestedReferenceShift
+      renderPanel.svs.pitchSuggestion = suggestion
+      renderPanel.svs.pitchShiftSemitones = suggestion
+      renderPanel.svs.pitchMeasureStatus = 'done'
+      renderPanel.svs.pitchMeasureMessage = `建议 ${suggestion > 0 ? '+' : ''}${suggestion} 半音`
+    } catch (error: any) {
+      renderPanel.svs.pitchMeasureStatus = 'failed'
+      renderPanel.svs.pitchMeasureMessage = error?.message || '调差测量失败'
+    }
+  }
+
   async function prepareSvsRequest(jobId: string, options: { allowMidiMelody: boolean; uploadAudio: boolean }): Promise<{
     body: {
       refAudio: string
@@ -107,6 +184,7 @@ export function useRenderSvsPipeline() {
       device: string
       checkpoint?: string
       vaeCheckpoint?: string
+      sofaEscapeSeconds?: number
     }
     melodyType: 'audio' | 'midi'
     timelineStart: number
@@ -171,6 +249,19 @@ export function useRenderSvsPipeline() {
       melodyDuration = resolvedMidi.duration
     }
 
+
+    if (options.uploadAudio && renderPanel.svs.pitchShiftEnabled && renderPanel.svs.pitchShiftSemitones !== 0) {
+      const semitones = Math.round(renderPanel.svs.pitchShiftSemitones)
+      if (renderPanel.svs.pitchShiftTarget === 'melody') {
+        if (!melodyAudioPath) throw new Error('目标旋律音频不存在，无法移调')
+        renderPanel.updateSvsProgress(65, `目标旋律移调 ${semitones > 0 ? '+' : ''}${semitones} 半音`)
+        melodyAudioPath = await pitchShiftTempWav(melodyAudioPath, semitones)
+      } else {
+        renderPanel.updateSvsProgress(65, `参考音频移调 ${semitones > 0 ? '+' : ''}${semitones} 半音`)
+        timbreAudioPath = await pitchShiftTempWav(timbreAudioPath, semitones)
+      }
+    }
+
     const { refPhrases, targetPhrases } = resolveT1Phrases(
       timbre.sourceStart,
       timbre.duration,
@@ -193,6 +284,9 @@ export function useRenderSvsPipeline() {
         modelId: selectedModel?.name,
         checkpoint: selectedModel?.checkpoint,
         vaeCheckpoint: selectedModel?.vaeCheckpoint,
+        sofaEscapeSeconds: selectedModel?.engine === 'v4h_phone_pul'
+          ? renderPanel.svs.sofaEscapeSeconds
+          : undefined,
       },
       melodyType,
       timelineStart,
@@ -204,6 +298,10 @@ export function useRenderSvsPipeline() {
       ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data)
+          if (msg.type === 'progress') {
+            renderPanel.updateSvsProgress(Number(msg.progress) || renderPanel.svsProgress, String(msg.message || 'SVS 推理中'))
+            return
+          }
           if (msg.type === 'log' && msg.message) {
             const message = String(msg.message).trim()
             renderPanel.updateSvsProgress(message.includes('[done]') ? 90 : renderPanel.svsProgress, message || 'SVS 推理中')
@@ -231,7 +329,10 @@ export function useRenderSvsPipeline() {
             })
             if (!result.ok) throw new Error(result.reason || 'SVS 结果回填失败')
             project.bumpRedraw()
-            renderPanel.setSvsDone(`SVS 完成: ${result.outputFileName}`)
+            const detail = msg.phonePhraseCount != null
+              ? ` (phone ${msg.phonePhraseCount} / PUL ${msg.pulPhraseCount ?? 0})`
+              : ''
+            renderPanel.setSvsDone(`SVS 完成: ${result.outputFileName}${detail}`)
             resolve()
           }
         } catch (error: any) {
@@ -245,6 +346,34 @@ export function useRenderSvsPipeline() {
     })
   }
 
+  function waitForV4hDryRunDone(ws: WebSocket): Promise<void> {
+    return new Promise((resolve, reject) => {
+      ws.onmessage = event => {
+        try {
+          const msg = JSON.parse(event.data)
+          if (msg.type === 'progress') {
+            renderPanel.updateSvsProgress(Number(msg.progress) || renderPanel.svsProgress, String(msg.message || 'V4H 对齐检查中'))
+            return
+          }
+          if (msg.type === 'error') {
+            reject(new Error(msg.message || 'V4H 对齐检查失败'))
+            return
+          }
+          if (msg.type === 'dry-run-done') {
+            renderPanel.setSvsDone(`V4H 对齐通过: phone ${msg.phoneCandidateCount ?? 0} / PUL ${msg.fallbackCandidateCount ?? 0}`)
+            resolve()
+          }
+        } catch (error: any) {
+          reject(error)
+        }
+      }
+      ws.onerror = () => reject(new Error('V4H WebSocket 连接失败'))
+      ws.onclose = () => {
+        if (renderPanel.svsStatus === 'running') reject(new Error('V4H WebSocket 已断开'))
+      }
+    })
+  }
+
   function resolveT1Phrases(
     refAudioStart: number,
     refAudioDuration: number,
@@ -254,8 +383,11 @@ export function useRenderSvsPipeline() {
     if (!renderPanel.svs.refText || !renderPanel.svs.targetText) {
       throw new Error('T1 需要 A 参考文本和 B 目标文本两个带时间戳的 TextObject')
     }
-    const refText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.refText)
-    const targetText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.targetText)
+    const v4hTextOptions = svsConfig.selectedModel?.engine === 'v4h_phone_pul'
+      ? { preservePhrasePunctuation: true, requireKana: true }
+      : undefined
+    const refText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.refText, v4hTextOptions)
+    const targetText = resolveTextRenderInput(objectTree.tree, renderPanel.svs.targetText, v4hTextOptions)
     return {
       refPhrases: rebaseTimedSvsPhrases(refText, refAudioStart, refAudioDuration, 'A 参考文本'),
       targetPhrases: rebaseTimedSvsPhrases(targetText, melodyStart, melodyDuration, 'B 目标文本'),
@@ -267,7 +399,7 @@ export function useRenderSvsPipeline() {
     return `SVS_${melodyName}_SingerPlus`
   }
 
-  return { dryRunSvs, startSvs }
+  return { dryRunSvs, startSvs, measurePitchDifference }
 }
 
 function outputWavFileName(name: string): string {
@@ -295,6 +427,17 @@ async function uploadTempWav(groupId: string, blob: Blob, sampleRate: number): P
   })
   if (!resp.ok) throw new Error(await readError(resp) || '上传临时 WAV 失败')
   return await resp.json()
+}
+
+async function pitchShiftTempWav(inputPath: string, semitones: number): Promise<string> {
+  const response = await fetch('/api/svs/pitch/shift', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputPath, semitones }),
+  })
+  if (!response.ok) throw new Error(await readError(response) || '音频移调失败')
+  const result = await response.json()
+  return result.path
 }
 
 async function openRenderWebSocket(jobId: string): Promise<WebSocket> {

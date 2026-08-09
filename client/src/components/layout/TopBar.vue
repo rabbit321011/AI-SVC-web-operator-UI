@@ -6,6 +6,7 @@ import { NButton, NDropdown, NSwitch, NSpace } from 'naive-ui'
 import { usePlaybackStore } from '@/stores/playback'
 import { ref } from 'vue'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
+import { useSaveStatusStore } from '@/stores/saveStatus'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 
 const project = useProjectStore()
@@ -13,6 +14,7 @@ const tracks = useTracksStore()
 const selection = useSelectionStore()
 const pb = usePlaybackStore()
 const editorWorkspace = useEditorWorkspaceStore()
+const saveStatus = useSaveStatusStore()
 
 const playSelectedOnly = ref(false)
 
@@ -93,6 +95,7 @@ function addEmptyTrack() {
   tracks.tracks[id] = {
     id,
     name: `空音轨 ${num}`,
+    trackType: 'audio',
     color: tracks.nextColor(),
     segments: [],
     sourceFile: '',
@@ -238,6 +241,14 @@ function downloadBlob(filename: string, blob: Blob) {
     </div>
 
     <div class="topbar-right">
+      <div v-if="saveStatus.state !== 'idle'" class="save-status" :class="saveStatus.state" :title="saveStatus.message">
+        <svg v-if="saveStatus.state === 'saving'" class="save-spinner" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V2Z" /></svg>
+        <svg v-else-if="saveStatus.state === 'success'" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7 1 1-8 8-4-4 1-1Z" /></svg>
+        <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M7.25 3h1.5v6h-1.5V3Zm0 8h1.5v2h-1.5v-2Z" /></svg>
+        <span class="save-message">{{ saveStatus.message }}</span>
+        <span v-if="saveStatus.state === 'saving' && saveStatus.total > 0" class="save-percent">{{ saveStatus.percent }}%</span>
+        <span v-if="saveStatus.state === 'saving' && saveStatus.total > 0" class="save-progress"><i :style="{ width: `${saveStatus.percent}%` }" /></span>
+      </div>
       <n-space :size="6">
         <n-button size="tiny" class="icon-button" title="键位教学" @click="editorWorkspace.openKeymapTab"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12v8H2V4Zm1.5 1.5v5h9v-5h-9ZM4 7h1v1H4V7Zm2 0h1v1H6V7Zm2 0h1v1H8V7Zm2 0h1v1h-1V7ZM5 9h6v1H5V9Z" /></svg></n-button>
         <n-button size="tiny" class="icon-button" title="设置" @click="editorWorkspace.openSettingsTab"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.2 1.8h1.6l.35 1.55c.35.12.68.25.98.43l1.34-.85 1.13 1.13-.85 1.34c.18.3.31.63.43.98l1.55.35v1.6l-1.55.35c-.12.35-.25.68-.43.98l.85 1.34-1.13 1.13-1.34-.85c-.3.18-.63.31-.98.43l-.35 1.55H7.2l-.35-1.55a4.8 4.8 0 0 1-.98-.43l-1.34.85L3.4 10.97l.85-1.34a4.8 4.8 0 0 1-.43-.98L2.27 8.3V6.7l1.55-.35c.12-.35.25-.68.43-.98L3.4 4.03 4.53 2.9l1.34.85c.3-.18.63-.31.98-.43L7.2 1.8ZM8 5.4a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2Z" /></svg></n-button>
@@ -260,6 +271,32 @@ function downloadBlob(filename: string, blob: Blob) {
 .topbar-left { display: flex; align-items: center; gap: 8px; }
 .topbar-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .topbar-right { display: flex; align-items: center; }
+.save-status {
+  min-width: 142px;
+  max-width: 300px;
+  height: 26px;
+  margin-right: 10px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-muted);
+  font-size: 11px;
+}
+.save-status svg { width: 14px; height: 14px; fill: currentColor; }
+.save-status.success { color: #3fb950; }
+.save-status.error { color: #f85149; }
+.save-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-percent { min-width: 30px; text-align: right; }
+.save-progress {
+  grid-column: 2 / 4;
+  height: 2px;
+  overflow: hidden;
+  background: var(--app-border);
+}
+.save-progress i { display: block; height: 100%; background: var(--app-accent); transition: width 0.15s ease; }
+.save-spinner { animation: save-spin 0.8s linear infinite; }
+@keyframes save-spin { to { transform: rotate(360deg); } }
 .logo { font-size: 15px; font-weight: 700; color: var(--app-accent); margin-right: 8px; display: inline-flex; align-items: center; gap: 6px; }
 .logo svg { width: 18px; height: 18px; fill: currentColor; }
 .menu-btn { font-size: 13px; }

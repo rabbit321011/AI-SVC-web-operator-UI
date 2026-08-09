@@ -65,6 +65,7 @@ export function useKeyboard() {
     tracks.tracks[pasteTrackId] = {
       id: pasteTrackId,
       name: `粘贴 ${num}`,
+      trackType: 'audio',
       color: tracks.nextColor(),
       segments: [],
       sourceFile: clipboard.items[0]?.sourceFile ?? '',
@@ -199,6 +200,7 @@ export function useKeyboard() {
       tracks.tracks[targetTrackId] = {
         id: targetTrackId,
         name: `合并音轨 ${tracks.trackOrder.length + 1}`,
+        trackType: 'audio',
         color: tracks.nextColor(),
         segments: [],
         sourceFile: allSegs[0]?.sourceFile ?? '',

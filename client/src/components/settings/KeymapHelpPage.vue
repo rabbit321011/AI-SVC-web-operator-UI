@@ -6,6 +6,7 @@
     </header>
 
     <section class="keyboard" aria-label="Keyboard shortcuts">
+      <div class="key wide">Space<span>播放 / 暂停</span></div>
       <div class="key wide">Alt<span>定位 / 横向快移</span></div>
       <div class="key wide">Ctrl<span>纵向浏览 / 移轨</span></div>
       <div class="key">N<span>TrackObject</span></div>
@@ -16,14 +17,34 @@
     </section>
 
     <section class="shortcut-list">
+      <h2>浏览与项目</h2>
+      <div class="shortcut"><kbd>Space</kbd><strong>播放 / 暂停</strong></div>
       <div class="shortcut"><kbd>Alt</kbd><span>+</span><kbd>Wheel</kbd><strong>快速横向移动 timeline</strong></div>
       <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Wheel</kbd><strong>上下浏览不同音轨</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>S</kbd><strong>保存项目</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>O</kbd><strong>导入项目</strong></div>
+
+      <h2>编辑</h2>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd><strong>撤销</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd><strong>重做</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd><strong>重做</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>C</kbd><strong>复制选中片段</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>V</kbd><strong>粘贴到新音轨</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>B</kbd><strong>合并选中片段</strong></div>
+      <div class="shortcut"><kbd>Delete</kbd><span>/</span><kbd>Del</kbd><strong>删除选中的对象；Timeline 或文本编辑器选中句子时删除该句</strong></div>
+      <div class="shortcut"><kbd>Enter</kbd><strong>用选中的对象创建组</strong></div>
+
+      <h2>Timeline 与文本</h2>
       <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>↑</kbd><strong>选中片段上移到上一音轨</strong></div>
       <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>↓</kbd><strong>选中片段下移到下一音轨</strong></div>
       <div class="shortcut"><kbd>Alt</kbd><span>+</span><kbd>N</kbd><strong>定位 TrackObject</strong></div>
       <div class="shortcut"><kbd>Alt</kbd><span>+</span><kbd>L</kbd><strong>定位 AudioObject</strong></div>
       <div class="shortcut"><kbd>Alt</kbd><span>+</span><kbd>M</kbd><strong>定位关联 MidiObject</strong></div>
       <div class="shortcut"><kbd>Alt</kbd><span>+</span><kbd>K</kbd><strong>定位关联 TextObject</strong></div>
+      <div class="shortcut"><kbd>Double-click</kbd><strong>在 Timeline 打开当前文本句的内嵌编辑器</strong></div>
+      <div class="shortcut"><kbd>Enter</kbd><strong>Timeline 选中文本句后打开内嵌编辑器</strong></div>
+      <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>E</kbd><strong>打开当前 TextObject 的完整编辑页</strong></div>
+      <div class="shortcut"><kbd>Drag</kbd><strong>拖动文本句移动时间；拖句子边界调整单句，拖外框两端调整 TextObject 范围</strong></div>
     </section>
   </div>
 </template>
@@ -82,6 +103,13 @@
   display: grid;
   gap: 8px;
   margin-top: 18px;
+}
+.shortcut-list h2 {
+  margin: 14px 0 0;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--app-border);
+  font-size: 14px;
+  font-weight: 650;
 }
 .shortcut {
   display: grid;

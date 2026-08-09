@@ -10,6 +10,7 @@ import { usePlaybackStore } from '@/stores/playback'
 import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useGlobalResourcesStore } from '@/stores/globalResources'
+import { useSaveStatusStore } from '@/stores/saveStatus'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 import type { AudioSegment } from '@/types'
 import TopBar from '@/components/layout/TopBar.vue'
@@ -31,6 +32,9 @@ const pb = usePlaybackStore()
 const uiSettings = useUiSettingsStore()
 const objectTree = useObjectTreeStore()
 const globalResources = useGlobalResourcesStore()
+const saveStatus = useSaveStatusStore()
+const persistedBlobKeys = new Set<string>()
+let saveInProgress = false
 
 async function syncProject() {
   await normalizeSegmentTimingFromSamples()
@@ -91,9 +95,43 @@ async function normalizeSegmentTimingFromSamples() {
 
 // ── P10: Save to internal server directory (Ctrl+S) ──
 ;(window as any).__saveProject = async () => {
+  if (saveInProgress) return
+  saveInProgress = true
   try {
-    for (const [sourceFile, blob] of tracks.sourceBlobs) {
-      const blobResp = await fetch(`/api/projects/${encodeURIComponent(project.name)}/blobs`, {
+    const projectData = project.toJSON()
+    const referencedBlobKeys = collectReferencedBlobKeys(projectData)
+    const pendingBlobs = [...tracks.sourceBlobs]
+      .filter(([sourceFile]) => referencedBlobKeys.has(sourceFile) && !persistedBlobKeys.has(sourceFile))
+    saveStatus.begin(pendingBlobs.length)
+    for (let index = 0; index < pendingBlobs.length; index++) {
+      const [sourceFile, blob] = pendingBlobs[index]
+      saveStatus.setBlobProgress(index + 1, pendingBlobs.length)
+      await uploadProjectBlob(project.name, sourceFile, blob)
+      persistedBlobKeys.add(sourceFile)
+    }
+
+    saveStatus.setMetadata()
+    const resp = await fetch(`/api/projects/${encodeURIComponent(project.name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(projectData),
+    })
+    if (!resp.ok) throw new Error(await readApiError(resp) || `项目数据保存失败 (${resp.status})`)
+    console.log('[save] saved to server')
+    saveStatus.succeed()
+  } catch (e: any) {
+    saveStatus.fail(e.message || '保存失败')
+    alert('保存失败: ' + e.message)
+  } finally {
+    saveInProgress = false
+  }
+}
+
+async function uploadProjectBlob(projectName: string, sourceFile: string, blob: Blob) {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectName)}/blobs`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -101,22 +139,15 @@ async function normalizeSegmentTimingFromSamples() {
         },
         body: blob,
       })
-      if (!blobResp.ok) {
-        const err = await blobResp.json().catch(() => null)
-        throw new Error(err?.error || `blob save failed: ${sourceFile}`)
-      }
+      if (!response.ok) throw new Error(await readApiError(response) || `HTTP ${response.status}`)
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 300))
     }
-
-    const resp = await fetch(`/api/projects/${encodeURIComponent(project.name)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(project.toJSON()),
-    })
-    if (!resp.ok) throw new Error('save failed')
-    console.log('[save] saved to server')
-  } catch (e: any) {
-    alert('保存失败: ' + e.message)
   }
+  const reason = lastError instanceof Error ? lastError.message : String(lastError || '未知错误')
+  throw new Error(`音频上传失败「${sourceFile}」: ${reason}`)
 }
 
 // ── P10: Export as downloadable .asvcproj (另存为) ──
@@ -144,6 +175,7 @@ async function normalizeSegmentTimingFromSamples() {
   input.onchange = async () => {
     const f = input.files?.[0]; if (!f) return
     const { _sourceBlobsBase64, ...data } = JSON.parse(await f.text())
+    persistedBlobKeys.clear()
     project.load(data)
     if (_sourceBlobsBase64) {
       for (const [k, b64] of Object.entries(_sourceBlobsBase64) as [string, string][]) {
@@ -165,26 +197,32 @@ onMounted(async () => {
   if (!projectName) { router.push('/'); return }
 
   try {
+    persistedBlobKeys.clear()
     await globalResources.syncProject(projectName)
     const resp = await fetch(`/api/projects/${encodeURIComponent(projectName)}`)
     if (!resp.ok) throw new Error(await readApiError(resp) || `加载项目失败 (${resp.status})`)
     const data = await resp.json()
     const { _sourceBlobsBase64, _sourceBlobKeys, ...projectData } = data
+    const referencedBlobKeys = collectReferencedBlobKeys(projectData)
     project.load(projectData)
     if (_sourceBlobsBase64) {
       for (const [k, b64] of Object.entries(_sourceBlobsBase64) as [string, string][]) {
+        if (!referencedBlobKeys.has(k)) continue
         const bin = atob(b64); const arr = new Uint8Array(bin.length)
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
         tracks.sourceBlobs.set(k, new Blob([arr], { type: 'audio/wav' }))
+        persistedBlobKeys.add(k)
       }
     }
     if (Array.isArray(_sourceBlobKeys)) {
       for (const key of _sourceBlobKeys as string[]) {
+        if (!referencedBlobKeys.has(key)) continue
         const blobResp = await fetch(`/api/projects/${encodeURIComponent(projectName)}/blobs`, {
           headers: { 'x-blob-key': encodeURIComponent(key) },
         })
         if (!blobResp.ok) throw new Error(await readApiError(blobResp) || `音频加载失败: ${key}`)
         tracks.sourceBlobs.set(key, await blobResp.blob())
+        persistedBlobKeys.add(key)
       }
     }
     await syncProject()
@@ -201,6 +239,17 @@ async function readApiError(response: Response): Promise<string> {
   } catch {
     return response.statusText
   }
+}
+
+function collectReferencedBlobKeys(data: any): Set<string> {
+  const keys = new Set<string>()
+  for (const asset of Object.values(data?.objectTree?.assets ?? {}) as Array<{ storage?: string; blobKey?: string }>) {
+    if (asset.storage === 'projectBlob' && asset.blobKey) keys.add(asset.blobKey)
+  }
+  for (const segment of Object.values(data?.segments ?? {}) as Array<{ sourceFile?: string }>) {
+    if (segment.sourceFile) keys.add(segment.sourceFile)
+  }
+  return keys
 }
 </script>
 
@@ -298,6 +347,7 @@ body {
 .body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 </style>

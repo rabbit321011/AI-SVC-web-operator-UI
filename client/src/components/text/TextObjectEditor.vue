@@ -115,6 +115,16 @@ function deleteSegment(segment: TextSegment) {
   })
 }
 
+function handleEditorKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+  const target = event.target as HTMLElement | null
+  if (target?.matches('input, textarea, [contenteditable="true"]')) return
+  const segment = selectedSegment.value
+  if (!segment) return
+  event.preventDefault()
+  deleteSegment(segment)
+}
+
 function formatTime(value: number | undefined) {
   return (value ?? 0).toFixed(2)
 }
@@ -151,7 +161,7 @@ function flash(message: string) {
 </script>
 
 <template>
-  <section v-if="textObject" ref="editorRoot" class="text-editor">
+  <section v-if="textObject" ref="editorRoot" class="text-editor" tabindex="-1" @keydown="handleEditorKeydown">
     <div class="segment-list">
       <div class="segment-list-header">
         <h2>{{ textObject.name }}</h2>
@@ -176,7 +186,11 @@ function flash(message: string) {
           <span>{{ formatTime(segment.end) }}</span>
           <span class="clip">{{ segment.kana || '-' }}</span>
           <span class="clip">{{ segment.romaji || '-' }}</span>
-          <span class="row-actions"><span class="delete-mark" @click.stop="deleteSegment(segment)">x</span></span>
+          <span class="row-actions">
+            <button type="button" class="delete-segment-btn" title="删除句子" @click.stop="deleteSegment(segment)">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2h3l.5 1H13v1H3V3h3l.5-1ZM4 5h8l-.5 9h-7L4 5Z" /></svg>
+            </button>
+          </span>
         </button>
       </div>
     </div>
@@ -258,7 +272,21 @@ button.segment-row:hover, button.segment-row.selected { background: var(--app-ho
 button.segment-row.invalid { box-shadow: inset 2px 0 #d29922; }
 .clip { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .row-actions { text-align: center; }
-.delete-mark { color: #f85149; padding: 2px 5px; }
+.delete-segment-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #f85149;
+  cursor: pointer;
+}
+.delete-segment-btn svg { width: 13px; height: 13px; fill: currentColor; }
+.delete-segment-btn:hover { border-color: #f85149; background: rgba(248, 81, 73, 0.12); }
 .segment-editor { display: grid; gap: 10px; }
 .time-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 12px; }
 .time-control { min-width: 0; display: grid; gap: 5px; }

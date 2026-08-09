@@ -4,6 +4,7 @@ import { TOP_LEVEL_IDS, createEmptyProjectObjectTree } from '@/object-workbench'
 import type { AudioObjectNode, FolderNode } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 import { useTracksStore } from './tracks'
+import { float32ToWavBlob } from '@/api/wav'
 
 describe('AudioObject drag into timeline', () => {
   it('copies workspace AudioObject to trackSources and creates legacy Track/Segment plus TrackObject', async () => {
@@ -91,6 +92,37 @@ describe('AudioObject drag into timeline', () => {
     const msstFolder = workspaceLike(renderRoot.children.find(child => child.name === 'msst')!)
     expect(msstFolder.children.some(child => child.id === result.renderObjectId && child.kind === 'audio')).toBe(true)
     expect(objectTree.node(result.trackObjectId!)?.kind).toBe('trackObject')
+  })
+
+  it('reads rendered WAV metadata without decoding the full file and stores one shared blob', async () => {
+    setActivePinia(createPinia())
+    const decodeAudioData = vi.fn(() => { throw new Error('WAV metadata should not require AudioContext') })
+    vi.stubGlobal('AudioContext', class {
+      decodeAudioData = decodeAudioData
+      close = vi.fn()
+    })
+    try {
+      const objectTree = useObjectTreeStore()
+      const tracks = useTracksStore()
+      objectTree.loadObjectTree(createEmptyProjectObjectTree())
+      const blob = float32ToWavBlob(new Float32Array(96_000), 48_000)
+
+      const result = await objectTree.addRenderedAudioToTimeline({
+        blob,
+        outputFileName: 'large stem',
+        renderKind: 'msst',
+      })
+
+      expect(result.ok).toBe(true)
+      expect(decodeAudioData).not.toHaveBeenCalled()
+      expect(tracks.sourceBlobs.size).toBe(1)
+      expect(tracks.getSegment(result.segmentId!)?.timelineEnd).toBe(2)
+      const render = objectTree.node(result.renderObjectId!) as AudioObjectNode
+      const trackSource = objectTree.node(result.trackSourceObjectId!) as AudioObjectNode
+      expect(objectTree.tree.assets[render.audio.assetId].blobKey).toBe(objectTree.tree.assets[trackSource.audio.assetId].blobKey)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('archives rendered Whisper text and backfills a text TrackObject', () => {

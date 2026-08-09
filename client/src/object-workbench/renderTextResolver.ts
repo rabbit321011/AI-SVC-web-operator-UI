@@ -3,6 +3,8 @@ import type { RenderInputRef } from './renderInputs'
 import { buildNodeIndex } from './objectTree'
 import { resolveGroupObjectInput, resolveTrackObjectInput } from './groupResolver'
 
+const TIMING_EPSILON = 0.001
+
 export interface ResolvedTextRenderInput {
   text: string
   phrases: TimedSvsPhrase[]
@@ -17,6 +19,11 @@ export interface TimedSvsPhrase {
   text: string
 }
 
+export interface ResolveTextRenderInputOptions {
+  preservePhrasePunctuation?: boolean
+  requireKana?: boolean
+}
+
 export function normalizeSvsText(text: string): string {
   return text
     .replace(/\s+/g, '')
@@ -25,7 +32,11 @@ export function normalizeSvsText(text: string): string {
     .replace(/^\|+|\|+$/g, '')
 }
 
-export function resolveTextRenderInput(tree: ProjectObjectTree, input: RenderInputRef): ResolvedTextRenderInput {
+export function resolveTextRenderInput(
+  tree: ProjectObjectTree,
+  input: RenderInputRef,
+  options: ResolveTextRenderInputOptions = {},
+): ResolvedTextRenderInput {
   if (input.kind === 'audioObject') throw new Error('Text input cannot be AudioObject')
 
   const resolved = input.kind === 'group'
@@ -39,7 +50,7 @@ export function resolveTextRenderInput(tree: ProjectObjectTree, input: RenderInp
   if (!text) throw new Error('Text input is empty')
 
   const phrases = resolved.items
-    .flatMap(item => phrasesFromSource(index, item.sourceObjectId, item.relativeStart, item.relativeEnd))
+    .flatMap(item => phrasesFromSource(index, item.sourceObjectId, item.relativeStart, item.relativeEnd, options))
     .sort((a, b) => a.start - b.start)
   if (phrases.length === 0) throw new Error('Timed text input has no usable phrases')
 
@@ -90,22 +101,30 @@ function phrasesFromSource(
   sourceObjectId: NodeId,
   relativeStart: number,
   relativeEnd: number,
+  options: ResolveTextRenderInputOptions,
 ): TimedSvsPhrase[] {
   const node = index.nodes[sourceObjectId]
   if (!node || node.kind !== 'text') throw new Error(`Expected TextObject source: ${sourceObjectId}`)
   const clipDuration = relativeEnd - relativeStart
   return node.text.segments.flatMap((segment, index) => {
-    const text = normalizeSvsText(segment.kana || segment.romaji).replace(/\|/g, '')
+    if (options.requireKana && !segment.kana.trim()) {
+      throw new Error(`TextObject ${sourceObjectId} segment ${index + 1} requires kana for V4H`)
+    }
+    const sourceText = options.requireKana ? segment.kana : segment.kana || segment.romaji
+    const text = options.preservePhrasePunctuation
+      ? sourceText.replace(/\s+/g, '').trim()
+      : normalizeSvsText(sourceText).replace(/\|/g, '')
     if (!text) return []
     if (!Number.isFinite(segment.start) || segment.start < 0 || segment.start >= clipDuration) {
       throw new Error(`TextObject ${sourceObjectId} segment ${index + 1} has an invalid T1 start`)
     }
-    if (segment.end != null && (!Number.isFinite(segment.end) || segment.end < segment.start || segment.end > clipDuration)) {
+    if (segment.end != null && (!Number.isFinite(segment.end) || segment.end < segment.start || segment.end > clipDuration + TIMING_EPSILON)) {
       throw new Error(`TextObject ${sourceObjectId} segment ${index + 1} has an invalid T1 end`)
     }
+    const end = segment.end == null ? undefined : Math.min(clipDuration, segment.end)
     return [{
       start: relativeStart + segment.start,
-      ...(segment.end == null ? {} : { end: relativeStart + segment.end }),
+      ...(end == null ? {} : { end: relativeStart + end }),
       text,
     }]
   })

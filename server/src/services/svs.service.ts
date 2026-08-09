@@ -8,17 +8,20 @@ const PYTHON = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const WORK_DIR = 'E:/AIscene/YingMusic_Singer_Plus'
 const INFER_SCRIPT = path.join(WORK_DIR, 'infer_v4_formal.py')
 const FFMPEG_SHARED_BIN = 'C:\\ffmpeg-shared\\ffmpeg-8.1.1-full_build-shared\\bin'
-const V4FG_285K_VAE = 'E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt'
-const V4FG_285K_VAE_SIZE = 624_568_721
-const V4FG_285K_VAE_SHA256 = 'f18aeecacc04173cd2ea73bbdf8edae9e976d18e4ca050c38e2723281c5cba85'
-const V4FG_MODEL_ID = 'V4fg_10k'
+const ONLINE_285K_VAE = 'E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt'
+const ONLINE_285K_VAE_SIZE = 624_568_721
+const ONLINE_285K_VAE_SHA256 = 'f18aeecacc04173cd2ea73bbdf8edae9e976d18e4ca050c38e2723281c5cba85'
+const ONLINE_285K_MODEL_IDS = new Set(['V4fg_10k', 'V4vfg_6k', 'V4vfg_10k', 'V4Hg_10k'])
 const DEFAULT_MODEL_ID = 'plus_ja_sft_v4c step24k'
 const SVS_MODELS_PATH = 'E:/AIscene/AISVC-midi-web/server/models/svs_models.json'
+
+export type SvsEngine = 't1' | 'v4h_phone_pul'
 
 interface ResolvedSvsPreset {
   modelId: string
   checkpoint: string
   vaeCheckpoint?: string
+  engine: SvsEngine
 }
 
 let vaeHashCache: { path: string; size: number; mtimeMs: number; sha256: string } | null = null
@@ -51,12 +54,16 @@ export interface BuildSvsArgsOptions {
 export interface SvsResourceVerification {
   modelId?: string
   vaeSha256?: string
+  engine?: SvsEngine
 }
 
 export function buildSvsArgs(req: SvsRequest, options: BuildSvsArgsOptions = {}): string[] {
   validatePhrases(req.refPhrases, 'refPhrases')
   validatePhrases(req.targetPhrases, 'targetPhrases')
   const preset = assertModelBinding(req)
+  if (preset?.engine === 'v4h_phone_pul') {
+    throw new Error('V4H must use the phone/PUL inference engine')
+  }
   assertVaeBinding(req, preset)
   const t1Manifest = svsT1ManifestPath(req.output)
   if (options.writeManifest !== false) writeSvsT1Manifest(req)
@@ -94,8 +101,8 @@ export async function verifySvsResources(req: SvsRequest): Promise<SvsResourceVe
       throw new Error(`SVS VAE checkpoint is missing: ${presetVaePath}`)
     }
   }
-  if (preset.modelId !== V4FG_MODEL_ID || !req.vaeCheckpoint) {
-    return { modelId: preset.modelId }
+  if (!ONLINE_285K_MODEL_IDS.has(preset.modelId) || !req.vaeCheckpoint) {
+    return { modelId: preset.modelId, engine: preset.engine }
   }
 
   const vaePath = path.resolve(WORK_DIR, req.vaeCheckpoint)
@@ -110,10 +117,14 @@ export async function verifySvsResources(req: SvsRequest): Promise<SvsResourceVe
     sha256 = await sha256File(vaePath)
     vaeHashCache = { path: cacheKey, size: stat.size, mtimeMs: stat.mtimeMs, sha256 }
   }
-  if (sha256 !== V4FG_285K_VAE_SHA256) {
-    throw new Error(`V4fg 285k online VAE SHA-256 mismatch: expected ${V4FG_285K_VAE_SHA256}, got ${sha256}`)
+  if (sha256 !== ONLINE_285K_VAE_SHA256) {
+    throw new Error(`${preset.modelId} 285k online VAE SHA-256 mismatch: expected ${ONLINE_285K_VAE_SHA256}, got ${sha256}`)
   }
-  return { modelId: preset.modelId, vaeSha256: sha256 }
+  return { modelId: preset.modelId, engine: preset.engine, vaeSha256: sha256 }
+}
+
+export function resolveSvsEngine(req: SvsRequest): SvsEngine {
+  return assertModelBinding(req)?.engine ?? 't1'
 }
 
 export function writeSvsT1Manifest(req: SvsRequest): string {
@@ -225,8 +236,8 @@ function assertModelBinding(req: SvsRequest): ResolvedSvsPreset | null {
     throw new Error(`SVS modelId does not match checkpoint/VAE preset: ${req.modelId}`)
   }
   if (normalizeOptionalPath(preset.vaeCheckpoint) !== normalizeOptionalPath(req.vaeCheckpoint)) {
-    if (preset.modelId === V4FG_MODEL_ID) {
-      throw new Error(`V4fg requires the 285k online VAE: ${V4FG_285K_VAE}`)
+    if (ONLINE_285K_MODEL_IDS.has(preset.modelId)) {
+      throw new Error(`${preset.modelId} requires the 285k online VAE: ${ONLINE_285K_VAE}`)
     }
     throw new Error(`SVS VAE does not match configured preset: ${preset.modelId}`)
   }
@@ -237,29 +248,37 @@ function loadSvsPresets(): ResolvedSvsPreset[] {
   const raw = JSON.parse(fs.readFileSync(SVS_MODELS_PATH, 'utf-8')) as Record<string, string | {
     checkpoint?: string
     vaeCheckpoint?: string
+    engine?: SvsEngine
   }>
-  return Object.entries(raw).flatMap(([modelId, value]) => {
-    if (typeof value === 'string') return [{ modelId, checkpoint: value }]
-    return value?.checkpoint ? [{
+  const presets: ResolvedSvsPreset[] = []
+  for (const [modelId, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      presets.push({ modelId, checkpoint: value, engine: 't1' })
+      continue
+    }
+    if (!value?.checkpoint) continue
+    presets.push({
       modelId,
       checkpoint: String(value.checkpoint),
       vaeCheckpoint: value.vaeCheckpoint ? String(value.vaeCheckpoint) : undefined,
-    }] : []
-  })
+      engine: value.engine === 'v4h_phone_pul' ? 'v4h_phone_pul' : 't1',
+    })
+  }
+  return presets
 }
 
 function assertVaeBinding(req: SvsRequest, preset: ResolvedSvsPreset | null): void {
-  if (preset?.modelId !== V4FG_MODEL_ID) return
-  if (!req.vaeCheckpoint || normalizePath(req.vaeCheckpoint) !== normalizePath(V4FG_285K_VAE)) {
-    throw new Error(`V4fg requires the 285k online VAE: ${V4FG_285K_VAE}`)
+  if (!preset || !ONLINE_285K_MODEL_IDS.has(preset.modelId)) return
+  if (!req.vaeCheckpoint || normalizePath(req.vaeCheckpoint) !== normalizePath(ONLINE_285K_VAE)) {
+    throw new Error(`${preset.modelId} requires the 285k online VAE: ${ONLINE_285K_VAE}`)
   }
   const vaePath = path.resolve(WORK_DIR, req.vaeCheckpoint)
   if (!fs.existsSync(vaePath)) {
-    throw new Error(`V4fg 285k online VAE is missing: ${vaePath}`)
+    throw new Error(`${preset.modelId} 285k online VAE is missing: ${vaePath}`)
   }
   const actualSize = fs.statSync(vaePath).size
-  if (actualSize !== V4FG_285K_VAE_SIZE) {
-    throw new Error(`V4fg 285k online VAE size mismatch: expected ${V4FG_285K_VAE_SIZE}, got ${actualSize}`)
+  if (actualSize !== ONLINE_285K_VAE_SIZE) {
+    throw new Error(`${preset.modelId} 285k online VAE size mismatch: expected ${ONLINE_285K_VAE_SIZE}, got ${actualSize}`)
   }
 }
 

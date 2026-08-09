@@ -4,6 +4,8 @@ import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useHistoryStore } from '@/stores/history'
+import { useProjectStore } from '@/stores/project'
 import type { TrackId } from '@/types'
 import { NColorPicker } from 'naive-ui'
 
@@ -14,8 +16,12 @@ const tracks = useTracksStore()
 const selection = useSelectionStore()
 const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
+const history = useHistoryStore()
+const project = useProjectStore()
 
 const track = computed(() => tracks.tracks[props.trackId])
+const isAudioTrack = computed(() => (track.value?.trackType ?? 'audio') === 'audio')
+const hasAudioSegments = computed(() => isAudioTrack.value && tracks.getTrackSegments(props.trackId).length > 0)
 
 const editing = ref(false)
 const editName = ref('')
@@ -121,6 +127,44 @@ function setVolume(v: number | null) {
     track.value.volume = Math.max(0, Math.min(2, Math.round(v * 20) / 20))
   }
 }
+
+async function forceReloadF0() {
+  await tracks.forceReconcileF0ForTrack(props.trackId)
+  await (window as any).__saveProject?.()
+}
+
+async function alignTrackStartToZero() {
+  const segments = tracks.getTrackSegments(props.trackId)
+  if (segments.length === 0) {
+    objectTreeUi.flashNotice('该音轨没有片段')
+    return
+  }
+  const offset = Math.min(...segments.map(segment => segment.timelineStart))
+  if (Math.abs(offset) < 1e-6) {
+    objectTreeUi.flashNotice('音轨已经从 0 秒开始')
+    return
+  }
+  const entries = segments.map(segment => ({
+    seg: segment,
+    origStart: segment.timelineStart,
+    origEnd: segment.timelineEnd,
+    origTrackId: segment.trackId,
+    origColor: segment.color,
+  }))
+  const beforeTree = objectTree.snapshotTree()
+  const { buildMoveCommand } = await import('@/commands/move')
+  for (const segment of segments) {
+    segment.timelineStart -= offset
+    segment.timelineEnd -= offset
+  }
+  objectTree.syncMovedSegments(segments)
+  const command = buildMoveCommand(entries)
+  command.description = '音轨片段对齐到 0 秒'
+  command.objectTree = { kind: 'snapshot', before: beforeTree, after: objectTree.snapshotTree() }
+  history.push(command)
+  project.bumpRedraw()
+  objectTreeUi.flashNotice('音轨已对齐到 0 秒')
+}
 </script>
 
 <template>
@@ -148,6 +192,7 @@ function setVolume(v: number | null) {
       <div class="track-controls">
         <button class="ctrl-btn" :class="{ active: track.muted }" title="静音 (M)" @click.stop="toggleMute">M</button>
         <button class="ctrl-btn" :class="{ active: track.solo }" title="独奏 (S)" @click.stop="toggleSolo">S</button>
+        <button v-if="hasAudioSegments" class="ctrl-btn icon-ctrl" title="将最早片段对齐到 0 秒" @click.stop="alignTrackStartToZero"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h1.5v12H2V2Zm3 5.25h6.2L9 5.05 10.05 4 14 8l-3.95 4L9 10.95l2.2-2.2H5v-1.5Z" /></svg></button>
         <button v-if="track.trackType === 'text'" class="ctrl-btn icon-ctrl" title="新增句子" @click.stop="emit('addTextSegment')"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.25 2h1.5v5.25H14v1.5H8.75V14h-1.5V8.75H2v-1.5h5.25V2Z" /></svg></button>
         <button class="ctrl-btn icon-ctrl" title="上移音轨" :disabled="tracks.trackOrder[0] === trackId" @click.stop="moveTrack(-1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3 3.5 8h3v5h3V8h3L8 3Z" /></svg></button>
         <button class="ctrl-btn icon-ctrl" title="下移音轨" :disabled="tracks.trackOrder[tracks.trackOrder.length - 1] === trackId" @click.stop="moveTrack(1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13 3.5 8h3V3h3v5h3L8 13Z" /></svg></button>
@@ -165,9 +210,20 @@ function setVolume(v: number | null) {
       <div class="track-meta">
         <span class="meta-item" v-if="track.ignored" title="已忽视"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13ZM4.6 5.5a5 5 0 0 0 5.9 5.9L4.6 5.5Zm6.8 5a5 5 0 0 0-5.9-5.9l5.9 5.9Z" /></svg></span>
       </div>
-      <div class="f0-progress" v-if="track.f0Total > 0 && track.f0Pending > 0">
-        <div class="f0-progress-bar" :style="{ width: ((track.f0Total - track.f0Pending) / track.f0Total * 100) + '%' }" />
-        <span class="f0-progress-text">{{ track.f0Total - track.f0Pending }}/{{ track.f0Total }} F0</span>
+      <div class="f0-tools" v-if="hasAudioSegments">
+        <div class="f0-progress" v-if="track.f0Total > 0 && track.f0Pending > 0">
+          <div class="f0-progress-bar" :style="{ width: ((track.f0Total - track.f0Pending) / track.f0Total * 100) + '%' }" />
+          <span class="f0-progress-text">{{ track.f0Total - track.f0Pending }}/{{ track.f0Total }} F0</span>
+        </div>
+        <button
+          type="button"
+          class="f0-reload-btn"
+          title="强制重算 F0 曲线"
+          :disabled="track.f0Pending > 0"
+          @click.stop="forceReloadF0"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 5.5V2.8l-1.1 1.1A5.5 5.5 0 1 0 13.4 9h-1.6a4 4 0 1 1-.5-4l-1.2 1.2h3.4v-.7Z" /></svg>
+        </button>
       </div>
     </div>
 
@@ -199,6 +255,7 @@ function setVolume(v: number | null) {
   left: 0;
   z-index: 2;
 }
+
 .track-header-inner {
   padding: 8px 10px;
   display: flex;
@@ -271,6 +328,27 @@ function setVolume(v: number | null) {
   background: var(--app-border); border-radius: 6px;
   overflow: hidden; position: relative;
 }
+.f0-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.f0-tools .f0-progress { flex: 1; margin-top: 0; }
+.f0-reload-btn {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 2px;
+  border: 1px solid var(--app-border);
+  border-radius: 3px;
+  background: var(--app-surface);
+  color: var(--app-muted);
+  cursor: pointer;
+}
+.f0-reload-btn svg { width: 12px; height: 12px; fill: currentColor; }
+.f0-reload-btn:hover:not(:disabled) { color: var(--app-text); border-color: var(--app-accent); }
+.f0-reload-btn:disabled { opacity: 0.4; cursor: wait; }
 .f0-progress-bar {
   height: 100%; background: var(--app-accent); border-radius: 6px;
 }

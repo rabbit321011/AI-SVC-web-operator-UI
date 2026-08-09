@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import crypto from 'crypto'
+import { pipeline } from 'stream/promises'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -12,14 +13,15 @@ import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { runSvc } from './services/svc.service.js'
 import { buildSvsArgs, runSvs, verifySvsResources } from './services/svs.service.js'
+import { runV4h, verifyV4hResources } from './services/v4h.service.js'
 import { runWhisper } from './services/whisper.service.js'
 import { MSST_MODEL_IDS, MSST_OUTPUT_IDS, runMsst, verifyMsstResources } from './services/msst.service.js'
 import { GlobalResourceRepository } from './services/global-resource.service.js'
+import { compareAudioPitch, pitchShiftAudio } from './services/pitch.service.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '500mb' }))
-app.use('/api/projects/:name/blobs', express.raw({ type: 'application/octet-stream', limit: '500mb' }))
 app.use('/api/global-resources/:id/blobs', express.raw({ type: 'application/octet-stream', limit: '500mb' }))
 
 const server = http.createServer(app)
@@ -327,6 +329,29 @@ app.post('/api/combine', (req, res) => {
   }
 })
 
+app.post('/api/svs/pitch/compare', async (req, res) => {
+  const { referencePath, targetPath } = req.body ?? {}
+  if (!referencePath || !targetPath) {
+    res.status(400).json({ error: 'missing referencePath or targetPath' })
+    return
+  }
+  try {
+    res.json(await compareAudioPitch(String(referencePath), String(targetPath)))
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+  }
+})
+
+app.post('/api/svs/pitch/shift', async (req, res) => {
+  const { inputPath, semitones } = req.body ?? {}
+  try {
+    const outputPath = await pitchShiftAudio(String(inputPath || ''), Number(semitones))
+    res.json({ path: outputPath })
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+  }
+})
+
 app.post('/api/svc/run', (req, res) => {
   const { jobId: clientJobId, combinedWav, targetWav, checkpoint, configYml, diffusionSteps, inferenceCfgRate, f0Condition, semiToneShift, device, fp16, compGroupId } = req.body
 
@@ -393,6 +418,7 @@ app.post('/api/svs/run', async (req, res) => {
     cfg,
     seed,
     device,
+    sofaEscapeSeconds,
     dryRun,
   } = req.body
 
@@ -423,7 +449,20 @@ app.post('/api/svs/run', async (req, res) => {
     res.status(400).json({ error: error?.message || String(error) })
     return
   }
-  if (dryRun) {
+  const isV4h = verifiedResources.engine === 'v4h_phone_pul'
+  const v4hReq = {
+    ...svsReq,
+    sofaEscapeSeconds: Number(sofaEscapeSeconds),
+  }
+  if (isV4h) {
+    try {
+      verifyV4hResources(v4hReq)
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || String(error) })
+      return
+    }
+  }
+  if (dryRun && !isV4h) {
     try {
       res.json({
         ok: true,
@@ -445,7 +484,8 @@ app.post('/api/svs/run', async (req, res) => {
     if (ws) {
       console.log(`[SVS] job ${jobId} started, WS found`)
       try {
-        runSvs(svsReq, ws)
+        if (isV4h) void runV4h(v4hReq, ws, { dryRun: Boolean(dryRun) })
+        else runSvs(svsReq, ws)
       } catch (error: any) {
         ws.send(JSON.stringify({ type: 'error', message: error?.message || String(error) }))
       }
@@ -667,17 +707,6 @@ function writeBlobManifest(name: string, manifest: BlobManifest) {
   fs.writeFileSync(blobManifestPath(name), JSON.stringify(manifest, null, 2))
 }
 
-function writeProjectBlob(name: string, key: string, data: Buffer) {
-  const bDir = blobsDir(name)
-  fs.mkdirSync(bDir, { recursive: true })
-  const manifest = readBlobManifest(name)
-  const existingEntry = Object.entries(manifest).find(([, originalKey]) => originalKey === key)
-  const fileName = existingEntry?.[0] ?? makeBlobFileName(key, new Set(Object.keys(manifest)))
-  fs.writeFileSync(path.join(bDir, fileName), data)
-  manifest[fileName] = key
-  writeBlobManifest(name, manifest)
-}
-
 function makeBlobFileName(key: string, used: Set<string>): string {
   const hash = crypto.createHash('sha256').update(key).digest('hex').slice(0, 40)
   let fileName = `${hash}.blob`
@@ -725,13 +754,13 @@ app.put('/api/global-resources/:id/blobs', (req, res) => {
 })
 
 app.post('/api/global-resources/:id', (req, res) => {
-  const { node, assets, blobKeys } = req.body ?? {}
+  const { node, ancestors, assets, blobKeys } = req.body ?? {}
   if (!node || node.id !== req.params.id || !assets || !Array.isArray(blobKeys)) {
     res.status(400).json({ error: 'invalid Global Resource payload' })
     return
   }
   try {
-    const entry = globalResources.publish({ id: req.params.id, name: String(node.name || req.params.id), node, assets, blobKeys })
+    const entry = globalResources.publish({ id: req.params.id, name: String(node.name || req.params.id), node, ancestors, assets, blobKeys })
     res.json({ ok: true, id: entry.id })
   } catch (error: any) {
     res.status(error?.message === 'Resource is already global' ? 409 : 500).json({ error: error?.message || String(error) })
@@ -742,6 +771,18 @@ app.delete('/api/global-resources/:id', (req, res) => {
   const removed = globalResources.remove(req.params.id)
   if (!removed) { res.status(404).json({ error: 'Global Resource not found' }); return }
   res.json({ ok: true })
+})
+
+app.patch('/api/global-resources/:id/path', (req, res) => {
+  const { ancestors } = req.body ?? {}
+  if (!Array.isArray(ancestors)) { res.status(400).json({ error: 'invalid Global Resource path' }); return }
+  try {
+    const updated = globalResources.updateAncestors(req.params.id, ancestors)
+    if (!updated) { res.status(404).json({ error: 'Global Resource not found' }); return }
+    res.json({ ok: true })
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+  }
 })
 
 app.post('/api/projects/:name/resources/sync', (req, res) => {
@@ -830,7 +871,7 @@ app.get('/api/projects/:name/blobs', (req, res) => {
   fs.createReadStream(filePath).pipe(res)
 })
 
-app.put('/api/projects/:name/blobs', (req, res) => {
+app.put('/api/projects/:name/blobs', async (req, res) => {
   const encodedKey = req.header('x-blob-key')
   if (!encodedKey) { res.status(400).json({ error: 'missing x-blob-key' }); return }
   let key = ''
@@ -840,16 +881,26 @@ app.put('/api/projects/:name/blobs', (req, res) => {
     res.status(400).json({ error: 'invalid x-blob-key' })
     return
   }
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-    res.status(400).json({ error: 'missing blob body' })
-    return
-  }
+  let tempPath = ''
   try {
     const safeProject = sanitizeName(req.params.name)
-    fs.mkdirSync(projectDir(safeProject), { recursive: true })
-    writeProjectBlob(safeProject, key, req.body)
+    const bDir = blobsDir(safeProject)
+    fs.mkdirSync(bDir, { recursive: true })
+    const manifest = readBlobManifest(safeProject)
+    const existingEntry = Object.entries(manifest).find(([, originalKey]) => originalKey === key)
+    const fileName = existingEntry?.[0] ?? makeBlobFileName(key, new Set(Object.keys(manifest)))
+    const finalPath = path.join(bDir, fileName)
+    tempPath = path.join(bDir, `${fileName}.${crypto.randomUUID()}.upload`)
+    await pipeline(req, fs.createWriteStream(tempPath, { flags: 'wx' }))
+    if (fs.statSync(tempPath).size === 0) throw new Error('missing blob body')
+    fs.rmSync(finalPath, { force: true })
+    fs.renameSync(tempPath, finalPath)
+    tempPath = ''
+    manifest[fileName] = key
+    writeBlobManifest(safeProject, manifest)
     res.json({ ok: true })
   } catch (e: any) {
+    if (tempPath) fs.rmSync(tempPath, { force: true })
     res.status(500).json({ error: e.message })
   }
 })

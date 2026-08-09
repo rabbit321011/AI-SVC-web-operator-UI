@@ -10,5 +10,40 @@
   "V4fg_10k": {
     "checkpoint": "E:/MyProject/重要模型保存/V4fg_10k/step_010000.pt",
     "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt"
+  },
+  "V4vf_12k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4vf/step_012000.pt",
+    "vaeCheckpoint": "ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4vf_24k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4vf/step_024000.pt",
+    "vaeCheckpoint": "ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4vf_30k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4vf/step_030000.pt",
+    "vaeCheckpoint": "ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4vfg_6k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4vfg/step_006000.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt"
+  },
+  "V4vfg_10k": {
+    "checkpoint": "E:/MyProject/重要模型保存/V4vfg/step_010000.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt"
+  },
+  "V4H_24k": {
+    "engine": "v4h_phone_pul",
+    "checkpoint": "E:/MyProject/重要模型保存/V4H_24k/step_024000_ema_inference.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4H_30k": {
+    "engine": "v4h_phone_pul",
+    "checkpoint": "E:/MyProject/重要模型保存/V4H_30k/step_030000_ema_inference.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/stable_audio_2_0_vae_20hz_official.ckpt"
+  },
+  "V4Hg_10k": {
+    "engine": "v4h_phone_pul",
+    "checkpoint": "E:/MyProject/重要模型保存/V4Hg_10k/step_010000_ema_inference.pt",
+    "vaeCheckpoint": "E:/AIscene/YingMusic_Singer_Plus/ckpts/autoencoder_285k.ckpt"
   }
 }
