@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>V5-P Token Editor Concept</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --panel: #181b1e;
+      --panel-2: #202428;
+      --line: #343a3f;
+      --line-soft: #282d31;
+      --text: #e7eaec;
+      --muted: #929ba2;
+      --accent: #4cc8b0;
+      --accent-soft: rgba(76, 200, 176, .18);
+      --warning: #e0ae55;
+      --danger: #e76e68;
+      --midi: #5fb3e6;
+      --h-token: #e57b9e;
+      --kana: #e5bd65;
+      --ref: #6f777d;
+      --frame-width: 32px;
+      --label-width: 154px;
+      --inspector-width: 284px;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text); }
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .app {
+      height: 100%;
+      width: 100%;
+      min-height: 620px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 42px 38px minmax(0, 1fr) 26px;
+      background: var(--bg);
+    }
+
+    .topbar, .toolbar, .statusbar {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .topbar { padding: 0 12px; gap: 10px; }
+    .brand { font-weight: 650; font-size: 14px; white-space: nowrap; }
+    .object-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .top-spacer { flex: 1; }
+    .model-pill { color: var(--accent); border-left: 1px solid var(--line); padding-left: 10px; white-space: nowrap; }
+    .sync-state { color: #78cf8e; font-size: 12px; white-space: nowrap; }
+
+    .toolbar { padding: 0 10px; gap: 8px; overflow-x: auto; overflow-y: hidden; }
+    .icon-button, .tool-button, .segment-button {
+      height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel-2);
+      cursor: pointer;
+    }
+    .icon-button { width: 28px; padding: 0; font-size: 13px; }
+    .tool-button { padding: 0 9px; color: var(--muted); }
+    .icon-button:hover, .tool-button:hover, .segment-button:hover { border-color: var(--accent); color: var(--text); }
+    .icon-button.active, .tool-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+    .divider { width: 1px; height: 20px; background: var(--line); }
+    .segmented { display: inline-flex; }
+    .segment-button { border-radius: 0; border-right: 0; padding: 0 12px; color: var(--muted); white-space: nowrap; }
+    .segment-button:first-child { border-radius: 4px 0 0 4px; }
+    .segment-button:last-child { border-radius: 0 4px 4px 0; border-right: 1px solid var(--line); }
+    .segment-button.active { color: var(--text); background: #2b3135; box-shadow: inset 0 -2px var(--accent); }
+    .zoom-control { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: auto; }
+    .zoom-control input { width: 104px; accent-color: var(--accent); }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--inspector-width);
+    }
+
+    .editor {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 34px minmax(0, 1fr);
+      border-right: 1px solid var(--line);
+      background: #141719;
+    }
+
+    .ruler-shell, .lane-row {
+      display: grid;
+      grid-template-columns: var(--label-width) minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .ruler-label, .lane-label {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .ruler-label { display: flex; align-items: center; padding: 0 10px; color: var(--muted); }
+    .lane-label {
+      padding: 8px 10px;
+      display: grid;
+      align-content: center;
+      gap: 3px;
+      min-width: 0;
+      position: sticky;
+      left: 0;
+      z-index: 24;
+    }
+    .lane-name { font-weight: 600; font-size: 12px; }
+    .lane-meta { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .ruler-viewport, .lanes-viewport { overflow: auto; min-width: 0; }
+    .ruler-viewport { overflow-y: hidden; background: var(--panel); }
+    .lanes-viewport { position: relative; }
+    .ruler-track, .lane-track { position: relative; width: calc(48 * var(--frame-width)); min-width: 100%; }
+    .ruler-track { height: 34px; }
+    .frame-tick {
+      position: absolute;
+      top: 0;
+      height: 34px;
+      width: var(--frame-width);
+      border-left: 1px solid var(--line-soft);
+      padding: 4px 0 0 4px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+    .frame-tick.major { border-left-color: #596168; color: var(--text); }
+    .frame-tick .seconds { display: block; margin-top: 2px; color: #707980; }
+
+    .lanes { min-width: 0; }
+    .lane-row { border-bottom: 1px solid var(--line); }
+    .lane-row[data-lane="wave"] { height: 92px; }
+    .lane-row[data-lane="midi"] { height: 152px; }
+    .lane-row[data-lane="kana"] { height: 58px; }
+    .lane-row[data-lane="phone"] { height: 54px; }
+    .lane-row[data-lane="h"] { height: 66px; }
+    .lane-row[data-lane="midip"] { height: 58px; }
+
+    .lane-viewport { overflow: hidden; min-width: 0; position: relative; }
+    .lane-track { height: 100%; background: #16191b; }
+    .lane-track::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--frame-width) - 1px), var(--line-soft) calc(var(--frame-width) - 1px), var(--line-soft) var(--frame-width));
+      pointer-events: none;
+    }
+    .a-region {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: calc(8 * var(--frame-width));
+      background: rgba(111, 119, 125, .16);
+      border-right: 2px solid var(--warning);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .a-region::after {
+      content: "B 0";
+      position: absolute;
+      top: 3px;
+      right: -22px;
+      color: var(--warning);
+      font-size: 9px;
+      background: #16191b;
+      padding: 0 2px;
+    }
+    .playhead {
+      position: absolute;
+      z-index: 20;
+      top: 0;
+      bottom: 0;
+      left: calc(var(--label-width) + var(--play-frame, 8) * var(--frame-width));
+      width: 1px;
+      background: #f2f5f6;
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.2);
+    }
+
+    .wave-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
+    .wave-svg path { fill: rgba(86, 196, 181, .23); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .f0-line { fill: none !important; stroke: #f2c55c !important; opacity: .75; }
+
+    .piano-grid { position: absolute; inset: 0; z-index: 2; }
+    .pitch-line { position: absolute; left: 0; right: 0; height: 1px; background: #272c30; }
+    .pitch-label { position: absolute; left: 4px; color: #616a71; font-size: 9px; }
+    .note {
+      position: absolute;
+      height: 23px;
+      border: 1px solid #7dc9ed;
+      border-radius: 3px;
+      background: rgba(95, 179, 230, .38);
+      color: #dff4ff;
+      padding: 3px 5px;
+      font-size: 10px;
+      cursor: grab;
+      overflow: hidden;
+      z-index: 3;
+    }
+    .note.selected { border-color: white; box-shadow: 0 0 0 1px var(--midi); }
+
+    .kana-block, .phone-block {
+      position: absolute;
+      top: 8px;
+      height: 38px;
+      border: 1px solid #8e7746;
+      border-radius: 3px;
+      background: rgba(229, 189, 101, .17);
+      color: #f3d99c;
+      display: grid;
+      place-items: center;
+      z-index: 3;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .kana-block small { color: var(--muted); font-size: 9px; }
+    .phone-block {
+      top: 9px;
+      height: 34px;
+      border-color: #786a65;
+      background: rgba(175, 145, 130, .15);
+      color: #d9c7bf;
+    }
+
+    .h-anchor {
+      position: absolute;
+      top: 19px;
+      width: 22px;
+      height: 30px;
+      transform: translateX(-50%);
+      border: 1px solid var(--h-token);
+      border-radius: 3px;
+      background: #3c2630;
+      color: #ffd6e3;
+      display: grid;
+      place-items: center;
+      z-index: 4;
+      cursor: ew-resize;
+      user-select: none;
+    }
+    .h-anchor::after {
+      content: "";
+      position: absolute;
+      left: 9px;
+      bottom: -11px;
+      width: 2px;
+      height: 10px;
+      background: var(--h-token);
+    }
+    .h-anchor.selected { border-color: white; box-shadow: 0 0 0 1px var(--h-token); }
+    .h-anchor.special { color: #ffd98b; border-color: var(--warning); background: #3a3122; width: 34px; }
+
+    .midi-cell {
+      position: absolute;
+      top: 10px;
+      width: calc(var(--frame-width) - 2px);
+      height: 36px;
+      margin-left: 1px;
+      border: 1px solid #3b7899;
+      border-radius: 2px;
+      background: rgba(95, 179, 230, .25);
+      color: #d8f1ff;
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      z-index: 3;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .midi-cell.rest { background: #23272a; color: #727c83; border-color: #3a4146; }
+    .midi-cell.pad { background: repeating-linear-gradient(135deg, #222629 0 4px, #2d3236 4px 8px); color: #697177; border-color: #41474c; }
+    .midi-cell.selected { border-color: white; box-shadow: 0 0 0 1px var(--midi); }
+    .midi-cell.locked::after, .h-anchor.locked::before {
+      content: "L";
+      position: absolute;
+      top: 1px;
+      right: 2px;
+      color: var(--warning);
+      font-size: 7px;
+    }
+
+    .inspector {
+      min-width: 0;
+      overflow: auto;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .inspector h2 { margin: 0 0 4px; font-size: 14px; }
+    .inspector-sub { color: var(--muted); font-size: 11px; margin-bottom: 14px; }
+    .inspector-section { border-top: 1px solid var(--line); padding: 11px 0; }
+    .field-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; min-height: 25px; align-items: center; }
+    .field-label { color: var(--muted); }
+    .field-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .source-badge { color: var(--accent); }
+    .warning-value { color: var(--warning); }
+    .inspector-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .inspector-actions button {
+      min-width: 0;
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .inspector-actions button:hover { border-color: var(--accent); }
+    .inspector-actions .wide { grid-column: span 3; }
+    .inspector-actions .danger { color: var(--danger); }
+
+    .statusbar {
+      border-top: 1px solid var(--line);
+      border-bottom: 0;
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 11px;
+      gap: 14px;
+    }
+    .statusbar .ready { color: #78cf8e; }
+    .statusbar .problem { color: var(--warning); }
+
+    .hidden-by-mode { display: none !important; }
+
+    @media (max-width: 860px) {
+      :root { --label-width: 104px; --inspector-width: 100%; }
+      .app { min-height: 760px; }
+      .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(430px, 1fr) 280px; }
+      .editor { border-right: 0; border-bottom: 1px solid var(--line); }
+      .inspector { display: block; min-width: 0; }
+      .model-pill { display: none; }
+      .object-name { display: none; }
+      .toolbar { padding-right: 6px; }
+      .zoom-control { margin-left: 0; }
+      .statusbar { overflow-x: auto; white-space: nowrap; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">演唱控制编辑器</div>
+      <div class="object-name">Vocal Part 03 · きみを見るたびに</div>
+      <div class="top-spacer"></div>
+      <div class="model-pill">V5-P · 21.533 Hz</div>
+      <div class="sync-state">Control r12</div>
+    </header>
+
+    <nav class="toolbar" aria-label="Editor toolbar">
+      <button id="playButton" class="icon-button" type="button" title="播放 / 暂停">▶</button>
+      <button id="loopButton" class="icon-button active" type="button" title="循环选区">↻</button>
+      <div class="divider"></div>
+      <div class="segmented" role="tablist" aria-label="编辑层级">
+        <button class="segment-button" data-mode="compose" type="button">编排</button>
+        <button class="segment-button" data-mode="align" type="button">对齐</button>
+        <button class="segment-button active" data-mode="token" type="button">Token</button>
+      </div>
+      <div class="divider"></div>
+      <button id="snapButton" class="tool-button active" type="button">Frame 吸附</button>
+      <button id="lockSelection" class="tool-button" type="button">锁定</button>
+      <div class="zoom-control">
+        <span>缩放</span>
+        <input id="zoomSlider" type="range" min="22" max="58" value="32" step="2" aria-label="时间轴缩放">
+      </div>
+    </nav>
+
+    <main class="workspace">
+      <section class="editor">
+        <div class="ruler-shell">
+          <div class="ruler-label">Frame / Time</div>
+          <div id="rulerViewport" class="ruler-viewport"><div id="rulerTrack" class="ruler-track"></div></div>
+        </div>
+
+        <div id="lanesViewport" class="lanes-viewport">
+          <div id="lanes" class="lanes">
+            <div class="lane-row" data-lane="wave">
+              <div class="lane-label"><div class="lane-name">Guide / F0</div><div class="lane-meta">44.1 kHz · B-local</div></div>
+              <div class="lane-viewport"><div class="lane-track"><div class="a-region"></div><svg class="wave-svg" viewBox="0 0 1536 92" preserveAspectRatio="none"><path d="M0,46 C40,31 60,61 96,44 C135,24 165,68 205,40 C244,16 275,73 320,42 C355,23 390,61 430,38 C470,13 510,78 552,44 C592,18 628,65 670,38 C715,10 753,74 798,42 C840,20 882,64 925,41 C967,18 1008,69 1050,39 C1094,14 1136,73 1178,42 C1220,17 1261,67 1304,40 C1348,13 1392,72 1435,43 C1470,28 1502,54 1536,46 L1536,62 C1498,73 1470,53 1433,66 C1390,82 1345,27 1302,64 C1258,84 1218,31 1176,64 C1135,83 1090,29 1048,65 C1004,81 965,31 922,64 C880,81 838,31 796,65 C750,82 710,27 668,66 C625,83 588,31 550,65 C505,83 466,27 428,64 C386,80 352,31 318,66 C272,84 240,28 203,65 C162,81 132,33 94,65 C57,77 35,57 0,62 Z"></path><path class="f0-line" d="M0,66 C120,63 170,58 240,51 S390,37 470,42 S620,61 705,55 S860,36 945,39 S1100,59 1190,51 S1360,32 1536,40"></path></svg></div></div>
+            </div>
+
+            <div class="lane-row" data-lane="midi">
+              <div class="lane-label"><div class="lane-name">Piano Roll</div><div class="lane-meta">Note / note group</div></div>
+              <div class="lane-viewport"><div id="midiTrack" class="lane-track"><div class="a-region"></div><div class="piano-grid"></div></div></div>
+            </div>
+
+            <div class="lane-row" data-lane="kana">
+              <div class="lane-label"><div class="lane-name">Kana / Mora</div><div class="lane-meta">歌词与音符组</div></div>
+              <div class="lane-viewport"><div id="kanaTrack" class="lane-track"><div class="a-region"></div></div></div>
+            </div>
+
+            <div class="lane-row align-lane" data-lane="phone">
+              <div class="lane-label"><div class="lane-name">Phone</div><div class="lane-meta">SOFA interval</div></div>
+              <div class="lane-viewport"><div id="phoneTrack" class="lane-track"><div class="a-region"></div></div></div>
+            </div>
+
+            <div class="lane-row token-lane" data-lane="h">
+              <div class="lane-label"><div class="lane-name">H Token</div><div class="lane-meta">Sparse anchor</div></div>
+              <div class="lane-viewport"><div id="hTrack" class="lane-track"><div class="a-region"></div></div></div>
+            </div>
+
+            <div class="lane-row token-lane" data-lane="midip">
+              <div class="lane-label"><div class="lane-name">MIDI-P</div><div class="lane-meta">Dense frame class</div></div>
+              <div class="lane-viewport"><div id="midiPTrack" class="lane-track"><div class="a-region"></div></div></div>
+            </div>
+          </div>
+          <div id="playhead" class="playhead"></div>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <h2 id="inspectorTitle">MIDI-P Token</h2>
+        <div id="inspectorSub" class="inspector-sub">B local frame 12</div>
+        <div class="inspector-section">
+          <div class="field-row"><div class="field-label">Frame</div><div id="fieldFrame" class="field-value">12</div></div>
+          <div class="field-row"><div class="field-label">时间</div><div id="fieldTime" class="field-value">0.5573 s</div></div>
+          <div class="field-row"><div class="field-label">PCM</div><div id="fieldPcm" class="field-value">24576 - 26623</div></div>
+          <div class="field-row"><div class="field-label">值</div><div id="fieldValue" class="field-value">class 120 · C4</div></div>
+          <div class="field-row"><div class="field-label">来源</div><div id="fieldSource" class="field-value source-badge">note compiler</div></div>
+          <div class="field-row"><div class="field-label">状态</div><div id="fieldState" class="field-value">未锁定</div></div>
+        </div>
+        <div id="midiActions" class="inspector-section inspector-actions">
+          <button id="pitchDown" type="button" title="下降 0.5 半音">− 0.5</button>
+          <button id="pitchUp" type="button" title="上升 0.5 半音">+ 0.5</button>
+          <button id="setRest" type="button">REST</button>
+          <button id="restoreToken" class="wide" type="button">恢复自动结果</button>
+        </div>
+        <div id="hActions" class="inspector-section inspector-actions" hidden>
+          <button id="hLeft" type="button">← 1f</button>
+          <button id="hRight" type="button">1f →</button>
+          <button id="hLock" type="button">锁定</button>
+          <button id="hDelete" class="wide danger" type="button">删除发音覆盖</button>
+        </div>
+        <div class="inspector-section">
+          <div class="field-row"><div class="field-label">父级</div><div id="fieldParent" class="field-value">mora き</div></div>
+          <div class="field-row"><div class="field-label">边界</div><div id="fieldBoundary" class="field-value warning-value">B start + 4 frames</div></div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span class="ready">Frame contract ready</span>
+      <span>44100 / 2048 = 21.533203125 Hz</span>
+      <span class="problem">1 个用户覆盖</span>
+      <span>H 7 · MIDI-P 40</span>
+    </footer>
+  </div>
+
+  <script>
+    const FRAME_RATE = 44100 / 2048;
+    const HOP = 2048;
+    const B_START = 8;
+    const FRAME_COUNT = 48;
+    const root = document.documentElement;
+    const rulerTrack = document.getElementById('rulerTrack');
+    const rulerViewport = document.getElementById('rulerViewport');
+    const lanesViewport = document.getElementById('lanesViewport');
+    const playhead = document.getElementById('playhead');
+    const playButton = document.getElementById('playButton');
+
+    const notes = [
+      { start: 9, end: 16, pitch: 60, name: 'C4' },
+      { start: 16, end: 23, pitch: 62, name: 'D4' },
+      { start: 23, end: 32, pitch: 64, name: 'E4' },
+      { start: 34, end: 43, pitch: 62, name: 'D4' }
+    ];
+    const moras = [
+      { start: 9, end: 16, kana: 'き', romaji: 'ki' },
+      { start: 16, end: 23, kana: 'み', romaji: 'mi' },
+      { start: 23, end: 32, kana: 'を', romaji: 'o' },
+      { start: 34, end: 43, kana: 'みる', romaji: 'miru' }
+    ];
+    const phones = [
+      { start: 9, end: 11, symbol: 'k' }, { start: 11, end: 16, symbol: 'i' },
+      { start: 16, end: 18, symbol: 'm' }, { start: 18, end: 23, symbol: 'i' },
+      { start: 23, end: 32, symbol: 'o' },
+      { start: 34, end: 36, symbol: 'm' }, { start: 36, end: 39, symbol: 'i' },
+      { start: 39, end: 41, symbol: 'r' }, { start: 41, end: 43, symbol: 'u' }
+    ];
+    const hTokens = [
+      { frame: 9, id: 142, symbol: 'k', parent: 'き', locked: false },
+      { frame: 11, id: 19, symbol: 'i', parent: 'き', locked: false },
+      { frame: 16, id: 151, symbol: 'm', parent: 'み', locked: false },
+      { frame: 18, id: 19, symbol: 'i', parent: 'み', locked: true },
+      { frame: 23, id: 31, symbol: 'o', parent: 'を', locked: false },
+      { frame: 34, id: 151, symbol: 'm', parent: 'みる', locked: false },
+      { frame: 47, id: 365, symbol: 'SEP', parent: 'phrase 03', locked: true, special: true }
+    ];
+    const midiClasses = Array.from({ length: FRAME_COUNT }, (_, frame) => {
+      if (frame < B_START) return { value: 256, origin: 'A / PAD', locked: true, original: 256 };
+      const note = notes.find(item => frame >= item.start && frame < item.end);
+      const value = note ? Math.round(note.pitch * 2) : 255;
+      return { value, origin: note ? 'note compiler' : 'REST', locked: false, original: value };
+    });
+
+    let mode = 'token';
+    let selected = { lane: 'midip', index: 12 };
+    let currentFrame = B_START;
+    let playing = false;
+    let animation = 0;
+    let lastTimestamp = 0;
+    let audioContext = null;
+    let oscillator = null;
+    let gainNode = null;
+
+    function frameLeft(frame) { return `calc(${frame} * var(--frame-width))`; }
+    function frameWidth(count) { return `calc(${count} * var(--frame-width))`; }
+    function frameTime(frame) { return frame / FRAME_RATE; }
+
+    function renderRuler() {
+      rulerTrack.innerHTML = '';
+      for (let frame = 0; frame < FRAME_COUNT; frame++) {
+        const tick = document.createElement('div');
+        tick.className = `frame-tick ${frame % 4 === 0 ? 'major' : ''}`;
+        tick.style.left = frameLeft(frame);
+        tick.innerHTML = `<span>${frame}</span>${frame % 4 === 0 ? `<span class="seconds">${frameTime(frame).toFixed(2)}s</span>` : ''}`;
+        tick.addEventListener('click', () => selectFrame(frame));
+        rulerTrack.appendChild(tick);
+      }
+    }
+
+    function renderNotes() {
+      const track = document.getElementById('midiTrack');
+      track.querySelectorAll('.note, .pitch-line, .pitch-label').forEach(el => el.remove());
+      for (let row = 0; row < 6; row++) {
+        const line = document.createElement('div');
+        line.className = 'pitch-line';
+        line.style.top = `${row * 25}px`;
+        track.appendChild(line);
+      }
+      notes.forEach((note, index) => {
+        const el = document.createElement('div');
+        el.className = 'note';
+        el.textContent = note.name;
+        el.style.left = frameLeft(note.start);
+        el.style.width = `calc(${note.end - note.start} * var(--frame-width) - 2px)`;
+        el.style.top = `${109 - (note.pitch - 60) * 18}px`;
+        el.addEventListener('click', () => {
+          selected = { lane: 'note', index };
+          selectFrame(note.start, false);
+          renderInspector();
+          renderNotes();
+        });
+        if (selected.lane === 'note' && selected.index === index) el.classList.add('selected');
+        track.appendChild(el);
+      });
+    }
+
+    function renderSpanBlocks(trackId, data, className, renderer) {
+      const track = document.getElementById(trackId);
+      track.querySelectorAll(`.${className}`).forEach(el => el.remove());
+      data.forEach((item, index) => {
+        const el = document.createElement('div');
+        el.className = className;
+        el.style.left = frameLeft(item.start);
+        el.style.width = `calc(${item.end - item.start} * var(--frame-width) - 2px)`;
+        el.innerHTML = renderer(item);
+        el.addEventListener('click', () => {
+          selected = { lane: className.startsWith('kana') ? 'kana' : 'phone', index };
+          selectFrame(item.start, false);
+          renderInspector();
+        });
+        track.appendChild(el);
+      });
+    }
+
+    function renderHTokens() {
+      const track = document.getElementById('hTrack');
+      track.querySelectorAll('.h-anchor').forEach(el => el.remove());
+      hTokens.forEach((token, index) => {
+        const el = document.createElement('div');
+        el.className = `h-anchor ${token.special ? 'special' : ''} ${token.locked ? 'locked' : ''} ${selected.lane === 'h' && selected.index === index ? 'selected' : ''}`;
+        el.style.left = `calc(${token.frame} * var(--frame-width) + var(--frame-width) / 2)`;
+        el.textContent = token.symbol;
+        el.title = `${token.symbol} · token ${token.id} · frame ${token.frame}`;
+        el.addEventListener('pointerdown', event => startHDrag(event, index));
+        el.addEventListener('click', event => {
+          event.stopPropagation();
+          selected = { lane: 'h', index };
+          selectFrame(token.frame, false);
+          renderHTokens();
+          renderInspector();
+        });
+        track.appendChild(el);
+      });
+    }
+
+    function renderMidiP() {
+      const track = document.getElementById('midiPTrack');
+      track.querySelectorAll('.midi-cell').forEach(el => el.remove());
+      midiClasses.forEach((cell, frame) => {
+        const el = document.createElement('div');
+        const kind = cell.value === 255 ? 'rest' : cell.value === 256 ? 'pad' : '';
+        el.className = `midi-cell ${kind} ${cell.locked ? 'locked' : ''} ${selected.lane === 'midip' && selected.index === frame ? 'selected' : ''}`;
+        el.style.left = frameLeft(frame);
+        el.textContent = cell.value === 255 ? 'R' : cell.value === 256 ? 'P' : pitchName(cell.value);
+        el.title = midiDescription(frame);
+        el.addEventListener('click', event => {
+          event.stopPropagation();
+          selected = { lane: 'midip', index: frame };
+          selectFrame(frame, false);
+          renderMidiP();
+          renderInspector();
+        });
+        track.appendChild(el);
+      });
+    }
+
+    function renderAll() {
+      renderRuler();
+      renderNotes();
+      renderSpanBlocks('kanaTrack', moras, 'kana-block', item => `<span>${item.kana}<br><small>${item.romaji}</small></span>`);
+      renderSpanBlocks('phoneTrack', phones, 'phone-block', item => item.symbol);
+      renderHTokens();
+      renderMidiP();
+      applyMode();
+      renderInspector();
+    }
+
+    function selectFrame(frame, updateSelection = true) {
+      currentFrame = Math.max(0, Math.min(FRAME_COUNT - 1, frame));
+      if (updateSelection) selected = { lane: 'midip', index: currentFrame };
+      updatePlayhead();
+      renderInspector();
+      renderMidiP();
+    }
+
+    function updatePlayhead() {
+      root.style.setProperty('--play-frame', currentFrame);
+    }
+
+    function applyMode() {
+      document.querySelectorAll('.token-lane').forEach(el => el.classList.toggle('hidden-by-mode', mode !== 'token'));
+      document.querySelectorAll('.align-lane').forEach(el => el.classList.toggle('hidden-by-mode', mode === 'compose'));
+      document.querySelectorAll('[data-mode]').forEach(el => el.classList.toggle('active', el.dataset.mode === mode));
+    }
+
+    function renderInspector() {
+      const title = document.getElementById('inspectorTitle');
+      const sub = document.getElementById('inspectorSub');
+      const frameField = document.getElementById('fieldFrame');
+      const timeField = document.getElementById('fieldTime');
+      const pcmField = document.getElementById('fieldPcm');
+      const valueField = document.getElementById('fieldValue');
+      const sourceField = document.getElementById('fieldSource');
+      const stateField = document.getElementById('fieldState');
+      const parentField = document.getElementById('fieldParent');
+      const boundaryField = document.getElementById('fieldBoundary');
+      const midiActions = document.getElementById('midiActions');
+      const hActions = document.getElementById('hActions');
+
+      let frame = currentFrame;
+      let value = '';
+      let source = 'user';
+      let locked = false;
+      let parent = '-';
+      let heading = 'Frame';
+
+      if (selected.lane === 'h') {
+        const token = hTokens[selected.index];
+        if (!token) return;
+        frame = token.frame;
+        heading = 'H Token';
+        value = `${token.symbol} · token ${token.id}`;
+        source = token.locked ? 'user override' : 'SOFA / runtime';
+        locked = token.locked;
+        parent = `mora ${token.parent}`;
+        midiActions.hidden = true;
+        hActions.hidden = false;
+      } else if (selected.lane === 'note') {
+        const note = notes[selected.index];
+        heading = 'MIDI Note';
+        frame = note.start;
+        value = `${note.name} · MIDI ${note.pitch}`;
+        source = 'MidiObject';
+        parent = moras.find(item => item.start === note.start)?.kana || '-';
+        midiActions.hidden = true;
+        hActions.hidden = true;
+      } else if (selected.lane === 'kana') {
+        const mora = moras[selected.index];
+        heading = 'Kana / Mora';
+        frame = mora.start;
+        value = `${mora.kana} · ${mora.romaji}`;
+        source = 'user confirmed';
+        parent = 'phrase 03';
+        midiActions.hidden = true;
+        hActions.hidden = true;
+      } else if (selected.lane === 'phone') {
+        const phone = phones[selected.index];
+        heading = 'Phone Interval';
+        frame = phone.start;
+        value = `${phone.symbol} · ${phone.end - phone.start} frames`;
+        source = 'SOFA';
+        parent = moras.find(item => frame >= item.start && frame < item.end)?.kana || '-';
+        midiActions.hidden = true;
+        hActions.hidden = true;
+      } else {
+        const cell = midiClasses[selected.index] || midiClasses[currentFrame];
+        frame = selected.index;
+        heading = 'MIDI-P Token';
+        value = cell.value === 255 ? 'REST · class 255' : cell.value === 256 ? 'PAD · class 256' : `class ${cell.value} · ${pitchName(cell.value)}`;
+        source = cell.origin;
+        locked = cell.locked;
+        parent = moras.find(item => frame >= item.start && frame < item.end)?.kana ? `mora ${moras.find(item => frame >= item.start && frame < item.end).kana}` : 'pause';
+        midiActions.hidden = false;
+        hActions.hidden = true;
+      }
+
+      title.textContent = heading;
+      sub.textContent = `${frame < B_START ? 'A global' : 'B local'} frame ${frame < B_START ? frame : frame - B_START}`;
+      frameField.textContent = String(frame);
+      timeField.textContent = `${frameTime(frame).toFixed(4)} s`;
+      pcmField.textContent = `${frame * HOP} - ${(frame + 1) * HOP - 1}`;
+      valueField.textContent = value;
+      sourceField.textContent = source;
+      stateField.textContent = locked ? '已锁定' : '未锁定';
+      parentField.textContent = parent;
+      boundaryField.textContent = frame < B_START ? 'A reference · read only' : `B start + ${frame - B_START} frames`;
+    }
+
+    function pitchName(classId) {
+      const midi = classId / 2;
+      const base = Math.floor(midi);
+      const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+      const name = names[((base % 12) + 12) % 12];
+      const octave = Math.floor(base / 12) - 1;
+      return `${name}${octave}${midi % 1 ? '+50' : ''}`;
+    }
+
+    function midiDescription(frame) {
+      const cell = midiClasses[frame];
+      return cell.value === 255 ? `frame ${frame} · REST` : cell.value === 256 ? `frame ${frame} · PAD` : `frame ${frame} · class ${cell.value} · ${pitchName(cell.value)}`;
+    }
+
+    function editSelectedMidi(delta, rest = false) {
+      if (selected.lane !== 'midip') return;
+      const frame = selected.index;
+      if (frame < B_START) return;
+      const cell = midiClasses[frame];
+      if (rest) cell.value = 255;
+      else if (cell.value >= 0 && cell.value <= 254) cell.value = Math.max(0, Math.min(254, cell.value + delta));
+      else cell.value = 120;
+      cell.origin = 'user override';
+      cell.locked = true;
+      renderMidiP();
+      renderInspector();
+      updateTone();
+    }
+
+    function moveSelectedH(delta) {
+      if (selected.lane !== 'h') return;
+      const token = hTokens[selected.index];
+      const previous = hTokens[selected.index - 1];
+      const next = hTokens[selected.index + 1];
+      const lower = Math.max(B_START, previous ? previous.frame + 1 : B_START);
+      const upper = Math.min(FRAME_COUNT - 1, next ? next.frame - 1 : FRAME_COUNT - 1);
+      token.frame = Math.max(lower, Math.min(upper, token.frame + delta));
+      token.locked = true;
+      currentFrame = token.frame;
+      updatePlayhead();
+      renderHTokens();
+      renderInspector();
+    }
+
+    function startHDrag(event, index) {
+      if (event.button !== 0) return;
+      const token = hTokens[index];
+      const startX = event.clientX;
+      const startFrame = token.frame;
+      const frameWidthPx = parseFloat(getComputedStyle(root).getPropertyValue('--frame-width')) || 32;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const move = moveEvent => {
+        const delta = Math.round((moveEvent.clientX - startX) / frameWidthPx);
+        selected = { lane: 'h', index };
+        const previous = hTokens[index - 1];
+        const next = hTokens[index + 1];
+        token.frame = Math.max(previous ? previous.frame + 1 : B_START, Math.min(next ? next.frame - 1 : FRAME_COUNT - 1, startFrame + delta));
+        token.locked = true;
+        currentFrame = token.frame;
+        updatePlayhead();
+        renderHTokens();
+        renderInspector();
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    }
+
+    function togglePlay() {
+      playing = !playing;
+      playButton.textContent = playing ? 'Ⅱ' : '▶';
+      playButton.classList.toggle('active', playing);
+      if (playing) {
+        ensureAudio();
+        lastTimestamp = performance.now();
+        animation = requestAnimationFrame(stepPlayback);
+      } else {
+        cancelAnimationFrame(animation);
+        silenceTone();
+      }
+    }
+
+    function stepPlayback(timestamp) {
+      if (!playing) return;
+      if (timestamp - lastTimestamp >= 1000 / FRAME_RATE) {
+        currentFrame++;
+        if (currentFrame >= FRAME_COUNT) currentFrame = B_START;
+        lastTimestamp = timestamp;
+        updatePlayhead();
+        updateTone();
+        renderInspector();
+      }
+      animation = requestAnimationFrame(stepPlayback);
+    }
+
+    function ensureAudio() {
+      if (audioContext) return;
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      oscillator = audioContext.createOscillator();
+      gainNode = audioContext.createGain();
+      oscillator.type = 'sine';
+      gainNode.gain.value = 0;
+      oscillator.connect(gainNode).connect(audioContext.destination);
+      oscillator.start();
+    }
+
+    function updateTone() {
+      if (!playing || !oscillator || !gainNode) return;
+      const value = midiClasses[currentFrame]?.value;
+      if (value == null || value >= 255) {
+        gainNode.gain.setTargetAtTime(0, audioContext.currentTime, .01);
+        return;
+      }
+      const midi = value / 2;
+      const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+      oscillator.frequency.setTargetAtTime(frequency, audioContext.currentTime, .01);
+      gainNode.gain.setTargetAtTime(.06, audioContext.currentTime, .01);
+    }
+
+    function silenceTone() {
+      if (gainNode && audioContext) gainNode.gain.setTargetAtTime(0, audioContext.currentTime, .01);
+    }
+
+    document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+      mode = button.dataset.mode;
+      applyMode();
+    }));
+    document.getElementById('zoomSlider').addEventListener('input', event => {
+      root.style.setProperty('--frame-width', `${event.target.value}px`);
+    });
+    document.getElementById('snapButton').addEventListener('click', event => event.currentTarget.classList.toggle('active'));
+    document.getElementById('loopButton').addEventListener('click', event => event.currentTarget.classList.toggle('active'));
+    document.getElementById('lockSelection').addEventListener('click', () => {
+      if (selected.lane === 'midip') midiClasses[selected.index].locked = !midiClasses[selected.index].locked;
+      if (selected.lane === 'h') hTokens[selected.index].locked = !hTokens[selected.index].locked;
+      renderMidiP(); renderHTokens(); renderInspector();
+    });
+    document.getElementById('pitchDown').addEventListener('click', () => editSelectedMidi(-1));
+    document.getElementById('pitchUp').addEventListener('click', () => editSelectedMidi(1));
+    document.getElementById('setRest').addEventListener('click', () => editSelectedMidi(0, true));
+    document.getElementById('restoreToken').addEventListener('click', () => {
+      if (selected.lane !== 'midip') return;
+      const cell = midiClasses[selected.index];
+      cell.value = cell.original; cell.origin = cell.value === 255 ? 'REST' : 'note compiler'; cell.locked = false;
+      renderMidiP(); renderInspector();
+    });
+    document.getElementById('hLeft').addEventListener('click', () => moveSelectedH(-1));
+    document.getElementById('hRight').addEventListener('click', () => moveSelectedH(1));
+    document.getElementById('hLock').addEventListener('click', () => document.getElementById('lockSelection').click());
+    document.getElementById('hDelete').addEventListener('click', () => {
+      if (selected.lane !== 'h') return;
+      hTokens.splice(selected.index, 1);
+      selected = { lane: 'midip', index: currentFrame };
+      renderHTokens(); renderInspector();
+    });
+    playButton.addEventListener('click', togglePlay);
+    lanesViewport.addEventListener('scroll', () => { rulerViewport.scrollLeft = lanesViewport.scrollLeft; });
+    rulerViewport.addEventListener('scroll', () => { lanesViewport.scrollLeft = rulerViewport.scrollLeft; });
+    document.querySelectorAll('.lane-track').forEach(track => track.addEventListener('click', event => {
+      const rect = track.getBoundingClientRect();
+      const frameWidthPx = parseFloat(getComputedStyle(root).getPropertyValue('--frame-width')) || 32;
+      selectFrame(Math.floor((event.clientX - rect.left) / frameWidthPx));
+    }));
+
+    renderAll();
+    updatePlayhead();
+  </script>
+</body>
+</html>

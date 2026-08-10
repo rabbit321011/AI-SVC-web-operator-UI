@@ -94,8 +94,8 @@ globalFrame = bStartFrame + bLocalFrame
 无额外结构性间隔时 `bridgeFrames=0`。B local 0 对齐到 `bStartFrame`，对应
 `bStartFrame * 2048` 个 44.1kHz PCM samples。
 
-`bridgeFrames` 必须是整数 frame，只表示 A/B 结构性接缝；真正的歌词停顿、MIDI REST、H PUL 必须
-保存在 B-local control 中，不能藏在 bridge 里。
+`bridgeFrames` 必须是整数 frame，只表示 A/B 结构性接缝；真正的歌词停顿、MIDI REST 和 H runtime
+fallback 必须保存在 B-local control 中，不能藏在 bridge 里。PUL 不能与普通歌词停顿混为一谈。
 
 用户移动接缝时，H lane、MIDI-P lane、kana/mora 和 phrase 同步移动；B-local 控制数据不重新
 解释成另一套秒数。
@@ -191,6 +191,8 @@ B 音频在当前 evaluator 主要用于 VAE target length 和 GAME 输入；成
 
 - [v5p-user-operation-plan.md](./v5p-user-operation-plan.md)：用户全链路、编辑器、分层对齐、Token 操作、错误恢复、分阶段计划。
 - [v5p-integration-architecture.md](./v5p-integration-architecture.md)：模型、控制编译、服务端 adapter、runtime 和 runner 架构。
+- [v5p-token-editor-design.md](./v5p-token-editor-design.md)：MIDI/H Token Editor 的 frame cell、三层模式、lane、预览、编辑、revision 与训练同构合同。
+- [v5p-token-editor-concept.html](./v5p-token-editor-concept.html)：用于讨论交互骨架的单 HTML 原型，不是运行代码。
 - `ToLinuxServer/docs/基础设施/v5/V5P/V5-P正式训练计划.md`：V5-P 训练合同、数据、门禁和 VAE 谱系。
 - `ToLinuxServer/package_v4c_finetune/infer/v5p_eval_batch.py`：当前 V5-P batch evaluator。
 - `ToLinuxServer/package_v4c_finetune/train/train_v5p.py`：当前 V5-P training/runtime constants。
@@ -210,3 +212,49 @@ B 音频在当前 evaluator 主要用于 VAE target length 和 GAME 输入；成
 
 本轮只新增/更新设计与交接文档，没有修改现有运行代码，没有运行测试，也没有恢复或覆盖用户已有的
 dirty worktree 修改。
+
+## 9. Token 编辑器方案讨论 checkpoint
+
+2026-08-10 已建立单 HTML 交互原型：
+
+```text
+docs/v5p-token-editor-concept.html
+```
+
+该文件只用于裁决交互与信息层级，不是运行代码，也没有修改项目 schema、PH runner 或现有编辑器。
+完整讨论稿见 [`v5p-token-editor-design.md`](./v5p-token-editor-design.md)。用户当前反馈为“暂时还行”，
+只确认原型可作为后续逐项讨论的基础。
+原型当前表达以下待确认方案：
+
+```text
+共享播放头与 latent frame grid
+  -> Guide waveform / F0
+  -> Piano Roll
+  -> Kana / Mora
+  -> SOFA Phone interval
+  -> sparse H token anchor
+  -> dense MIDI-P frame class
+```
+
+交互原型已验证：
+
+- `编排 / 对齐 / Token` 三层模式切换；
+- A 区锁定、B-local frame 0 和所有 lane 共用同一接缝；
+- MIDI-P 每帧选择、0.5 半音升降、REST、恢复自动结果和锁定；
+- H token anchor 以整数 frame 移动并保持顺序；
+- H token 属于整数 frame cell，显示在 cell center；竖线只表示 frame boundary；
+- 选择 token 后只显示对应 inspector 操作；
+- 桌面和 390px 视口无页面级横向溢出。
+
+继续实现前必须由用户裁决：
+
+1. Token Editor 是独立 VocalPart tab，还是 Text/MIDI 编辑器内的 detail mode；
+2. A 区是否完全只读，还是 VoiceReference 也允许进入同一编辑器维护 H；
+3. H token 的默认视觉应强调单点 anchor，还是同时强调由 phone interval 派生的有效跨度；
+4. MIDI-P 默认显示每帧 cell，还是低缩放时合并成 run、放大后才展开 cell；
+5. 用户直接修改 H token sequence 时，kana/token 不一致是警告后允许生成，还是必须显式创建
+   pronunciation override；
+6. `PUL` 只作为 runtime fallback/diagnostic 暴露，不能与用户的普通 Pause 语义混为一谈；
+7. frame 量化必须复用训练 runtime 的 anchor/center/边界政策，前端不能自建 `round/floor` 规则。
+
+在以上裁决完成前，不继续实现持久化 layer 或 runner direct-control，避免先写错数据所有权。

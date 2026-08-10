@@ -239,7 +239,8 @@ waveform 垂直对齐。再打开“诊断”模式才显示 latent frame、实�
 - 上下键或快捷命令按半音移调，拖动默认保持音高；
 - 多选后支持整体移调、时移、量化和复制；
 - 连音/拖腔通过 note group 表达，不靠删除歌词字符猜测；
-- 休止区显式显示，为 phrase/PUL 编译提供语义；
+- 休止区显式显示，为 phrase/pause 和 MIDI REST 编译提供语义；PUL 是否出现由权威 H runtime
+  的 fallback 合同决定；
 - 直接显示超出 V5-P 音域、重叠单音旋律和零时长等问题。
 
 ### 7.3 歌词分配工学
@@ -264,7 +265,8 @@ Phone lane：
 - 拖动边界修正辅音起点和元音持续；
 - 可锁定单个 phone，重新自动分配时不覆盖；
 - SOFA 来源、tokenizer 来源和用户修改通过图标/颜色区分；
-- SEP/PUL 不作为普通可编辑 token 显示，而映射为 phrase boundary 和 pause；
+- SEP 不作为普通歌词 token 显示，而映射为 phrase boundary；PUL 主要是当前 H runtime 的
+  phone-ineligible fallback，只在 Token/Diagnostic 层显示，不能与普通 pause 混为一谈；
 - 编译异常定位到具体 phrase，不只返回 Python 错误文本。
 
 #### 7.4.1 假名到音素的分层关系
@@ -304,8 +306,9 @@ interface PhoneTiming {
 }
 ```
 
-前端永远保存 `symbol` 和秒级时间，服务端 adapter 再根据 V5 runtime vocab 映射成整数 token。
-这样换 runtime、审计 vocab 或迁移模型时，不会把不可读 token ID污染进用户工程。
+模型无关 PhoneControl 保存 `symbol` 和连续秒级时间。用户进入 Token 模式后，当前 control revision
+还必须保存 `symbol + runtime token ID + anchorFrame + vocab/runtime hash`；服务端 adapter 负责
+首次映射和迁移审计，不能让工程只剩脱离符号与 runtime 来源的裸整数数组。
 
 #### 7.4.2 MIDI、mora、phone 的联动规则
 
@@ -319,7 +322,8 @@ interface PhoneTiming {
    只在符号仍可匹配时迁移，否则放入待确认队列。
 5. 用户移动 phrase boundary 时，边界内的 phone 可以整体平移；跨 phrase 的 phone 不自动穿越，
    需要显示冲突。
-6. 用户编辑 pause 时，模型层由 adapter 在可用区间插入 PUL；用户不直接拖 PUL token。
+6. 用户编辑 pause 时，只修改语义层 pause 和对应 MIDI REST/phrase 空间；是否产生 PUL 由权威
+   H placement fallback 决定，不能把普通 pause 自动翻译成 PUL。
 7. 用户编辑 phrase 顺序或文本后，`SEP` 由 adapter 按 V5 规则重新放置；用户只操作 phrase boundary。
 
 #### 7.4.3 H 编辑的三个工作模式
@@ -327,8 +331,8 @@ interface PhoneTiming {
 | 模式 | 显示 | 用户可改内容 |
 |---|---|---|
 | Compose | note + kana/mora + phrase | 音符、歌词、分句、停顿、音符组 |
-| Phoneme | 上述内容 + phone blocks | 音素符号、phone 起止、锁定、来源 |
-| Diagnostic | frame ruler + dense H + token ID | 只读检查、导出 audit、定位 fallback |
+| Align | 上述内容 + phone blocks | 音素符号、phone 起止、锁定、来源 |
+| Token | frame ruler + H anchor + MIDI-P cell | 直接编辑、锁定、恢复自动结果、导出 audit |
 
 Token 模式可以直接编辑 H token，但编辑对象是“token 符号 + frame 位置”，不是只填裸整数。
 这样既保留专家对 H 的控制权，也避免 token ID 脱离 phone/mora/phrase 语义。
@@ -376,7 +380,7 @@ Token 级是 V5-P 的精确控制层，也是专家用户可以直接操作的�
 
 - 直接绘制、擦除和替换 pitch class；
 - 在 0.5 半音网格上改变 token；
-- 写入 REST 或 PAD；
+- 写入 REST；PAD 仅表示 batch/无效区域，在有效 B 区只读；
 - 选择连续 token 区间整体平移、复制或拉伸；
 - 从连续 token 反推 note overlay，作为音符级视图；
 - 将 token 区间锁定，阻止句级/假名级重编译覆盖。
@@ -387,7 +391,8 @@ H lane 的 token 也可直接操作：
 - 通过符号搜索选择 token，同时显示 runtime token ID；
 - 改变 token 所在 frame；
 - 选择连续 token 区间重新分配时间；
-- 直接操作 `<SEP>` 和 `<PUL>`，但必须经过边界、顺序和容量校验；
+- 查看 `<SEP>` 和 `<PUL>` 的真实 frame；SEP 的普通修改从 phrase boundary 进入，PUL 只允许
+  作为显式高级 runtime override，并经过边界、顺序、容量和 fallback 语义校验；
 - 对单个 token 或区间加锁。
 
 ### 7.6 浅层到深层的生成规则
@@ -560,8 +565,11 @@ interface HTokenSpan {
 通常延伸到下一个 phone 或 phrase boundary。模型层可能只在 anchor frame 放置 phone token，
 其间空隙由空 token、PUL 或后续规则处理，不能把 UI 的区间误认为每一帧都重复写入同一个 phone。
 
-`SEP` 是边界 token，`PUL` 是可重复占据一段 frame 的 pause token。二者也必须用整数 frame 表示，
-不允许出现半帧位置。
+视觉上，整数 `anchorFrame=k` 属于第 `k` 个 frame cell，应显示在 cell 中心；竖线只是
+`[k, k+1)` 的边界，不能把 H token 画在分界线上。
+
+`SEP` 是边界 token。`PUL` 可以在 fallback 中重复占据一段 frame，但它不是用户普通 Pause 的
+同义词。二者都必须用整数 frame 表示，不允许出现半帧位置。
 
 #### MIDI-P token 的时间表示
 
