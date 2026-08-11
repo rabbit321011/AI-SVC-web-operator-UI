@@ -1,12 +1,14 @@
 # V5-P 接入架构
 
-上下文交接和当前冻结决策见 [`v5p-integration-handoff.md`](./v5p-integration-handoff.md)。
-用户操作、VocalPart 编辑、ControlData 生命周期、候选比较和分阶段交付见
+合成单元对象、A 区绑定、Take 与导出合同见
+[`v5p-synthesis-unit-integration.md`](./v5p-synthesis-unit-integration.md)。上下文交接见
+[`v5p-integration-handoff.md`](./v5p-integration-handoff.md)。
+早期完整用户流程、ControlData 生命周期、候选比较和分阶段交付参考见
 [`v5p-user-operation-plan.md`](./v5p-user-operation-plan.md)。本文聚焦模型与服务端边界。
 
 ## 结论
 
-PH 系列目前已经具备 V5-P 所需的公共用户工作流：
+PH 系列目前已经具备可供参考和兼容的 A/B 音频工作流：
 
 ```text
 A 音频（音色参考） + A 定时歌词
@@ -17,11 +19,11 @@ B 音频（旋律参考） + B 定时歌词
         -> WAV 输出 + 时间线回填
 ```
 
-因此 V5-P 不需要新增一套前端输入页面，也不应复制一套新的 A/B 数据结构。但也不能只把训练侧
-脚本套一层 Web 路由。成熟接入的目标不是 `audio -> model condition`，而是：
+旧链保留不动，但新 V5-P 制作入口不再让用户重复填写松散的 A/B AudioObject/TextObject 槽。成熟接入
+围绕 SynthesisUnit 工作对象建立，也不能只把训练侧脚本套一层 Web 路由：
 
 ```text
-user project objects
+target SynthesisUnit B + reference SynthesisUnit A
   -> editable / auditable controlData
   -> model-specific tensor adapters
   -> runner
@@ -31,9 +33,12 @@ user project objects
 
 需要特别区分两种能力：
 
-1. `A/B 音频工作流`：PH/V4H 已支持，V5-P 沿用。
+1. `Legacy A/B 音频工作流`：PH/V4H 已支持，作为兼容链保留。
 2. `直接 MIDI 文件输入`：当前真实合成路径仍未实现。V5-P 的 P 条件是由 GAME medium K=4
    从 B 音频抽取后量化得到的 MIDI-P embedding，不等于模型直接读取 MIDI 文件。
+
+新链路中，B 的 AudioObject 有效区间先被显式复制成 SynthesisUnit 的 Owned Guide；A 则绑定另一个
+SynthesisUnit 的完整 Owned Guide 与最新文字/H。创建、绑定和点击合成都不能隐式运行分析模型。
 
 ## 现状对照
 
@@ -48,15 +53,22 @@ user project objects
 
 所以“PH 系列支持”指的是这套 A/B 音频工作流已经存在，不是说当前 Web 端已经原生支持 MIDI 文件直接变成旋律条件。
 
-现在缺的也很明确：
+最初识别的缺口及当前状态：
 
-| 缺口 | 说明 |
+| 缺口 | 当前状态 |
 |---|---|
-| `v5p` 运行器 | 需要把 V5-P evaluator 的单作业推理抽出来。 |
-| preset 元数据 | `svs_models.json` 还没有 V5-P 专用目录项。 |
-| capability 路由 | 前端还在用 `isV4h` 做硬分支。 |
-| batch / single-job 分离 | 现有 V5-P 逻辑偏批处理，不能直接当 Web 后端入口。 |
-| `ControlData` 中间层 | 目前缺少模型无关、用户可编辑的歌词/音符/边界控制数据。 |
+| `v5p` 运行器 | 已完成独立 `v5p_direct_runner.py`，只消费 frozen joint H/MIDI-P。 |
+| preset 元数据 | direct preset 已 hash-lock；尚未并入通用 `svs_models.json` capability 目录。 |
+| capability 路由 | SynthesisUnit 已使用独立 V5-P API；旧 SVS 面板仍保留 `isV4h` 硬分支。 |
+| batch / single-job 分离 | 已分离 one-shot Web runner；常驻模型 worker 是性能增强项。 |
+| `ControlData` 中间层 | 四条物化轨、material snapshot、ABFrameMap 和 transport 已构成首个可执行版本。 |
+
+2026-08-11 更新：`SynthesisUnit`、Owned Guide、四条物化轨与 Text 侧 Control compiler 已进入正式代码。
+`server/src/services/synthesis-text-control.service.ts` 现在以固定 Guide/Segment snapshot 调用 B-only
+SOFA/H 管线，并让客户端只提交选定的 Kana 或 H 范围。MIDI-P compiler、reference snapshot、V5-P runner、
+Take/export 和真实 32-step 短样本均已闭合。当前剩余的是把这套 model-specific snapshot 进一步抽象成通用
+`SvsControlData` capability，以及把 raw MIDI 文件导入为可编辑 MIDI-P 的独立导入器；它们不再阻塞 V5-P
+用户编辑到合成的主链。
 
 V4PH/V4H 当前“不成熟”的地方就在这里：H 与 MIDI-P 大多从训练侧流程搬来，运行时以 B 音频为
 事实来源，通过 SOFA/GAME 抽取模型条件。这条路是 `audio to controlData`。它能验证模型，也能
@@ -127,7 +139,7 @@ interface NoteControl {
 这里的关键不是字段名，而是所有模型都消费同一份可审计控制数据：
 
 ```text
-TextObject / MidiObject / TrackObject / GroupObject
+reference SynthesisUnit snapshot + target SynthesisUnit snapshot
         -> SvsControlData
         -> V5PControlAdapter
         -> dense H tokens + MIDI-P tensor + crop contract
@@ -138,13 +150,13 @@ TextObject / MidiObject / TrackObject / GroupObject
 
 | 路径 | 作用 |
 |---|---|
-| `user-midi/text -> controlData` | 正式制作入口，用户对象是第一事实来源。 |
-| `audio analysis -> controlData` | 导入入口，用 GAME/SOFA/Whisper 从音频生成可编辑初稿。 |
+| `SynthesisUnit tracks -> controlData` | 正式制作入口，已确认的 A/B H 与 B MIDI-P 是第一事实来源。 |
+| `explicit audio analysis -> tracks` | 用户显式运行 GAME/SOFA/Whisper，且每次只写一个目标轨。 |
 | `legacy PH audio -> controlData` | 兼容入口，保留旧 PH/V4H 的 audio-to-controlData 能力。 |
 
-合成阶段只读 `ControlData`。如果用户选的是 B 音频，也应先通过 `audio analysis -> controlData`
-得到一份临时或持久的 `MelodyControl`，再交给 V5-P adapter。这样未来改 MIDI 编辑器、换 H
-renderer、做手工修音，都不会再碰模型 runner。
+合成阶段只读 `ControlData`。新链路不会在 render 请求中再“选择 B 音频并临时分析”；用户必须提前在
+SynthesisUnit 编辑器中显式生成并确认目标轨。只有 Legacy/Compatibility Mode 可以为一次旧请求构造临时
+ControlData。这样未来改 MIDI 编辑器、换 H renderer、做手工修音，都不会再碰模型 runner。
 
 ## 总体分层
 
@@ -282,6 +294,21 @@ data/render_<jobId>/
 `job.json` 记录输入音频 SHA256、歌词、模型 preset、采样参数和代码/runtime 版本。任何后续
 步骤只读这个快照，避免前端状态在合成过程中发生变化导致结果不可复现。
 
+正式 `ABFrameMap` 的首要目标是让 B 音频 0s 与 B-local VAE latent frame 0 的 start 重合。legacy
+evaluator 固定追加 22,050 samples；成熟编辑链改为以 22,050 为名义值，将接缝吸附到最近的
+2048-sample 边界：
+
+```text
+bStartFrame = floor((A.samples + 22,050 + 1,024) / 2,048)
+gapSamples  = bStartFrame * 2,048 - A.samples
+refFrames   = actual VAE frames(A + gapSamples) == bStartFrame
+B joint k   = bStartFrame + B local k
+```
+
+实际 gap 位于约 0.4768--0.5232s。它由 adapter 自动计算，不是用户可编辑的空白对象。B Guide 自身
+从 0s 到第一枚 token 的静音仍属于 B-local 内容，不得解释成第二段 AB gap。B 末尾继续追加固定
+44,100 samples 作为 decode rear。预编译 frame 与本次 VAE 实际 shape 不一致时作业立即失败。
+
 ### 阶段 B：H/SOFA 对齐
 
 V5-P 沿用 V4H 已验证的 A/B 对齐契约：
@@ -306,6 +333,15 @@ SOFA 只负责在缺少用户 phone timing 时补齐 `PhoneControl`，或作为�
 H renderer 只消费 `ControlData`，不能直接把音频分析结果当作不可见中间态吞掉。权威 V5 runtime
 中的 `placement.py`、schema 和 SHA256 由 preset 锁定。
 
+成熟 direct-control 在合成时不再从 phrase/SOFA 重建用户 H，而是合并 A/B 已确认的本地 dense layer。
+唯一上下文变换是训练定义的两个外侧结构尾部：A 终端 SEP 放到 B 第一枚发音 token 前一 frame，B
+终端 SEP 放到 joint `totalFrames-1`；若终端为 PUL fallback，则 PUL 连续延伸到新 SEP 前。所有普通 H、
+句内 SEP 和既有 PUL frame 保持原位。客户端、Node 和 Python 必须三端重算并 hash/逐 token 比对。
+
+已知 `placementMode=sentence/unknown` 的终端 H 禁止 direct 合成，因为 whole-sample Exact fallback
+无法既重新运行训练 renderer 又保留用户逐 frame 修改。preflight 应引导用户打开对应合成单元检查 H，
+不能静默降级回 audio-to-controlData。
+
 V5-P 的 H 约束：`<SEP>=365`、`<PUL>=366`；A/B phrase 必须有有限且不重叠的起止时间；所有
 placement index 必须位于真实 latent 时间轴内；collision、fallback、truncation、exact-control
 计数写入 audit。
@@ -316,7 +352,7 @@ V5-P 的旋律条件应由独立 adapter 从 `MelodyControl` 产生。兼容模�
 GAME 从 B 音频抽取：
 
 ```text
-A + 0.5s tail, B + 1.0s rear silence
+A + frame-aligned ~0.5s gap, B + 1.0s rear silence
     -> combined waveform
     -> GAME medium, K=4
     -> quantized pitch class
@@ -328,6 +364,12 @@ A + 0.5s tail, B + 1.0s rear silence
 这一层必须记录 GAME commit、模型 SHA、effective seed、A/B boundary delta、P class SHA 和
 embedding SHA。GAME 更准确地说是 `audio -> MelodyControl` 的导入器，以及兼容旧 PH 工作流的
 provider；不是成熟 V5-P 接入的唯一旋律入口。
+
+正式 direct-control 不再对 B 运行 GAME。它构造等长 joint class transport，B-local class 只做整数
+`+bStartFrame` 平移，rear 写 REST=255；A prefix 的占位 class 在查 `257x128` P embedding 后强制整段
+清零。2026-08-11 已使用 V5-P 40K EMA 的实际 embedding 验证 A 非零值 `98176 -> 0`、B tensor-identical、
+rear 全 REST，报告 schema 为 `aisvc.v5p-direct-midi-tensor-audit.v1`。runner 必须复用
+`server/scripts/v5p_direct_control.py`，不得再次从 B Guide 或 GAME cache 重建用户已确认的 class。
 
 正式的 `user-midi -> MelodyControl -> V5-P MIDI-P` 路线需要单独实现：
 
@@ -365,7 +407,7 @@ interface ConditionBundle {
 
 模型结构固定为 22 层、hidden 1024、16 heads、`ff_mult=2` 的 DiT；latent dim 为 64；VAE 为
 Stable Audio 2 official 44.1 kHz、downsampling ratio 2048。首轮推理参数仍由请求传入 steps/cfg/
-seed，默认 32/3/42，`t_shift=0.5` 固定在 V5-P runner 内。
+seed，默认 32/1/42，`t_shift=0.5` 固定在 V5-P runner 内。
 
 采样完成后：
 
@@ -374,6 +416,7 @@ generated latent
     -> remove A prefix frames
     -> remove B rear-silence frames
     -> official VAE decode
+    -> sample-trim to exact B modelSampleCount
     -> validate non-empty WAV
     -> write audit + done event
 ```
@@ -428,7 +471,7 @@ MIDI file
 H 也要从“SOFA 结果搬运”升级成用户控制编译：
 
 ```text
-TextObject / lyric editor
+SynthesisUnit Segment/Kana/H editor
   -> phrase timeline
   -> kana / romaji normalization
   -> tokenizer / optional user phone edit
@@ -436,7 +479,8 @@ TextObject / lyric editor
   -> dense H + SEP/PUL
 ```
 
-SOFA 仍然有价值，但位置要从 runner 内部变为“生成或修正 PhoneControl 的工具”。用户最终看到、
+旧 TextObject/Whisper 链继续存在；新 SynthesisUnit 链不通过临时 TextObject 中转。SOFA 仍然有价值，
+但位置要从 runner 内部变为“用户显式生成或修正 H/PhoneControl 的工具”。用户最终看到、
 能保存、能编辑的是控制数据，而不是某次推理进程里一次性生成的隐式 H。
 
 ## 从现状到目标的迁移顺序
@@ -453,13 +497,14 @@ SOFA 仍然有价值，但位置要从 runner 内部变为“生成或修正 Pho
 这一步可以让 V5-P 在软件里跑起来，但不要把它当作最终架构完成。它仍然是 `audio to controlData`
 兼容路径。
 
-### 第二步：落 `SvsControlData` 作为正式边界
+### 第二步：落 SynthesisUnit 与 `SvsControlData` 正式边界
 
-1. 在 object-workbench 增加 `ControlData` schema 或独立 `SvsControlObject`。
-2. 把 TextObject/GroupObject 解析出的 phrase 写入 `LyricsControl`。
-3. 把 MidiObject/GroupObject 解析出的 note 写入 `MelodyControl`。
-4. 让 GAME/SOFA/Whisper 的输出对象化，只作为生成 controlData 的工具。
-5. 让 V5-P runner 只接收 `SvsControlData` 派生出的 dense H 和 MIDI-P tensor。
+1. 在 object-workbench 增加 `SynthesisUnitObjectNode`、Owned Guide 与四条独立 track schema。
+2. 实现 AudioObject 有效区间到 Owned Guide 的显式创建命令，不自动分析。
+3. 让 GAME/SOFA/Whisper 只通过显式操作写入一个 SynthesisUnit 目标轨。
+4. 增加参考 SynthesisUnit 的完整 Guide/follow-latest H snapshot。
+5. 由 A/B SynthesisUnit snapshot 编译 `SvsControlData`。
+6. 让 V5-P runner 只接收 `SvsControlData` 派生出的 A/B dense H 和 B MIDI-P tensor。
 
 ### 第三步：从 capability 开新能力
 
@@ -483,7 +528,10 @@ SOFA 仍然有价值，但位置要从 runner 内部变为“生成或修正 Pho
 
 ## 必须守住的架构决策
 
-- A/B 音频和 timed phrase 是公共输入契约，不按模型复制。
+- 新制作链的公共输入是 A/B SynthesisUnit snapshot；旧 A/B AudioObject/TextObject 输入只作为兼容契约保留。
+- B Owned Guide 在创建时复制 AudioObject 有效区间；源对象变化不得影响 SynthesisUnit。
+- A 只使用参考 SynthesisUnit 的完整 Owned Guide 和最新文字/H，不使用 Take 或局部 range。
+- 创建、绑定、preflight 和 render 均不得隐式运行 Whisper、SOFA、GAME 或轨道编译。
 - `SvsControlData` 是成熟接入边界；runner 不直接消费 UI 对象，也不直接消费训练侧隐式中间态。
 - H/SOFA 是控制数据生成/修正工具，不属于某个特定 Web 路由。
 - GAME-P 是 V5-P 的旋律条件 adapter；GAME 从音频抽取只是 `audio -> MelodyControl` 的一种来源。
@@ -492,3 +540,5 @@ SOFA 仍然有价值，但位置要从 runner 内部变为“生成或修正 Pho
 - batch evaluator 与 single-job runner 分离，批处理只复用核心推理函数。
 - 直接 MIDI 是显式的 `user-midi -> MelodyControl -> MIDI-P` 路线，不通过“自动兜底”伪装成 GAME 音频输出。
 - audit 是合成产物的一部分，至少绑定输入、H、GAME、P embedding、VAE、checkpoint 和输出。
+- 每次合成新增不可变 Take；Take 只有显式导出才物化为普通 AudioObject/TrackObject。
+- 现有 Whisper -> TextObject 和旧 SVS route 暂不删除，新内部 Whisper 直接写 SegmentTrack。

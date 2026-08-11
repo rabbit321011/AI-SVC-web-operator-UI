@@ -8,6 +8,8 @@ import { ref } from 'vue'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import { useSaveStatusStore } from '@/stores/saveStatus'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
+import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 
 const project = useProjectStore()
 const tracks = useTracksStore()
@@ -15,6 +17,8 @@ const selection = useSelectionStore()
 const pb = usePlaybackStore()
 const editorWorkspace = useEditorWorkspaceStore()
 const saveStatus = useSaveStatusStore()
+const objectTree = useObjectTreeStore()
+const objectTreeUi = useObjectTreeUiStore()
 
 const playSelectedOnly = ref(false)
 
@@ -79,6 +83,8 @@ function importWavFiles() {
       if (seg) {
         seg.timelineEnd = duration
         seg.srcEndSample = totalSamples
+        const sync = objectTree.syncPastedTrack(trackId, [seg], 'import')
+        if (!sync.ok) objectTreeUi.flashNotice(sync.reason ?? '导入音频的对象树同步失败')
       }
 
       // Use reconcileF0 (handles pending tracking + progress bar)

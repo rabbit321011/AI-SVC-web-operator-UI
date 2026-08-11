@@ -5,6 +5,7 @@ import {
   canDragIntoTimeline,
   canDropIntoRenderSlot,
   canTransferTreeNode,
+  createEmptySynthesisUnit,
   createEmptyProjectObjectTree,
   getProjectArea,
 } from './index'
@@ -62,6 +63,10 @@ describe('object tree boundary policy', () => {
 
     expect(canDragIntoTimeline(index.nodes['node:workspace:audio'], index).ok).toBe(true)
     expect(canDragIntoTimeline(index.nodes['node:trackObject:audio'], index)).toMatchObject({ ok: false })
+    expect(canDragIntoTimeline(index.nodes['node:synthesisUnit:a'], index)).toMatchObject({
+      ok: false,
+      reason: '合成单元需要先把 Take 导出为正式音频',
+    })
     expect(canDropIntoRenderSlot(index.nodes['node:workspace:audio'])).toMatchObject({ ok: false })
   })
 })
@@ -69,6 +74,20 @@ describe('object tree boundary policy', () => {
 function fixtureTree() {
   const tree = createEmptyProjectObjectTree()
   folder(TOP_LEVEL_IDS.workspace).children.push(audio('node:workspace:audio', 'asset:workspace'))
+  folder(TOP_LEVEL_IDS.workspace).children.push(createEmptySynthesisUnit({
+    id: 'node:synthesisUnit:a',
+    name: 'Unit A',
+    defaultTimelineStart: null,
+    guide: {
+      assetId: 'asset:guide:a', audioSHA256: 'a'.repeat(64), sampleRate: 44100,
+      channels: 1, sampleCount: 2048, duration: 2048 / 44100,
+      source: {
+        sourceAudioObjectId: 'node:workspace:audio', sourceAssetId: 'asset:workspace',
+        effectiveStartSample: 0, effectiveEndSampleExclusive: 2048,
+        sourceTimelineStart: null, resolverManifest: 'fixture',
+      },
+    },
+  }))
   folder(TOP_LEVEL_IDS.resource).children.push(audio('node:resource:audio', 'asset:resource'))
   folder(TOP_LEVEL_IDS.trackSources).children.push(audio('node:trackSource:audio', 'asset:trackSource'))
   folder(TOP_LEVEL_IDS.renders).children.push(audio('node:render:audio', 'asset:render'))

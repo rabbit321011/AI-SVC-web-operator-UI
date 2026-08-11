@@ -4,6 +4,7 @@ import { createEmptyProjectObjectTree, TOP_LEVEL_IDS } from '@/object-workbench'
 import type { Command } from '@/types'
 import { useHistoryStore } from './history'
 import { useObjectTreeStore } from './objectTree'
+import { useTracksStore } from './tracks'
 
 describe('history object tree snapshots', () => {
   it('restores objectTree snapshots on undo and redo', () => {
@@ -36,5 +37,33 @@ describe('history object tree snapshots', () => {
 
     history.redo()
     expect(objectTree.node('node:group:test')?.name).toBe('Test Group')
+  })
+
+  it('restores project blobs together with an object-tree snapshot', () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const history = useHistoryStore()
+    const tracks = useTracksStore()
+    const before = createEmptyProjectObjectTree()
+    const after = createEmptyProjectObjectTree()
+    const guide = new Blob(['guide'])
+    tracks.sourceBlobs.set('guide.wav', guide)
+    objectTree.loadObjectTree(after)
+    history.push({
+      description: 'create owned guide',
+      patches: [],
+      inversePatches: [],
+      objectTree: {
+        kind: 'snapshot',
+        before,
+        after,
+        blobChanges: [{ key: 'guide.wav', before: null, after: guide }],
+      },
+    })
+
+    history.undo()
+    expect(tracks.sourceBlobs.has('guide.wav')).toBe(false)
+    history.redo()
+    expect(tracks.sourceBlobs.get('guide.wav')).toBe(guide)
   })
 })

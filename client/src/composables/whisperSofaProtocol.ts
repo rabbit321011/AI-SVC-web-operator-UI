@@ -8,7 +8,24 @@ export interface SofaAlignedTextSegment extends TextSegment {
 
 export interface WhisperSofaResult {
   segments: SofaAlignedTextSegment[]
+  phrases: WhisperSofaPhrase[]
+  phones: WhisperSofaInterval[]
   confidence?: number
+}
+
+export interface WhisperSofaPhrase {
+  id: string
+  text: string
+  kana: string
+  romaji: string
+  start: number
+  end: number
+}
+
+export interface WhisperSofaInterval {
+  label: string
+  start: number
+  end: number
 }
 
 export function readWhisperSofaResult(message: unknown): WhisperSofaResult | null {
@@ -42,6 +59,8 @@ export function readWhisperSofaResult(message: unknown): WhisperSofaResult | nul
 
   return {
     segments,
+    phrases: readPhrases(message.phrases),
+    phones: readIntervals(message.phones),
     confidence: Number.isFinite(Number(message.confidence)) ? Number(message.confidence) : undefined,
   }
 }
@@ -53,4 +72,37 @@ export function whisperSofaProgressLabel(message: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null
+}
+
+function readPhrases(value: unknown): WhisperSofaPhrase[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`SOFA phrase ${index} is invalid`)
+    const start = Number(item.start)
+    const end = Number(item.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new Error(`SOFA phrase ${index} has an invalid range`)
+    }
+    return {
+      id: typeof item.id === 'string' ? item.id : `phrase:sofa:${index}`,
+      text: String(item.text ?? ''),
+      kana: String(item.kana ?? item.text ?? ''),
+      romaji: String(item.romaji ?? ''),
+      start,
+      end,
+    }
+  })
+}
+
+function readIntervals(value: unknown): WhisperSofaInterval[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`SOFA phone ${index} is invalid`)
+    const start = Number(item.start)
+    const end = Number(item.end)
+    if (typeof item.label !== 'string' || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) {
+      throw new Error(`SOFA phone ${index} is invalid`)
+    }
+    return { label: item.label, start, end }
+  })
 }

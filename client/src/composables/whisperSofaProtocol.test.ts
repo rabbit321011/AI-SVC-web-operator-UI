@@ -7,6 +7,8 @@ describe('Whisper -> SOFA protocol', () => {
       type: 'result',
       alignmentMethod: SOFA_ALIGNMENT_METHOD,
       confidence: 0.97,
+      phrases: [{ id: 'phrase:1', text: '君', kana: 'きみ', romaji: 'ki mi', start: 0.42, end: 1.8 }],
+      phones: [{ label: 'k', start: 0.42, end: 0.5 }],
       textObject: {
         text: {
           segments: [
@@ -19,6 +21,8 @@ describe('Whisper -> SOFA protocol', () => {
 
     expect(result).toEqual({
       confidence: 0.97,
+      phrases: [{ id: 'phrase:1', text: '君', kana: 'きみ', romaji: 'ki mi', start: 0.42, end: 1.8 }],
+      phones: [{ label: 'k', start: 0.42, end: 0.5 }],
       segments: [
         { id: undefined, start: 0.42, end: 1.8, kana: 'きみ', romaji: 'ki mi', alignmentMethod: SOFA_ALIGNMENT_METHOD },
         { id: undefined, start: 2.1, end: 3.4, kana: 'のこえ', romaji: 'no ko e', alignmentMethod: SOFA_ALIGNMENT_METHOD },

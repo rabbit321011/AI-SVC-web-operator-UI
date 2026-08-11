@@ -1,7 +1,14 @@
 # V5-P 用户操作全链路计划
 
-继续工作前先阅读 [`v5p-integration-handoff.md`](./v5p-integration-handoff.md)，其中记录当前帧率、
-三层控制、A/B frame map、现有代码缺口和下一步顺序。
+继续工作前先阅读 [`v5p-integration-handoff.md`](./v5p-integration-handoff.md) 和
+[`v5p-synthesis-unit-integration.md`](./v5p-synthesis-unit-integration.md)。前者记录恢复顺序，后者是
+SynthesisUnit 对象生命周期、A 区、Take 和导出的权威合同。
+
+> 编辑器对象和交互在 2026-08-10 已继续收敛为 `SynthesisUnit + 四条独立物化轨道`。本文保留
+> 早期完整产品流程和工程阶段参考；其中 `VocalPartObject`、独立 Phone lane、浅层修改自动向下
+> 传播等旧表述不再是实现权威。对象创建与集成以 `v5p-synthesis-unit-integration.md` 为准；编辑器
+> 数据所有权、右键操作和局部覆盖范围以
+> [`v5p-token-editor-design.md`](./v5p-token-editor-design.md) 为准。
 
 ## 1. 计划目标
 
@@ -51,19 +58,19 @@ steps / cfg / seed
 
 ### 3.1 用户操作有稳定工作对象
 
-用户不应每次合成都重新填写四个槽位。新增用户可见的 `VocalPartObject`，界面名称为“演唱片段”。
-它是一次持续编辑的工作单元，绑定：
+用户不应每次合成都重新填写四个槽位。用户右键 AudioObject 的有效区间创建 `SynthesisUnitObject`，
+界面名称为“合成单元”。它是持续编辑的工作单元，拥有或绑定：
 
-- 时间线目标区域；
-- 音色参考；
-- 旋律对象；
-- 歌词对象；
-- 控制数据当前 revision；
+- 复制后的 Owned Guide；
+- 来源 AudioObject 的默认时间线位置；
+- 另一个 SynthesisUnit 作为 A 区参考；
+- Segment/Kana/H/MIDI-P 当前 revision；
 - 模型 preset；
 - 已生成的 Takes。
 
-输入对象保持 UID live reference；每次合成保存不可变 snapshot 和 hash。用户修改 MIDI/歌词后，
-演唱片段显示“控制已变化”，旧 Take 保留并标记为来自旧 revision。
+Guide 不保持对来源 AudioObject 的 live 内容引用；源对象修改或删除后 Owned Guide 不变。只有 A 区绑定
+跟随参考 SynthesisUnit 的最新文字/H revision。每次合成保存不可变 A/B snapshot 和 hash，旧 Take
+保留并标记为来自旧 revision。
 
 ### 3.2 用户编辑语义，不编辑训练术语
 
@@ -72,8 +79,9 @@ steps / cfg / seed
 
 ### 3.3 分析是显式工具，不是隐藏副作用
 
-从音频提取旋律或歌词时，用户主动执行“提取演唱控制”。结果成为 MidiObject、TextObject 和
-PhoneControl revision，可以看到来源、置信度并继续编辑。再次合成不会自动重跑 GAME/SOFA。
+创建合成单元时只复制 Guide。用户进入编辑器后分别显式运行 Guide -> Segment、Guide -> MIDI-P、
+Segment -> Kana/H 等命令，结果成为内部目标轨 revision。再次合成不会自动重跑 GAME/SOFA，也不会
+为了补缺轨而静默分析。
 
 ### 3.4 自动化必须允许修正
 
@@ -96,17 +104,17 @@ GPU 可以单任务排队，但编辑器不能被锁死。作业启动时冻结 
 
 | 对象 | 用户理解 | 主要操作 |
 |---|---|---|
-| AudioObject | 音色参考、导唱或成品音频 | 播放、裁剪、分析、设为参考 |
+| AudioObject | 普通导唱、素材或成品音频 | 播放、裁剪、创建合成单元、进入正式时间线 |
 | MidiObject | 可编辑旋律 | 导入、绘制、移调、量化、分组 |
-| TextObject | 可编辑歌词与分句 | 粘贴、拆句、改时间、改假名 |
-| VoiceReference | 可复用音色参考包 | 选择音频、准备 A 歌词/phone、质量检查 |
-| VocalPartObject | 一段待合成歌声 | 绑定控制、选择模型、生成 Takes |
-| RenderTakeObject | 某个 revision 的生成候选 | 试听、比较、采用、删除、导出 |
+| TextObject | 旧 Whisper/旧 SVS 兼容歌词对象 | 保留现有编辑与旧项目能力 |
+| SynthesisUnitObject | Guide、四条控制轨、A 绑定和 Takes 的工程对象 | 双击编辑、显式生成控制、合成、管理 Take |
+| SynthesisTake | 某个 A/B revision 的不可变生成候选 | 试听、比较、删除、导出 |
+| 导出 AudioObject/TrackObject | 已采用的正式音轨 | 普通编排、混音和导出 |
 
-`SvsControlData` 是内部稳定协议，不要求用户在对象树中直接管理。用户看到的是“演唱片段”及其
-旋律、歌词、音色参考和候选结果。
+`SvsControlData` 是内部稳定协议，不要求用户在对象树中直接管理。用户看到的是合成单元、参考
+合成单元、内部控制轨和候选 Take。
 
-### 4.2 演唱片段状态
+### 4.2 合成单元状态
 
 ```text
 empty       缺少旋律或歌词
@@ -118,31 +126,34 @@ changed     控制已改变，已有 Take 来自旧 revision
 failed      最近一次作业失败，但控制与旧 Take 均保留
 ```
 
-状态应显示在演唱片段、时间线块和右侧检查器中，并提供唯一明确的下一操作。错误位置同时在编辑器
-轨道上高亮。
+状态应显示在资源栏对象、编辑器和右侧检查器中，并提供唯一明确的下一操作。SynthesisUnit 本身不是
+正式时间线块；Take 导出后才创建普通 AudioObject/TrackObject。
 
 ## 5. 三条用户入口
 
 ### 5.1 主入口 A：用户 MIDI 到歌声
 
+这是后续 direct MIDI 能力方向，不是首版 SynthesisUnit 创建入口。首版对象必须从 AudioObject 有效区间
+创建 Owned Guide；未来开放无 Guide 创建时必须另行冻结 frame/duration 合同。
+
 适用于已经有旋律或正在编曲的用户。
 
 ```text
 1. 导入 .mid，或在 MIDI Editor 新建旋律
-2. 选择目标时间区域并创建“演唱片段”
+2. 在未来无 Guide 创建合同冻结后，创建目标 SynthesisUnit
 3. 粘贴/导入歌词
 4. 系统按 phrase、rest、note group 自动分配 mora
 5. 用户修正少数多音符拖腔、连音和分句
-6. 选择或继承 VoiceReference
+6. 绑定参考 SynthesisUnit
 7. 自动预检通过
 8. 生成当前短语、选择区域或完整片段
 9. 试听多个 Takes，采用或继续修正
 ```
 
-快速路径的目标是：MIDI 已整理、歌词合法、默认参考已设置时，从“创建演唱片段”到首个草稿不
+快速路径的目标是：MIDI 已整理、歌词合法、参考单元已设置时，从“创建合成单元”到首个草稿不
 超过“粘贴歌词、确认自动分配、生成”三个主要动作。
 
-MIDI 路线不要求 B 音频。目标时长来自演唱片段范围、末尾音符和显式尾部；模型内部的 1 秒处理
+该未来 MIDI 路线不要求 B 音频。目标时长来自合成单元范围、末尾音符和显式尾部；模型内部的 1 秒处理
 尾部由 adapter 添加并在输出时裁掉。
 
 ### 5.2 主入口 B：导唱音频到歌声
@@ -150,16 +161,17 @@ MIDI 路线不要求 B 音频。目标时长来自演唱片段范围、末尾音
 适用于用户手里只有人声示范或旧 PH 工作流素材。
 
 ```text
-1. 把导唱音频放到时间线
-2. 执行“提取演唱控制”
-3. GAME 生成 MidiObject 初稿
-4. Whisper/SOFA 生成 TextObject、phrase 和 phone timing 初稿
-5. 系统创建 VocalPartObject 并绑定上述对象
-6. 用户只处理低置信度和明显错误位置
-7. 选择 VoiceReference 后生成
+1. 右键导唱 AudioObject，选择“创建合成单元”
+2. 系统只复制有效区间为 Owned Guide，并继承默认 timelineStart
+3. 双击新 SynthesisUnit 进入编辑器
+4. 用户显式运行 Whisper/SOFA，只生成 SegmentTrack
+5. 用户显式运行 Segment -> Kana/H
+6. 用户显式运行 GAME，只生成 MIDI-P
+7. 从资源栏拖入另一个 SynthesisUnit 作为 A 区参考
+8. preflight 通过后生成 Take
 ```
 
-导唱音频保留为可试听 guide lane。生成阶段消费已经确认的控制 revision，不再次从音频抽取。
+复制后的 Owned Guide 保留为可试听 lane。生成阶段消费已经确认的控制 revision，不再次从音频抽取。
 修改一个音符后不会被下一次 GAME 运行覆盖。
 
 ### 5.3 主入口 C：混合工作流
@@ -172,31 +184,32 @@ MIDI 路线不要求 B 音频。目标时长来自演唱片段范围、末尾音
 - 用户逐段选择使用 MIDI 音符、GAME 建议或手工修正；
 - provenance 保留每段来源，不静默合并。
 
-## 6. 音色参考操作链路
+## 6. A 区参考合成单元操作链路
 
 ### 6.1 首次准备
 
-用户选中一段参考人声，执行“设为音色参考”。系统进行：
+用户先把参考人声 AudioObject 创建为独立 SynthesisUnit。系统只复制有效音频区间；用户随后在该参考
+单元内部显式生成和校对 Segment/Kana/H。目标单元通过资源栏拖放绑定参考单元。
 
-1. 检查采样率、声道、时长、空白和削波；
-2. 查找已关联 TextObject 与 PhoneControl；
-3. 缺少时显式运行 Whisper/SOFA 生成初稿；
-4. 用户确认歌词和明显边界；
-5. 保存为可复用 VoiceReference。
+1. 右键参考 AudioObject 创建 SynthesisUnit；
+2. 显式运行 Guide -> Segment；
+3. 校对文字后显式生成 Kana/H；
+4. 从左侧资源栏把该单元拖到目标单元 A 区参考槽；
+5. preflight 检查完整 Guide 和当前 H revision。
 
 ### 6.2 后续使用
 
-VoiceReference 可以设为声部默认值，新建演唱片段自动继承。用户无需每次重新选择 A 文本，也
-无需每次合成重跑 SOFA。参考更新后，所有依赖片段显示“参考已更新”，旧 Take 仍可播放。
+绑定始终使用参考单元的完整 Owned Guide，不允许选择局部范围或 Take。A 的文字/H 实时跟随最新
+revision；新作业冻结当前 A snapshot，旧 Take 仍可播放且不改变。
 
 ### 6.3 基础界面不暴露的内容
 
 参考尾部、A 区 H placement、A 区 MIDI 清零和 VAE encode 属于 adapter。普通用户不需要设置
 `SOFA 逸散程度`；对齐失败应回到可视化 phone/phrase 修正，而不是要求用户反复猜一个秒数。
 
-## 7. 演唱片段编辑器
+## 7. 合成单元编辑器
 
-`VocalPartObject` 双击后在中央 Rich Media Editor Workspace 打开专用 tab。它是成熟 V5-P 操作的
+`SynthesisUnitObject` 双击后在中央 Rich Media Editor Workspace 打开专用 tab。它是成熟 V5-P 操作的
 主界面，右侧 SVS 面板退为检查器和生成控制。
 
 MIDI 和 H 编辑放在同一个编辑器里，因为它们必须共享播放头、目标时长、phrase 边界和选区；但
@@ -339,12 +352,12 @@ Token 模式可以直接编辑 H token，但编辑对象是“token 符号 + fra
 
 ### 7.5 三层编辑模型
 
-这里的“句级、假名级、token 级”不是三个互相独立的编辑器，而是同一 VocalPart Editor 的三个
+这里的“句级、假名级、token 级”不是三个互相独立的编辑器，而是同一 SynthesisUnit Editor 的三个
 detail 层级。它们共享选区、播放头和 revision，但每层有自己的数据和自动生成边界。
 
 #### 句级：Phrase Control
 
-句级对应当前已经存在的 TextObject segment/phrase：
+句级在新链中对应 SynthesisUnit 内部 SegmentTrack；旧 TextObject segment/phrase 只作为兼容参考：
 
 - 编辑整句文字、起止时间、A/B 归属和 phrase 顺序；
 - 插入或删除分句；
@@ -434,7 +447,7 @@ MIDI-P token 级修改
 ### 7.7 MIDI 的 token-first 设计
 
 普通 MIDI 对象仍可以保存可交换的 note、tempo、PPQ 数据；但 V5-P 的控制编辑不应停留在 note
-层。建议在 VocalPart control revision 中保存独立的 `MidiPTokenLayer`：
+层。建议在 SynthesisUnit track revision 中保存独立的 `MidiPTokenLayer`：
 
 ```ts
 interface MidiPTokenCell {
@@ -602,7 +615,9 @@ interface ABFrameMap {
   frameRate: number
   hopSamples: number       // 当前 official VAE 为 2048
   aFrames: number
-  bridgeFrames: number
+  nominalGapSamples: number
+  gapSamples: number
+  bStartSample: number
   bStartFrame: number
   bFrames: number
 }
@@ -616,9 +631,10 @@ B local frame 0
   == global audio sample bStartFrame * hopSamples
 ```
 
-当前无额外 bridge 时，`bStartFrame` 就是实际 A reference latent 的 `refFrames`。如果用户工程中
-A/B 原始时间关系存在小数帧偏移，系统默认把 B 起点吸附到最近的合法 frame，并显示吸附差值；不让
-每一条 H/MIDI 控制各自拥有不同的浮点起点。
+名义间隔为 0.5s/22,050 samples，但它不是固定 sample 数。adapter 将
+`A.sampleCount + 22,050` 吸附到最近的 2048-sample 边界，恰好一半时向后取整，再反算实际
+`gapSamples`。由此保证 `bStartSample = bStartFrame * hopSamples`，B 音频 0s 与 B-local VAE latent
+frame 0 的 start 重合。不让 H/MIDI 各自拥有浮点起点或不同的吸附结果。
 
 用户界面显示：
 
@@ -629,12 +645,12 @@ B 0s  -> frame 646 -> sample 1,323,008 -> 30.000s
 其中秒数是 frame 的派生显示，不能反过来成为第二套精度来源。B 的所有 phrase、kana、H token 和
 MIDI-P token 都通过同一个 `ABFrameMap` 从 B-local 坐标映射到 global frame。
 
-`bridgeFrames` 只表示 A/B 之间的结构性帧间隔，单位是整数 frame。它不能用来掩盖 B 内部的歌词
-停顿或 MIDI REST；真实停顿应该写进 B-local control。若输出要裁去 bridge，裁剪范围必须写入
-render contract，不能靠前端时间线猜测。
+`gapSamples` 只表示 A/B 之间用于坐标闭合、约 0.5s 的零样本间隔。它不能用来掩盖 B 内部的歌词
+停顿或 MIDI REST；真实停顿应该写进 B-local control。接缝由 adapter 自动计算，不作为用户可编辑
+音频对象或普通空白段暴露。输出 crop 必须写入 render contract，不能靠前端时间线猜测。
 
-这会把最麻烦的坐标问题收敛为一个操作：用户移动 A/B 接缝时，移动的是整数 frame 的 boundary；
-编辑器中的 H 和 MIDI 两条 token lane 同步移动，局部 B 控制本身不被重新换算成另一套秒数。
+这会把最麻烦的坐标问题收敛为一次确定性编译：编辑器永远显示 B-local frame，H 和 MIDI 两条 token
+lane 一起使用 `jointFrame = bStartFrame + localFrame`；局部 B 控制本身不被重新换算成另一套秒数。
 
 ### 7.12 Runtime 合同变化
 
@@ -703,16 +719,15 @@ V5-P Tensor Bundle
 用户语义层和模型无关层进入项目保存与撤销系统。Tensor Bundle 是可重建缓存，绑定 control hash、
 adapter version 和 preset，不作为唯一事实来源。
 
-H 的用户修改不直接写入通用 `TextObject` 的 kana 字段，也不直接写入 V5 token 数组。推荐把
-`PhoneTimingOverride` 放在 `VocalPartObject` 的 control revision 中：同一份歌词可以服务多个
-演唱片段，而不同声区、参考音频和模型 runtime 可以拥有不同的 phone timing 修正。
+H 的用户修改不写入旧通用 `TextObject` 的 kana 字段，也不绕过 revision 直接写临时 V5 tensor。推荐把
+`PhoneTimingOverride` 或等价 H event 保存在 SynthesisUnit 的 HTokenTrack revision 中。
 
 ### 8.2 Dirty 与缓存规则
 
 - 改音符：MelodyControl 和后续 Take stale；歌词/参考不重新分析；
 - 改歌词：LyricsControl、相关 PhoneControl 和后续 Take stale；
 - 拖 phone：只重编相关 H 区域；
-- 换参考：A bundle 和全部 Take stale，B 控制保持；
+- 换参考或参考 A 更新：B 控制保持；现有 Take 保留，下一次生成使用新的 A snapshot；
 - 换模型：ControlData 保持，只生成新的 tensor bundle；
 - 只换 seed/质量：复用同一 tensor bundle；
 - 相同 control hash、preset 和参数可直接识别已有 Take，但不自动覆盖。
@@ -722,9 +737,9 @@ H 的用户修改不直接写入通用 `TextObject` 的 kana 字段，也不直�
 每个 Take 至少保存：
 
 ```text
-VocalPart ID
+SynthesisUnit ID
 control revision/hash
-VoiceReference revision/hash
+Reference SynthesisUnit ID/Guide hash/Segment-Kana-H revisions
 model preset/checkpoint/VAE/runtime hashes
 adapter version
 render scope
@@ -791,46 +806,46 @@ placeholder。用户可继续编辑、播放已有素材、取消排队任务；
 
 ## 11. 完成与导出
 
-用户完成一个演唱片段后：
+用户完成一个合成单元后：
 
-1. 将采用的 Takes 组合为 comp；
-2. 检查是否存在 stale、缺口、未确认控制或失败区域；
-3. 渲染/拼接成完整 AudioObject；
-4. 自动创建时间线 TrackObject；
-5. 导出 WAV，必要时附带 control/audit manifest；
-6. 项目中保留 VocalPart、ControlData revisions 和 Takes，便于返工。
+1. 在 SynthesisUnit 内试听和比较多个不可变 Take；
+2. 检查所选 Take 的 A/B snapshot、stale 状态和审计；
+3. 对所选 Take 显式执行“导出到正式音轨”；
+4. 物化普通 AudioObject，并创建时间线 TrackObject；
+5. 默认使用来源 AudioObject 的 `timelineStart`；没有默认位置时由用户放置；
+6. SynthesisUnit、控制 revisions 和内部 Takes 继续保留，便于返工。
 
-项目级命令“生成所有过期演唱片段”只处理已通过预检的 part，其余 part 显示可定位原因。
+项目级命令“生成所有过期合成单元”只处理已通过预检的 unit，其余 unit 显示可定位原因。
 
 ## 12. 信息架构调整
 
 ### 左侧对象树
 
 ```text
-References
-Melody
-Lyrics
-Vocal Parts
-Renders / Takes
+Workspace / Resource
+  AudioObjects
+  Synthesis Units
+  Legacy TextObjects / MidiObjects
+Tracks
+Renders
 ```
 
-不要求物理顶层目录立即改名，但需要让对象类型和关系可定位。双击 VocalPart 打开编辑器；双击
-MidiObject 打开 piano roll；双击 TextObject 打开歌词编辑器。
+不要求物理顶层目录立即改名，但需要在可编辑项目区域提供“Synthesis Units”目录。双击
+SynthesisUnit 打开合成单元编辑器；TextObject/MidiObject 继续使用现有编辑器。
 
 ### 中央工作区
 
-Timeline 负责全曲编排；VocalPart Editor 负责歌声控制；Text/MIDI 独立 editor 负责对象级编辑。
-同一对象只打开一个 tab，时间线播放头和选区在编辑器间同步。
+Timeline 负责正式 AudioObject/TrackObject 的全曲编排；SynthesisUnit Editor 负责 Guide、控制轨、A 区和
+Take。SynthesisUnit 本身不作为正式时间线 clip；Take 显式导出后才进入 Timeline。
 
 ### 右侧工具区
 
-右侧从“四槽表单”演化为上下文检查器。未选 VocalPart 时可创建/绑定；选中 VocalPart 时显示其
-参考、模型、状态、范围和生成命令。Whisper、SOFA、GAME 作为“提取控制”工具保留，不与最终
-生成按钮混在同一流程里。
+右侧从“四槽表单”演化为上下文检查器。选中 SynthesisUnit 时显示参考单元、模型、状态和生成命令。
+Whisper、SOFA、GAME 只通过编辑器内显式轨道命令运行，不与最终生成按钮形成隐藏级联。
 
 ### 底部状态区
 
-显示保存状态、播放时间和后台任务。点击任务可定位对应 VocalPart/Take，不需要用临时 toast
+显示保存状态、播放时间和后台任务。点击任务可定位对应 SynthesisUnit/Take，不需要用临时 toast
 承担长任务状态。
 
 ## 13. 分阶段工程计划
@@ -839,7 +854,7 @@ Timeline 负责全曲编排；VocalPart Editor 负责歌声控制；Text/MIDI �
 
 1. 冻结 V5-P direct-control runner 输入：A audio、A/B controls、target duration、preset。
 2. 用现有 evaluator 证明 B audio 只用于 GAME/length，并建立 direct-control 等价 fixture。
-3. 冻结 `MidiData v1`、`SvsControlData v1`、`VocalPartObject v1`、`RenderTakeObject v1`。
+3. 冻结 `SvsControlData v1`、`SynthesisUnitObject v1`、Owned Guide、reference binding 与 `SynthesisTake v1`。
 4. 决定 phrase/mora/note group 和 phone lock 的精确语义。
 5. 设计项目 schema migration 和旧 PH 兼容标记。
 
@@ -857,43 +872,45 @@ H/MIDI-P 和一致目标帧数。
 
 完成门禁：fixture、边界、休止、拖腔、跨 30 秒和 60 秒上限测试通过；编译确定性一致。
 
-### Phase 2：演唱片段对象与快速路径
+### Phase 2：SynthesisUnit 对象与 Owned Guide
 
-1. 增加 VocalPartObject、VoiceReference relation 和 RenderTakeObject。
-2. 支持从选中 MIDI + Text/时间区域创建演唱片段。
-3. 支持声部默认参考和自动继承。
-4. 实现 ready/changed/failed 状态与自动预检。
-5. 保留现有四槽 PH 路线作为 Legacy/Compatibility Mode。
+1. 增加 SynthesisUnitObject、四条内部 track 和 Take 容器。
+2. 支持右键 AudioObject 有效区间创建 Owned Guide。
+3. 保存来源 provenance 与默认 timelineStart。
+4. 双击打开空轨道编辑器，创建过程不运行分析。
+5. 实现 ready/changed/failed 状态与自动预检。
+6. 保留现有四槽 PH 路线作为 Legacy/Compatibility Mode。
 
-完成门禁：不提供 B 音频时，可从已有 MidiObject + TextObject 得到完整 control snapshot。
+完成门禁：源 AudioObject 修改或删除后 Guide 不变；新建单元只有 Guide，其余轨道 revision 为 0。
 
-### Phase 3：VocalPart Editor
+### Phase 3：SynthesisUnit Editor 与显式控制生成
 
 1. 落 piano roll、共享播放头、缩放、选区、loop 和 snap。
 2. 落歌词/mora lane 与自动分配、拆分、合并、拖腔关系。
 3. 落 phrase/pause lane。
-4. 落高级 Phone lane 与锁定、局部重编。
+4. 落 H Token 与 MIDI-P token 级编辑、局部重编。
 5. 所有编辑进入语义 undo/redo。
 
-完成门禁：用户不用编辑 JSON 或秒数字段即可完成一段 30 秒 MIDI 歌词控制。
+完成门禁：每个生成命令只改变一个目标轨 revision；创建、打开和最终合成都不会隐式运行分析。
 
 ### Phase 4：音频导入控制
 
-1. GAME 输出对象化为 MidiObject revision。
-2. Whisper/SOFA 输出对象化为 TextObject + PhoneControl revision。
+1. GAME 显式写入 SynthesisUnit MidiPTokenTrack revision。
+2. 新内部 Whisper/SOFA 显式写入 SegmentTrack，旧 Whisper -> TextObject 链保持不变。
 3. 显示置信度、来源、差异和待确认位置。
 4. 支持 guide audio 与 MIDI/歌词叠加校对。
-5. VoiceReference 准备结果可复用。
+5. 参考 SynthesisUnit 的完整 Guide/H 准备结果可复用。
 
 完成门禁：从 B 音频提取一次后，修改并重复生成不会再次隐式运行 GAME/SOFA。
 
-### Phase 5：V5-P Runner、任务与 Takes
+### Phase 5：参考 SynthesisUnit、V5-P Runner 与 Takes
 
 1. 接入经过审计的 V5-P/V5-Pg preset。
-2. 实现 direct-control single-job runner。
-3. 实现 GPU queue、snapshot、进度、取消/重试和失败保留。
-4. 实现局部/完整生成、Take placeholder、试听和采用。
-5. 实现 output/audit/provenance 回填。
+2. 实现完整 Guide、follow-latest H、A MIDI 清零的 reference snapshot。
+3. 实现 direct-control single-job runner。
+4. 实现 GPU queue、snapshot、进度、取消/重试和失败保留。
+5. 实现局部/完整生成、Take placeholder、试听和比较。
+6. 实现 output/audit/provenance 回填和显式导出正式音轨。
 
 完成门禁：用户编辑期间运行中的旧 revision 作业能正确完成并标记，不污染当前控制。
 
@@ -919,8 +936,8 @@ GAME/SOFA，修正不会丢失。
 
 ### 场景 C：参考复用
 
-同一 VoiceReference 用于多个演唱片段，A 分析只做一次。更新参考后依赖 part 明确变为 changed，
-旧 Take 仍可播放。
+同一参考 SynthesisUnit 用于多个目标单元。更新参考 H 后，下一次生成实时使用最新 revision；旧 Take
+冻结原 A snapshot 并仍可播放。
 
 ### 场景 D：边编辑边生成
 
@@ -944,11 +961,12 @@ revision 3 生成中，用户继续编辑到 revision 4。输出完成后归属 
 - 用户 MIDI + 歌词可以直接生成，不依赖 B 音频；
 - 音频分析结果对象化、可编辑、可复用，不在每次 render 中隐式重算；
 - H 与 MIDI-P 都由版本化 control compiler 产生并可审计；
-- 用户围绕 VocalPart 编辑，不重复填写四槽表单；
+- 用户围绕 SynthesisUnit 编辑，不重复填写四槽表单；
 - 支持局部生成、多个 Takes、比较、采用和非破坏性返工；
 - 编辑与 GPU 作业解耦，revision 归属明确；
 - 普通流程不要求理解 H/PUL/GAME/latent/cfg/step；
 - 每个输出可追溯到控制 revision、参考、模型、VAE、adapter 和 seed；
+- 创建 SynthesisUnit 不分析，A 只使用参考单元完整 Guide，Take 只有显式导出才进入正式音轨；
 - 纯 MIDI、导唱、混合、长程、失败恢复和旧 PH 兼容场景全部通过。
 
 单独增加 `/api/svs/run` 的 `v5p` 分支只能称为 Compatibility Smoke，不能标记为本计划完成。

@@ -6,6 +6,7 @@ import { useSelectionStore } from '@/stores/selection'
 import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import { useGlobalResourcesStore } from '@/stores/globalResources'
+import { useHistoryStore } from '@/stores/history'
 import type { NodeId, TreeNode } from '@/object-workbench'
 import ObjectTreeRows from './ObjectTreeRows.vue'
 
@@ -15,6 +16,7 @@ const selection = useSelectionStore()
 const uiSettings = useUiSettingsStore()
 const editorWorkspace = useEditorWorkspaceStore()
 const globalResources = useGlobalResourcesStore()
+const history = useHistoryStore()
 const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
 const rootChildren = computed(() => objectTree.tree.root.children)
@@ -102,6 +104,7 @@ function icon(node: TreeNode) {
   if (node.kind === 'trackFolder') return 'trk'
   if (node.kind === 'trackObject') return 'obj'
   if (node.kind === 'group') return 'grp'
+  if (node.kind === 'synthesisUnit') return 'syn'
   return node.kind
 }
 
@@ -116,6 +119,7 @@ function handleNodeClick(pane: 'L1' | 'L2', node: TreeNode, event: MouseEvent) {
 
 function handleNodeDblClick(node: TreeNode) {
   if (node.kind === 'text') editorWorkspace.openTextObjectTab(node.id, node.name)
+  if (node.kind === 'synthesisUnit') editorWorkspace.openSynthesisUnitTab(node.id, node.name)
 }
 
 async function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEvent) {
@@ -208,6 +212,40 @@ function openTextEditor() {
   const node = menu.value.node
   closeMenu()
   if (node?.kind === 'text') editorWorkspace.openTextObjectTab(node.id, node.name)
+}
+
+function openSynthesisUnitEditor() {
+  const node = menu.value.node
+  closeMenu()
+  if (node?.kind === 'synthesisUnit') editorWorkspace.openSynthesisUnitTab(node.id, node.name)
+}
+
+async function createSynthesisUnit() {
+  const node = menu.value.node
+  closeMenu()
+  if (node?.kind !== 'audio') return
+  const beforeTree = objectTree.snapshotTree()
+  const result = await objectTree.createSynthesisUnitFromAudioObject(node.id)
+  if (!result.ok || !result.unitId || !result.guideBlobKey || !result.guideBlob) {
+    flash(result.reason ?? '创建合成单元失败')
+    return
+  }
+  history.push({
+    description: '创建合成单元',
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before: beforeTree,
+      after: objectTree.snapshotTree(),
+      blobChanges: [{ key: result.guideBlobKey, before: null, after: result.guideBlob }],
+    },
+  })
+  ui.selectById(result.unitId)
+  ui.expandPath('L1', objectTree.index.parentById, result.unitId)
+  ui.expandPath('L2', objectTree.index.parentById, result.unitId)
+  editorWorkspace.openSynthesisUnitTab(result.unitId, result.unit?.name ?? '合成单元')
+  flash(result.warnings?.length ? `已创建；${result.warnings.join('；')}` : '已创建合成单元')
 }
 
 async function toggleGlobalResource() {
@@ -325,9 +363,11 @@ function cssSafeId(id: NodeId) {
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="createFolderHere">新建文件夹</div>
         <div v-if="menu.node && !menu.node.id.startsWith('project:/')" class="tree-menu-item" @click="renameNode">重命名</div>
         <div v-if="menu.node?.kind === 'text'" class="tree-menu-item" @click="openTextEditor">打开文本编辑器</div>
+        <div v-if="menu.node?.kind === 'audio'" class="tree-menu-item" @click="createSynthesisUnit">创建合成单元</div>
+        <div v-if="menu.node?.kind === 'synthesisUnit'" class="tree-menu-item" @click="openSynthesisUnitEditor">打开合成单元编辑器</div>
         <div v-if="menu.node && (globalResources.isGlobal(menu.node.id) || globalResources.canPublish(menu.node))" class="tree-menu-item" @click="toggleGlobalResource">{{ globalResources.isGlobal(menu.node.id) ? '移出全局 Resource' : '加入全局 Resource' }}</div>
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除文件夹</div>
-        <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
+        <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'synthesisUnit' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
       </div>
     </Teleport>
   </div>

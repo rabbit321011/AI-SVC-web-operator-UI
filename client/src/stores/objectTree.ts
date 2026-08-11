@@ -1,7 +1,7 @@
 import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AudioSegment, GroupElementSnapshot, Project } from '@/types'
-import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, TextSegment, TrackFolderNode, TrackObjectContentType, TrackObjectNode, TreeNode } from '@/object-workbench'
+import type { AudioObjectNode, FolderNode, GroupObjectNode, LegacyObjectTreeMaps, NodeId, ProjectObjectTree, SynthesisHPlacementRange, SynthesisHTokenEvent, SynthesisKanaSegmentBoundary, SynthesisKanaUnit, SynthesisSegmentObject, SynthesisTake, SynthesisUnitObjectNode, TextSegment, TrackFolderNode, TrackObjectContentType, TrackObjectNode, TreeNode } from '@/object-workbench'
 import {
   buildNodeIndex,
   canDragIntoTimeline,
@@ -9,6 +9,7 @@ import {
   canDeleteTreeNode,
   canImportFilesInto,
   canTransferTreeNode,
+  createEmptySynthesisUnit,
   createEmptyProjectObjectTree,
   findNodeLocation,
   getProjectArea,
@@ -18,12 +19,42 @@ import {
   isDescendantOf,
   legacyProjectToObjectTree,
   removeNode,
+  moveHTokenEvent as applyMoveHTokenEvent,
+  moveKanaSharedBoundary as applyMoveKanaSharedBoundary,
+  moveMidiPFrame as applyMoveMidiPFrame,
+  replaceHTokenTrackRange as applyReplaceHTokenTrackRange,
+  replaceKanaTrackRange as applyReplaceKanaTrackRange,
+  replaceMidiPFrame as applyReplaceMidiPFrame,
+  replaceMidiPTrack as applyReplaceMidiPTrack,
+  replaceSegmentTrack as applyReplaceSegmentTrack,
+  updateSegmentObject as applyUpdateSegmentObject,
+  updateKanaUnit as applyUpdateKanaUnit,
+  resolveOwnedGuideSource,
   replaceNode,
   TOP_LEVEL_IDS,
+  V5P_SAMPLE_RATE,
 } from '@/object-workbench'
 import { useTracksStore } from './tracks'
 import { useCompGroupsStore } from './compGroups'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
+import { combineSegmentsToBlob } from '@/api/wav'
+
+interface CreateSynthesisUnitDependencies {
+  renderGuide?: typeof combineSegmentsToBlob
+  hashBlob?: (blob: Blob) => Promise<string>
+  now?: string
+}
+
+export interface CreateSynthesisUnitResult {
+  ok: boolean
+  reason?: string
+  unitId?: NodeId
+  unit?: SynthesisUnitObjectNode
+  guideAssetId?: string
+  guideBlobKey?: string
+  guideBlob?: Blob
+  warnings?: string[]
+}
 
 export interface SplitSegmentObjectTreeSnapshot {
   oldTrackObject: TrackObjectNode
@@ -178,6 +209,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (nodeToDelete.kind === 'trackObject') return deleteTrackObjectFromObjectTree(nodeToDelete)
     if (nodeToDelete.kind === 'trackFolder') return deleteTrackFolderFromObjectTree(nodeToDelete)
     if (nodeToDelete.kind === 'group') return deleteGroupObjectFromObjectTree(nodeToDelete)
+    if (nodeToDelete.kind === 'synthesisUnit') return deleteSynthesisUnitFromObjectTree(nodeToDelete)
     if (nodeToDelete.kind === 'audio' && getProjectArea(currentIndex, nodeToDelete.id) === 'trackSources') {
       return deleteTrackSourceFromObjectTree(nodeToDelete)
     }
@@ -246,6 +278,182 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
+  function deleteSynthesisUnitFromObjectTree(unit: SynthesisUnitObjectNode): { ok: boolean; reason?: string } {
+    const referencing = Object.values(index.value.nodes).filter(node => (
+      node.kind === 'synthesisUnit'
+      && node.id !== unit.id
+      && node.synthesisUnit.reference?.unitId === unit.id
+    ))
+    if (referencing.length > 0) {
+      return { ok: false, reason: `该合成单元仍被 ${referencing.length} 个 A 区参考绑定` }
+    }
+    deleteAssetAndBlob(unit.synthesisUnit.guide.assetId)
+    for (const take of unit.synthesisUnit.takes) {
+      if (take.outputAssetId) deleteAssetAndBlob(take.outputAssetId)
+    }
+    removeNode(tree.value.root, unit.id)
+    return { ok: true }
+  }
+
+  function canBindSynthesisReferenceUnit(
+    unitId: NodeId,
+    referenceUnitId: NodeId,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    const referenceUnit = index.value.nodes[referenceUnitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '目标合成单元不存在' }
+    if (!referenceUnit || referenceUnit.kind !== 'synthesisUnit') {
+      return { ok: false, reason: 'A 区参考只接受合成单元' }
+    }
+    if (unitId === referenceUnitId) return { ok: false, reason: '合成单元不能绑定自身作为 A 区参考' }
+    if (unit.synthesisUnit.reference?.unitId === referenceUnitId) {
+      return { ok: false, reason: '已经绑定该 A 区参考' }
+    }
+
+    const visited = new Set<NodeId>()
+    let cursor: NodeId | null = referenceUnitId
+    while (cursor) {
+      if (cursor === unitId) return { ok: false, reason: '该绑定会形成合成单元循环引用' }
+      if (visited.has(cursor)) return { ok: false, reason: '候选参考链中已经存在循环引用' }
+      visited.add(cursor)
+      const current: TreeNode | undefined = index.value.nodes[cursor]
+      if (!current || current.kind !== 'synthesisUnit') break
+      cursor = current.synthesisUnit.reference?.unitId ?? null
+    }
+    return { ok: true }
+  }
+
+  function bindSynthesisReferenceUnit(
+    unitId: NodeId,
+    referenceUnitId: NodeId,
+    now?: string,
+  ): { ok: boolean; reason?: string } {
+    const policy = canBindSynthesisReferenceUnit(unitId, referenceUnitId)
+    if (!policy.ok) return policy
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '目标合成单元不存在' }
+    const timestamp = now ?? new Date().toISOString()
+    unit.synthesisUnit.reference = {
+      unitId: referenceUnitId,
+      audioSource: 'guide',
+      range: 'full-guide',
+      revisionPolicy: 'follow-latest',
+      boundAt: timestamp,
+    }
+    unit.synthesisUnit.unitRevision += 1
+    unit.synthesisUnit.updatedAt = timestamp
+    return { ok: true }
+  }
+
+  function unbindSynthesisReferenceUnit(
+    unitId: NodeId,
+    now?: string,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '目标合成单元不存在' }
+    if (!unit.synthesisUnit.reference) return { ok: false, reason: '尚未绑定 A 区参考' }
+    const timestamp = now ?? new Date().toISOString()
+    unit.synthesisUnit.reference = null
+    unit.synthesisUnit.unitRevision += 1
+    unit.synthesisUnit.updatedAt = timestamp
+    return { ok: true }
+  }
+
+  function queueSynthesisTake(unitId: NodeId, take: SynthesisTake): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    if (unit.synthesisUnit.takes.some(item => item.id === take.id)) return { ok: false, reason: 'Take ID 重复' }
+    if (take.status !== 'queued' && take.status !== 'running') return { ok: false, reason: '新 Take 状态无效' }
+    unit.synthesisUnit.takes.push(structuredClone(take))
+    unit.synthesisUnit.activeTakeId = take.id
+    return { ok: true }
+  }
+
+  async function completeSynthesisTake(
+    unitId: NodeId,
+    takeId: string,
+    blob: Blob,
+    result: {
+      outputSHA256: string
+      snapshotSHA256: string
+      sampleRate: 44100
+      sampleCount: number
+      duration: number
+      checkpointSHA256: string
+      vaeSHA256: string
+      adapterSHA256: string
+      seed: number
+    },
+    completedAt?: string,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    const take = unit.synthesisUnit.takes.find(item => item.id === takeId)
+    if (!take) return { ok: false, reason: 'Take 不存在' }
+    if (take.status === 'ready') return { ok: false, reason: '已完成 Take 不可覆盖' }
+    const meta = await getAudioBlobMeta(blob)
+    if (
+      meta.sampleRate !== result.sampleRate
+      || meta.totalSamples !== result.sampleCount
+      || Math.abs(meta.duration - result.duration) > 1 / result.sampleRate
+    ) return { ok: false, reason: 'Take Blob 与服务端结果合同不一致' }
+    const assetId = `asset:synthesisTake:${crypto.randomUUID()}`
+    const blobKey = `synthesis-take_${takeId}.wav`
+    tree.value.assets[assetId] = {
+      id: assetId,
+      storage: 'projectBlob',
+      blobKey,
+      sampleRate: result.sampleRate,
+      sampleCount: result.sampleCount,
+      duration: result.duration,
+      channels: meta.channels,
+      sha256: result.outputSHA256,
+    }
+    useTracksStore().sourceBlobs.set(blobKey, blob)
+    Object.assign(take, {
+      status: 'ready',
+      outputAssetId: assetId,
+      outputSHA256: result.outputSHA256,
+      snapshotSHA256: result.snapshotSHA256,
+      sampleRate: result.sampleRate,
+      sampleCount: result.sampleCount,
+      duration: result.duration,
+      checkpointSHA256: result.checkpointSHA256,
+      vaeSHA256: result.vaeSHA256,
+      adapterSHA256: result.adapterSHA256,
+      seed: result.seed,
+      completedAt: completedAt ?? new Date().toISOString(),
+      error: undefined,
+    })
+    unit.synthesisUnit.activeTakeId = take.id
+    return { ok: true }
+  }
+
+  function failSynthesisTake(
+    unitId: NodeId,
+    takeId: string,
+    error: string,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    const take = unit.synthesisUnit.takes.find(item => item.id === takeId)
+    if (!take) return { ok: false, reason: 'Take 不存在' }
+    if (take.status === 'ready') return { ok: false, reason: '已完成 Take 不可改为失败' }
+    take.status = 'failed'
+    take.error = error
+    take.completedAt = new Date().toISOString()
+    return { ok: true }
+  }
+
+  function setActiveSynthesisTake(unitId: NodeId, takeId: string): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    const take = unit.synthesisUnit.takes.find(item => item.id === takeId)
+    if (!take || take.status !== 'ready') return { ok: false, reason: 'Take 尚未完成' }
+    unit.synthesisUnit.activeTakeId = take.id
+    return { ok: true }
+  }
+
   async function importFilesToFolder(parentId: NodeId, files: File[]): Promise<{ ok: boolean; reason?: string; ids?: NodeId[] }> {
     const currentIndex = index.value
     const targetParent = currentIndex.nodes[parentId]
@@ -281,6 +489,89 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       ids.push(nodeId)
     }
     return { ok: true, ids }
+  }
+
+  async function createSynthesisUnitFromAudioObject(
+    sourceAudioObjectId: NodeId,
+    dependencies: CreateSynthesisUnitDependencies = {},
+  ): Promise<CreateSynthesisUnitResult> {
+    try {
+      const tracksStore = useTracksStore()
+      const source = await resolveOwnedGuideSource({
+        tree: tree.value,
+        sourceAudioObjectId,
+        sourceBlobs: tracksStore.sourceBlobs,
+        segments: tracksStore.segmentsMap,
+        tracks: tracksStore.tracks,
+      })
+      const sampleCount = Math.round(source.resolved.duration * V5P_SAMPLE_RATE)
+      if (sampleCount < 2048) {
+        return { ok: false, reason: '有效音频区间短于一个 V5-P frame（2048 samples）' }
+      }
+
+      const renderGuide = dependencies.renderGuide ?? combineSegmentsToBlob
+      const guideBlob = await renderGuide(
+        source.resolved.segmentInputs,
+        source.resolved.duration,
+        V5P_SAMPLE_RATE,
+      )
+      const hashBlob = dependencies.hashBlob ?? sha256Blob
+      const guideSHA256 = await hashBlob(guideBlob)
+      const idSuffix = crypto.randomUUID()
+      const guideAssetId = `asset:synthesisGuide:${idSuffix}`
+      const guideBlobKey = `synthesis-guide_${idSuffix}.wav`
+
+      const folder = getOrCreateChildFolder(TOP_LEVEL_IDS.workspace, 'Synthesis Units')
+      const unitName = uniqueChildName(folder, synthesisUnitName(source.source.name))
+      const unit = createEmptySynthesisUnit({
+        id: `node:synthesisUnit:${idSuffix}`,
+        name: unitName,
+        now: dependencies.now,
+        defaultTimelineStart: source.defaultTimelineStart,
+        guide: {
+          assetId: guideAssetId,
+          audioSHA256: guideSHA256,
+          sampleRate: V5P_SAMPLE_RATE,
+          channels: 1,
+          sampleCount,
+          duration: sampleCount / V5P_SAMPLE_RATE,
+          source: {
+            sourceAudioObjectId: source.source.id,
+            sourceAssetId: source.asset.id,
+            sourceAssetSHA256: source.asset.sha256,
+            effectiveStartSample: source.effectiveStartSample,
+            effectiveEndSampleExclusive: source.effectiveEndSampleExclusive,
+            sourceTimelineStart: source.defaultTimelineStart,
+            resolverManifest: source.resolverManifest,
+          },
+        },
+      })
+
+      tree.value.assets[guideAssetId] = {
+        id: guideAssetId,
+        storage: 'projectBlob',
+        blobKey: guideBlobKey,
+        sampleRate: V5P_SAMPLE_RATE,
+        duration: sampleCount / V5P_SAMPLE_RATE,
+        channels: 1,
+        sampleCount,
+        sha256: guideSHA256,
+      }
+      tracksStore.sourceBlobs.set(guideBlobKey, guideBlob)
+      insertChild(folder, unit)
+
+      return {
+        ok: true,
+        unitId: unit.id,
+        unit,
+        guideAssetId,
+        guideBlobKey,
+        guideBlob,
+        warnings: source.resolved.warnings,
+      }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || '创建合成单元失败' }
+    }
   }
 
   async function dropAudioObjectToTimeline(nodeId: NodeId, timelineStart = 0): Promise<{ ok: boolean; reason?: string; trackId?: string; segmentId?: string }> {
@@ -368,7 +659,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   async function addRenderedAudioToTimeline(options: {
     blob: Blob
     outputFileName: string
-    renderKind: 'svc' | 'svs' | 'msst'
+    renderKind: 'svc' | 'svs' | 'msst' | 'v5p'
     timelineStart?: number
   }): Promise<{
     ok: boolean
@@ -482,7 +773,11 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     }
   }
 
-  function syncPastedTrack(trackId: string, segments: AudioSegment[]): { ok: boolean; reason?: string; trackObjectIds?: NodeId[] } {
+  function syncPastedTrack(
+    trackId: string,
+    segments: AudioSegment[],
+    originTag: 'paste' | 'import' = 'paste',
+  ): { ok: boolean; reason?: string; trackObjectIds?: NodeId[] } {
     const tracksStore = useTracksStore()
     const track = tracksStore.tracks[trackId]
     if (!track) return { ok: false, reason: '时间线音轨不存在' }
@@ -532,7 +827,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
           assetId,
           midiObjectId: null,
           textObjectId: null,
-          tags: ['paste'],
+          tags: [originTag],
         },
         legacy: { segmentId: seg.id, trackId },
       })
@@ -940,6 +1235,248 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
+  function setSynthesisHTokenAtFrame(
+    unitId: NodeId,
+    frame: number,
+    token: { tokenId: number; symbol?: string } | null,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceHTokenTrackRange(unit, {
+        operation: token ? 'replace H token' : 'clear H event',
+        origin: 'user',
+        startFrame: frame,
+        endFrameExclusive: frame + 1,
+        events: token ? [{
+          id: `h:${crypto.randomUUID()}`,
+          frame,
+          tokenId: token.tokenId,
+          symbol: token.symbol,
+          origin: 'user',
+        }] : [],
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'H Token 修改失败' }
+    }
+  }
+
+  function replaceSynthesisSegmentTrack(
+    unitId: NodeId,
+    items: SynthesisSegmentObject[],
+    operation = 'Guide -> Whisper + SOFA -> SegmentTrack',
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceSegmentTrack(unit, {
+        operation,
+        origin: 'whisper-sofa',
+        items,
+        sourceRefs: [{ unitId, guideSHA256: unit.synthesisUnit.guide.audioSHA256 }],
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'SegmentTrack 替换失败' }
+    }
+  }
+
+  function replaceSynthesisKanaTrackRange(
+    unitId: NodeId,
+    startFrame: number,
+    endFrameExclusive: number,
+    units: SynthesisKanaUnit[],
+    boundaries: SynthesisKanaSegmentBoundary[],
+    boundaryEndFrameExclusive = endFrameExclusive,
+    operation = 'Segment -> Kana',
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceKanaTrackRange(unit, {
+        operation,
+        origin: 'alignment',
+        startFrame,
+        endFrameExclusive,
+        units,
+        boundaries,
+        boundaryEndFrameExclusive,
+        sourceRefs: [{
+          unitId,
+          track: 'segment',
+          revision: unit.synthesisUnit.segmentTrack.revision,
+          guideSHA256: unit.synthesisUnit.guide.audioSHA256,
+        }],
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'KanaTrack 替换失败' }
+    }
+  }
+
+  function replaceSynthesisHTokenTrackRange(
+    unitId: NodeId,
+    startFrame: number,
+    endFrameExclusive: number,
+    events: SynthesisHTokenEvent[],
+    vocabHash?: string,
+    compilerHash?: string,
+    operation = 'Segment -> H',
+    sourceTrack: 'segment' | 'kana' = 'segment',
+    placementRanges?: SynthesisHPlacementRange[],
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceHTokenTrackRange(unit, {
+        operation,
+        origin: 'alignment',
+        startFrame,
+        endFrameExclusive,
+        events,
+        placementRanges,
+        vocabHash,
+        compilerHash,
+        sourceRefs: [{
+          unitId,
+          track: sourceTrack,
+          revision: sourceTrack === 'kana'
+            ? unit.synthesisUnit.kanaTrack.revision
+            : unit.synthesisUnit.segmentTrack.revision,
+          guideSHA256: unit.synthesisUnit.guide.audioSHA256,
+        }],
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'HTokenTrack 替换失败' }
+    }
+  }
+
+  function updateSynthesisSegment(
+    unitId: NodeId,
+    segmentId: string,
+    patch: Partial<Pick<SynthesisSegmentObject, 'text' | 'kana' | 'romaji' | 'startFrame' | 'speechEndFrameExclusive'>>,
+    operation = 'edit Segment',
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyUpdateSegmentObject(unit, { segmentId, patch, operation })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'Segment 修改失败' }
+    }
+  }
+
+  function updateSynthesisKana(
+    unitId: NodeId,
+    kanaUnitId: string,
+    patch: Partial<Pick<SynthesisKanaUnit, 'kana' | 'romaji'>>,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyUpdateKanaUnit(unit, { unitId: kanaUnitId, patch })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'Kana 修改失败' }
+    }
+  }
+
+  function moveSynthesisKanaSharedBoundary(
+    unitId: NodeId,
+    leftUnitId: string,
+    rightUnitId: string,
+    targetFrame: number,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyMoveKanaSharedBoundary(unit, { leftUnitId, rightUnitId, targetFrame })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'Kana 边界修改失败' }
+    }
+  }
+
+  function moveSynthesisHToken(
+    unitId: NodeId,
+    eventId: string,
+    targetFrame: number,
+    forceReplace = false,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyMoveHTokenEvent(unit, { eventId, targetFrame, forceReplace })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'H Token 移动失败' }
+    }
+  }
+
+  function setSynthesisMidiPFrame(
+    unitId: NodeId,
+    frame: number,
+    midiClass: number,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceMidiPFrame(unit, { frame, midiClass })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'MIDI-P 修改失败' }
+    }
+  }
+
+  function moveSynthesisMidiPFrame(
+    unitId: NodeId,
+    sourceFrame: number,
+    targetFrame: number,
+    targetClass: number,
+    forceReplace = false,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyMoveMidiPFrame(unit, {
+        sourceFrame,
+        targetFrame,
+        targetClass,
+        forceReplace,
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'MIDI-P 移动失败' }
+    }
+  }
+
+  function replaceSynthesisMidiPTrack(
+    unitId: NodeId,
+    classes: number[],
+    gameModelHash?: string,
+    compilerHash?: string,
+    operation = 'Guide -> GAME K=4 -> MIDI-P',
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    try {
+      applyReplaceMidiPTrack(unit, {
+        operation,
+        origin: 'game',
+        classes,
+        gameModelHash,
+        compilerHash,
+        sourceRefs: [{ unitId, guideSHA256: unit.synthesisUnit.guide.audioSHA256 }],
+      })
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, reason: error?.message || 'MIDI-P Track 替换失败' }
+    }
+  }
+
   function updateTextSegmentContent(sourceObjectId: NodeId, segmentId: string, patch: Partial<Pick<TextSegment, 'kana' | 'romaji'>>): { ok: boolean; reason?: string } {
     const source = index.value.nodes[sourceObjectId]
     if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
@@ -1114,7 +1651,10 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   }
 
   function deleteAudioAssetAndBlob(source: AudioObjectNode) {
-    const assetId = source.audio.assetId
+    deleteAssetAndBlob(source.audio.assetId)
+  }
+
+  function deleteAssetAndBlob(assetId: string) {
     const blobKey = tree.value.assets[assetId]?.blobKey
     if (blobKey) useTracksStore().sourceBlobs.delete(blobKey)
     delete tree.value.assets[assetId]
@@ -1219,6 +1759,14 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     renameNode,
     deleteNode,
     importFilesToFolder,
+    createSynthesisUnitFromAudioObject,
+    canBindSynthesisReferenceUnit,
+    bindSynthesisReferenceUnit,
+    unbindSynthesisReferenceUnit,
+    queueSynthesisTake,
+    completeSynthesisTake,
+    failSynthesisTake,
+    setActiveSynthesisTake,
     dropAudioObjectToTimeline,
     addRenderedAudioToTimeline,
     addRenderedTextToTimeline,
@@ -1239,12 +1787,33 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     updateTextSegmentContent,
     addTextSegment,
     deleteTextSegment,
+    setSynthesisHTokenAtFrame,
+    replaceSynthesisSegmentTrack,
+    replaceSynthesisKanaTrackRange,
+    replaceSynthesisHTokenTrackRange,
+    updateSynthesisSegment,
+    updateSynthesisKana,
+    moveSynthesisKanaSharedBoundary,
+    moveSynthesisHToken,
+    setSynthesisMidiPFrame,
+    moveSynthesisMidiPFrame,
+    replaceSynthesisMidiPTrack,
   }
 })
 
 function ensureWavFileName(name: string): string {
   const clean = sanitizeFileName(name) || 'SVC_output'
   return /\.wav$/i.test(clean) ? clean : `${clean}.wav`
+}
+
+function synthesisUnitName(sourceName: string): string {
+  const base = sourceName.replace(/\.[^.\\/]+$/, '').trim()
+  return `${base || 'Guide'} - 合成单元`
+}
+
+async function sha256Blob(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')
 }
 
 function sanitizeFileName(name: string): string {

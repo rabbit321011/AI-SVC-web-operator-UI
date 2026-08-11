@@ -129,6 +129,7 @@ export const useHistoryStore = defineStore('history', () => {
   function applyObjectTreeUndo(command: Command) {
     if (command.objectTree?.kind === 'snapshot') {
       useObjectTreeStore().restoreTree(command.objectTree.before as ProjectObjectTree)
+      applyBlobChanges(command.objectTree.blobChanges, 'before')
       return
     }
     if (command.objectTree?.kind !== 'splitSegment' || !command.objectTree.splitSnapshot) return
@@ -138,11 +139,25 @@ export const useHistoryStore = defineStore('history', () => {
   function applyObjectTreeRedo(command: Command) {
     if (command.objectTree?.kind === 'snapshot') {
       useObjectTreeStore().restoreTree(command.objectTree.after as ProjectObjectTree)
+      applyBlobChanges(command.objectTree.blobChanges, 'after')
       return
     }
     if (command.objectTree?.kind !== 'splitSegment') return
     const result = useObjectTreeStore().syncSplitSegment(command.objectTree.oldSegment, command.objectTree.newSegments)
     if (result.snapshot) command.objectTree.splitSnapshot = result.snapshot
+  }
+
+  function applyBlobChanges(
+    changes: Extract<NonNullable<Command['objectTree']>, { kind: 'snapshot' }>['blobChanges'],
+    side: 'before' | 'after',
+  ) {
+    if (!changes) return
+    const blobs = useTracksStore().sourceBlobs
+    for (const change of changes) {
+      const value = change[side]
+      if (value) blobs.set(change.key, value)
+      else blobs.delete(change.key)
+    }
   }
 
   function clear() {

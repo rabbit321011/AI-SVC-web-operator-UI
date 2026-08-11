@@ -3,897 +3,3026 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>V5-P Token Editor Concept</title>
+  <title>V5-P Synthesis Unit Editor V2</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #111315;
-      --panel: #181b1e;
-      --panel-2: #202428;
-      --line: #343a3f;
-      --line-soft: #282d31;
-      --text: #e7eaec;
-      --muted: #929ba2;
-      --accent: #4cc8b0;
-      --accent-soft: rgba(76, 200, 176, .18);
-      --warning: #e0ae55;
-      --danger: #e76e68;
-      --midi: #5fb3e6;
-      --h-token: #e57b9e;
-      --kana: #e5bd65;
-      --ref: #6f777d;
-      --frame-width: 32px;
-      --label-width: 154px;
-      --inspector-width: 284px;
-      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
-      font-size: 13px;
+      --bg: #0d1012;
+      --surface: #14181b;
+      --surface-2: #191e22;
+      --surface-3: #20262b;
+      --line: #30383e;
+      --line-soft: #252c31;
+      --text: #edf1f2;
+      --muted: #93a0a7;
+      --faint: #657078;
+      --source: #39c4b1;
+      --segment: #e5ad49;
+      --kana: #80c879;
+      --h-token: #e1709a;
+      --midi: #6da8e5;
+      --danger: #e06b68;
+      --cell: 28px;
+      --label-width: 146px;
+      --inspector-width: 304px;
+      --ruler-height: 38px;
+      --audio-height: 92px;
+      --segment-height: 78px;
+      --kana-height: 72px;
+      --h-height: 68px;
+      --midi-height: 78px;
     }
 
-    * { box-sizing: border-box; }
-    [hidden] { display: none !important; }
-    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text); }
-    button, input { font: inherit; }
-    button { color: inherit; }
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-width: 0;
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    button,
+    input {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid #77d5c7;
+      outline-offset: 2px;
+    }
 
     .app {
-      height: 100%;
-      width: 100%;
-      min-height: 620px;
-      overflow: hidden;
       display: grid;
-      grid-template-rows: 42px 38px minmax(0, 1fr) 26px;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr) 28px;
+      width: 100%;
+      height: 100vh;
+      min-width: 0;
+      overflow-x: hidden;
       background: var(--bg);
     }
 
-    .topbar, .toolbar, .statusbar {
+    .topbar {
+      width: 100%;
+      min-width: 0;
+      max-width: 100vw;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+      background: #111518;
+    }
+
+    .title-row {
       display: flex;
       align-items: center;
       min-width: 0;
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
+      min-height: 42px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line-soft);
+      gap: 10px;
     }
 
-    .topbar { padding: 0 12px; gap: 10px; }
-    .brand { font-weight: 650; font-size: 14px; white-space: nowrap; }
-    .object-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .top-spacer { flex: 1; }
-    .model-pill { color: var(--accent); border-left: 1px solid var(--line); padding-left: 10px; white-space: nowrap; }
-    .sync-state { color: #78cf8e; font-size: 12px; white-space: nowrap; }
+    .brand {
+      flex: 0 0 auto;
+      font-size: 14px;
+      font-weight: 700;
+    }
 
-    .toolbar { padding: 0 10px; gap: 8px; overflow-x: auto; overflow-y: hidden; }
-    .icon-button, .tool-button, .segment-button {
-      height: 26px;
+    .unit-title {
+      min-width: 0;
+      overflow: hidden;
+      color: #bcc5ca;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .runtime {
+      display: flex;
+      align-items: center;
+      margin-left: auto;
+      color: #7dd2c5;
+      gap: 12px;
+      white-space: nowrap;
+    }
+
+    .runtime span + span {
+      padding-left: 12px;
+      border-left: 1px solid var(--line);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      min-height: 46px;
+      padding: 6px 10px;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .toolbar-divider {
+      align-self: stretch;
+      width: 1px;
+      margin: 0 3px;
+      background: var(--line);
+    }
+
+    .icon-button,
+    .tool-button,
+    .group-toggle,
+    .preview-source,
+    .inspector-command,
+    .modal-button,
+    .step-button {
       border: 1px solid var(--line);
-      border-radius: 4px;
-      background: var(--panel-2);
+      border-radius: 5px;
+      background: var(--surface-2);
       cursor: pointer;
     }
-    .icon-button { width: 28px; padding: 0; font-size: 13px; }
-    .tool-button { padding: 0 9px; color: var(--muted); }
-    .icon-button:hover, .tool-button:hover, .segment-button:hover { border-color: var(--accent); color: var(--text); }
-    .icon-button.active, .tool-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-    .divider { width: 1px; height: 20px; background: var(--line); }
-    .segmented { display: inline-flex; }
-    .segment-button { border-radius: 0; border-right: 0; padding: 0 12px; color: var(--muted); white-space: nowrap; }
-    .segment-button:first-child { border-radius: 4px 0 0 4px; }
-    .segment-button:last-child { border-radius: 0 4px 4px 0; border-right: 1px solid var(--line); }
-    .segment-button.active { color: var(--text); background: #2b3135; box-shadow: inset 0 -2px var(--accent); }
-    .zoom-control { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: auto; }
-    .zoom-control input { width: 104px; accent-color: var(--accent); }
+
+    .icon-button:hover,
+    .tool-button:hover,
+    .group-toggle:hover,
+    .preview-source:hover,
+    .inspector-command:hover,
+    .modal-button:hover,
+    .step-button:hover {
+      border-color: #536068;
+      background: #242b30;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 32px;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+    }
+
+    .icon-button svg,
+    .tool-button svg,
+    .group-toggle svg,
+    .preview-source svg,
+    .modal-button svg,
+    .context-item svg {
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+    }
+
+    .tool-button,
+    .group-toggle,
+    .preview-source {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      padding: 0 10px;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .tool-button.active {
+      border-color: #4fae9f;
+      color: #9be2d7;
+      background: #17302d;
+    }
+
+    .group-toggle[aria-pressed="true"] {
+      border-color: #536068;
+      background: #242b30;
+    }
+
+    .group-toggle[aria-pressed="false"] {
+      color: var(--faint);
+      background: #111518;
+    }
+
+    .preview-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .preview-source {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      color: var(--muted);
+      background: #151a1d;
+      cursor: pointer;
+    }
+
+    .preview-source[aria-pressed="true"] {
+      border-color: #6b7e89;
+      color: #e4edf1;
+      background: #293238;
+    }
+
+    .zoom-control {
+      display: flex;
+      align-items: center;
+      margin-left: auto;
+      color: var(--muted);
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .zoom-control input {
+      width: 116px;
+      accent-color: var(--source);
+    }
 
     .workspace {
-      min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) var(--inspector-width);
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      max-width: 100vw;
     }
 
     .editor {
       min-width: 0;
       min-height: 0;
-      display: grid;
-      grid-template-rows: 34px minmax(0, 1fr);
-      border-right: 1px solid var(--line);
-      background: #141719;
+      overflow: hidden;
+      background: var(--surface);
     }
 
-    .ruler-shell, .lane-row {
+    .timeline-layout {
       display: grid;
       grid-template-columns: var(--label-width) minmax(0, 1fr);
+      width: 100%;
       min-width: 0;
+      height: 100%;
+      min-height: 0;
     }
 
-    .ruler-label, .lane-label {
+    .label-rail {
+      z-index: 4;
+      min-width: 0;
+      overflow: hidden;
       border-right: 1px solid var(--line);
-      background: var(--panel);
+      background: #121619;
     }
-    .ruler-label { display: flex; align-items: center; padding: 0 10px; color: var(--muted); }
+
     .lane-label {
-      padding: 8px 10px;
-      display: grid;
-      align-content: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line-soft);
       gap: 3px;
-      min-width: 0;
-      position: sticky;
-      left: 0;
-      z-index: 24;
     }
-    .lane-name { font-weight: 600; font-size: 12px; }
-    .lane-meta { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .ruler-viewport, .lanes-viewport { overflow: auto; min-width: 0; }
-    .ruler-viewport { overflow-y: hidden; background: var(--panel); }
-    .lanes-viewport { position: relative; }
-    .ruler-track, .lane-track { position: relative; width: calc(48 * var(--frame-width)); min-width: 100%; }
-    .ruler-track { height: 34px; }
-    .frame-tick {
-      position: absolute;
-      top: 0;
-      height: 34px;
-      width: var(--frame-width);
-      border-left: 1px solid var(--line-soft);
-      padding: 4px 0 0 4px;
+    .lane-label.ruler-label {
+      height: var(--ruler-height);
       color: var(--muted);
-      font-size: 9px;
     }
-    .frame-tick.major { border-left-color: #596168; color: var(--text); }
-    .frame-tick .seconds { display: block; margin-top: 2px; color: #707980; }
 
-    .lanes { min-width: 0; }
-    .lane-row { border-bottom: 1px solid var(--line); }
-    .lane-row[data-lane="wave"] { height: 92px; }
-    .lane-row[data-lane="midi"] { height: 152px; }
-    .lane-row[data-lane="kana"] { height: 58px; }
-    .lane-row[data-lane="phone"] { height: 54px; }
-    .lane-row[data-lane="h"] { height: 66px; }
-    .lane-row[data-lane="midip"] { height: 58px; }
+    .lane-label.audio-label {
+      height: var(--audio-height);
+    }
 
-    .lane-viewport { overflow: hidden; min-width: 0; position: relative; }
-    .lane-track { height: 100%; background: #16191b; }
-    .lane-track::before {
-      content: "";
+    .lane-label.segment-label {
+      height: var(--segment-height);
+    }
+
+    .lane-label.kana-label {
+      height: var(--kana-height);
+    }
+
+    .lane-label.h-label {
+      height: var(--h-height);
+    }
+
+    .lane-label.midi-label {
+      height: var(--midi-height);
+    }
+
+    .group-name {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .lane-name {
+      font-weight: 650;
+    }
+
+    .lane-meta {
+      overflow: hidden;
+      color: var(--faint);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .timeline-viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      scrollbar-color: #4b565d #151a1d;
+      scrollbar-width: thin;
+      overscroll-behavior: contain;
+    }
+
+    .timeline-canvas {
+      position: relative;
+      width: calc(64 * var(--cell));
+      min-width: calc(64 * var(--cell));
+      min-height: 100%;
+      background: #151a1d;
+    }
+
+    .ruler,
+    .lane {
+      position: relative;
+      width: 100%;
+      border-bottom: 1px solid var(--line-soft);
+      overflow: hidden;
+    }
+
+    .ruler {
+      display: grid;
+      grid-template-columns: repeat(64, var(--cell));
+      height: var(--ruler-height);
+      background: #111518;
+    }
+
+    .ruler-cell {
+      position: relative;
+      height: 100%;
+      border-right: 1px solid #293036;
+      color: #87939a;
+      font-size: 10px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .ruler-cell.major {
+      border-right-color: #4a555c;
+      color: #c1c8cc;
+    }
+
+    .ruler-cell span {
+      display: block;
+      padding-top: 5px;
+    }
+
+    .ruler-cell small {
+      display: block;
+      margin-top: 2px;
+      color: #566169;
+      font-size: 8px;
+    }
+
+    .audio-lane {
+      height: var(--audio-height);
+      background: #151b1d;
+      cursor: crosshair;
+    }
+
+    .segment-lane {
+      height: var(--segment-height);
+    }
+
+    .kana-lane {
+      height: var(--kana-height);
+    }
+
+    .h-lane {
+      height: var(--h-height);
+    }
+
+    .midi-lane {
+      height: var(--midi-height);
+    }
+
+    .frame-grid {
       position: absolute;
       inset: 0;
-      background: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--frame-width) - 1px), var(--line-soft) calc(var(--frame-width) - 1px), var(--line-soft) var(--frame-width));
+      display: grid;
+      grid-template-columns: repeat(64, var(--cell));
       pointer-events: none;
     }
-    .a-region {
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: calc(8 * var(--frame-width));
-      background: rgba(111, 119, 125, .16);
-      border-right: 2px solid var(--warning);
-      pointer-events: none;
-      z-index: 1;
-    }
-    .a-region::after {
-      content: "B 0";
-      position: absolute;
-      top: 3px;
-      right: -22px;
-      color: var(--warning);
-      font-size: 9px;
-      background: #16191b;
-      padding: 0 2px;
-    }
-    .playhead {
-      position: absolute;
-      z-index: 20;
-      top: 0;
-      bottom: 0;
-      left: calc(var(--label-width) + var(--play-frame, 8) * var(--frame-width));
-      width: 1px;
-      background: #f2f5f6;
-      pointer-events: none;
-      box-shadow: 0 0 0 1px rgba(0,0,0,.2);
+
+    .frame-grid > i {
+      display: block;
+      border-right: 1px solid #252d32;
     }
 
-    .wave-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
-    .wave-svg path { fill: rgba(86, 196, 181, .23); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
-    .f0-line { fill: none !important; stroke: #f2c55c !important; opacity: .75; }
-
-    .piano-grid { position: absolute; inset: 0; z-index: 2; }
-    .pitch-line { position: absolute; left: 0; right: 0; height: 1px; background: #272c30; }
-    .pitch-label { position: absolute; left: 4px; color: #616a71; font-size: 9px; }
-    .note {
-      position: absolute;
-      height: 23px;
-      border: 1px solid #7dc9ed;
-      border-radius: 3px;
-      background: rgba(95, 179, 230, .38);
-      color: #dff4ff;
-      padding: 3px 5px;
-      font-size: 10px;
-      cursor: grab;
-      overflow: hidden;
-      z-index: 3;
+    .frame-grid > i:nth-child(4n) {
+      border-right-color: #354047;
     }
-    .note.selected { border-color: white; box-shadow: 0 0 0 1px var(--midi); }
 
-    .kana-block, .phone-block {
+    #waveform {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .audio-badge {
       position: absolute;
       top: 8px;
-      height: 38px;
-      border: 1px solid #8e7746;
-      border-radius: 3px;
-      background: rgba(229, 189, 101, .17);
-      color: #f3d99c;
-      display: grid;
-      place-items: center;
-      z-index: 3;
-      overflow: hidden;
-      cursor: pointer;
-    }
-    .kana-block small { color: var(--muted); font-size: 9px; }
-    .phone-block {
-      top: 9px;
-      height: 34px;
-      border-color: #786a65;
-      background: rgba(175, 145, 130, .15);
-      color: #d9c7bf;
+      left: 10px;
+      padding: 3px 6px;
+      border: 1px solid #2d625a;
+      border-radius: 4px;
+      color: #a8e4da;
+      background: #10211f;
+      pointer-events: none;
     }
 
-    .h-anchor {
+    .segment-wrap {
       position: absolute;
-      top: 19px;
-      width: 22px;
-      height: 30px;
-      transform: translateX(-50%);
-      border: 1px solid var(--h-token);
-      border-radius: 3px;
-      background: #3c2630;
-      color: #ffd6e3;
+      top: 11px;
+      height: 54px;
+      border: 1px solid #6c5631;
+      border-radius: 5px;
+      overflow: hidden;
+      background: #211d16;
+    }
+
+    .segment-wrap.selected {
+      border-color: #f0c36d;
+      box-shadow: inset 0 0 0 1px #f0c36d;
+    }
+
+    .segment-speech {
+      position: absolute;
+      inset: 0 auto 0 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: 0 9px;
+      border: 0;
+      border-right: 1px solid #7d6336;
+      color: #f3d79d;
+      background: #3a301d;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .segment-speech strong,
+    .segment-speech span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .segment-speech span {
+      margin-top: 3px;
+      color: #bda977;
+      font-size: 10px;
+    }
+
+    .segment-tail {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      padding: 5px;
+      color: #7f714f;
+      font-size: 9px;
+      background: #1a1915;
+      cursor: context-menu;
+    }
+
+    .boundary-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      z-index: 6;
+      width: 7px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: ew-resize;
+      touch-action: none;
+    }
+
+    .boundary-handle::after {
+      position: absolute;
+      top: 7px;
+      bottom: 7px;
+      left: 3px;
+      width: 1px;
+      content: "";
+      background: rgb(255 255 255 / 0.28);
+    }
+
+    .boundary-handle:hover,
+    .boundary-handle.dragging {
+      background: rgb(255 255 255 / 0.08);
+    }
+
+    .boundary-handle.left {
+      left: 0;
+    }
+
+    .boundary-handle.right {
+      right: 0;
+    }
+
+    .segment-boundary.right {
+      right: auto;
+    }
+
+    .kana-unit {
+      position: absolute;
+      top: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      padding: 0 4px;
+      border: 1px solid #3e6940;
+      border-radius: 4px;
+      overflow: hidden;
+      color: #d2efcf;
+      background: #1f3021;
+      cursor: pointer;
+    }
+
+    .kana-unit .boundary-handle::after {
+      top: 5px;
+      bottom: 5px;
+      background: rgb(193 239 188 / 0.42);
+    }
+
+    .kana-unit.selected {
+      border-color: #9be494;
+      box-shadow: inset 0 0 0 1px #9be494;
+    }
+
+    .kana-unit span,
+    .kana-unit small {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kana-unit small {
+      margin-top: 2px;
+      color: #7eac7b;
+      font-size: 9px;
+    }
+
+    .kana-seg {
+      position: absolute;
+      top: 6px;
+      bottom: 6px;
+      z-index: 2;
+      width: 2px;
+      background: #d2b65f;
+      pointer-events: none;
+    }
+
+    .kana-seg span {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      color: #e1ca78;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .h-hit-grid {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(64, var(--cell));
+    }
+
+    .h-hit {
+      border: 0;
+      border-right: 1px solid transparent;
+      background: transparent;
+      cursor: context-menu;
+    }
+
+    .h-hit.drag-target {
+      background: #38232b;
+    }
+
+    .h-token {
+      position: absolute;
+      top: 14px;
+      z-index: 3;
       display: grid;
       place-items: center;
-      z-index: 4;
-      cursor: ew-resize;
+      width: calc(var(--cell) - 6px);
+      height: 36px;
+      padding: 0 2px;
+      border: 1px solid #9d4669;
+      border-radius: 4px;
+      color: #ffd4e4;
+      background: #492536;
+      cursor: grab;
       user-select: none;
+      touch-action: none;
     }
-    .h-anchor::after {
-      content: "";
+
+    .h-token:hover {
+      border-color: #ea83aa;
+      background: #5c2b40;
+    }
+
+    .h-token.selected {
+      border-color: #ff9dc1;
+      box-shadow: 0 0 0 1px #ff9dc1;
+    }
+
+    .h-token.special {
+      border-color: #8d7640;
+      color: #f4dda0;
+      background: #3a321e;
+    }
+
+    .h-token.pul {
+      border-color: #6d5f9a;
+      color: #d7ccf2;
+      background: #2d2940;
+    }
+
+    .h-token.dragging {
+      opacity: 0.45;
+      cursor: grabbing;
+    }
+
+    .midi-grid {
       position: absolute;
-      left: 9px;
-      bottom: -11px;
-      width: 2px;
-      height: 10px;
-      background: var(--h-token);
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(64, var(--cell));
+      align-items: stretch;
     }
-    .h-anchor.selected { border-color: white; box-shadow: 0 0 0 1px var(--h-token); }
-    .h-anchor.special { color: #ffd98b; border-color: var(--warning); background: #3a3122; width: 34px; }
 
     .midi-cell {
-      position: absolute;
-      top: 10px;
-      width: calc(var(--frame-width) - 2px);
-      height: 36px;
-      margin-left: 1px;
-      border: 1px solid #3b7899;
-      border-radius: 2px;
-      background: rgba(95, 179, 230, .25);
-      color: #d8f1ff;
+      position: relative;
       display: grid;
       place-items: center;
+      min-width: 0;
+      padding: 0 1px;
+      border: 0;
+      border-right: 1px solid #294057;
+      color: #d8ebff;
+      background: #1e3447;
       font-size: 9px;
-      z-index: 3;
-      cursor: pointer;
-      overflow: hidden;
+      cursor: ns-resize;
+      user-select: none;
+      touch-action: none;
     }
-    .midi-cell.rest { background: #23272a; color: #727c83; border-color: #3a4146; }
-    .midi-cell.pad { background: repeating-linear-gradient(135deg, #222629 0 4px, #2d3236 4px 8px); color: #697177; border-color: #41474c; }
-    .midi-cell.selected { border-color: white; box-shadow: 0 0 0 1px var(--midi); }
-    .midi-cell.locked::after, .h-anchor.locked::before {
-      content: "L";
+
+    .midi-cell:nth-child(4n) {
+      border-right-color: #45627a;
+    }
+
+    .midi-cell.rest {
+      color: #727f87;
+      background: #1b2023;
+      cursor: context-menu;
+    }
+
+    .midi-cell.selected {
+      z-index: 2;
+      box-shadow: inset 0 0 0 2px #a7d6ff;
+    }
+
+    .midi-cell.draft {
+      color: #fff;
+      background: #326993;
+    }
+
+    .replace-preview {
       position: absolute;
-      top: 1px;
-      right: 2px;
-      color: var(--warning);
-      font-size: 7px;
+      inset-block: 0;
+      z-index: 7;
+      border: 1px solid #f2c15f;
+      background: rgb(229 173 73 / 0.16);
+      pointer-events: none;
+      animation: preview-pulse 1.1s ease-in-out infinite;
+    }
+
+    @keyframes preview-pulse {
+      50% {
+        background: rgb(229 173 73 / 0.27);
+      }
+    }
+
+    .playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      z-index: 9;
+      width: 1px;
+      background: #f3d17e;
+      pointer-events: none;
+    }
+
+    .playhead::before {
+      position: absolute;
+      top: 0;
+      left: -4px;
+      width: 9px;
+      height: 7px;
+      content: "";
+      background: #f3d17e;
+      clip-path: polygon(0 0, 100% 0, 50% 100%);
     }
 
     .inspector {
       min-width: 0;
+      min-height: 0;
       overflow: auto;
-      background: var(--panel);
-      padding: 12px;
+      border-left: 1px solid var(--line);
+      background: #111518;
     }
-    .inspector h2 { margin: 0 0 4px; font-size: 14px; }
-    .inspector-sub { color: var(--muted); font-size: 11px; margin-bottom: 14px; }
-    .inspector-section { border-top: 1px solid var(--line); padding: 11px 0; }
-    .field-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; min-height: 25px; align-items: center; }
-    .field-label { color: var(--muted); }
-    .field-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .source-badge { color: var(--accent); }
-    .warning-value { color: var(--warning); }
-    .inspector-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    .inspector-actions button {
+
+    .inspector-header {
+      padding: 16px 14px 12px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .inspector-header h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .inspector-header p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .inspector-section {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .inspector-section h3 {
+      margin: 0 0 10px;
+      color: #aeb8bd;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .property-grid {
+      display: grid;
+      grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
+      gap: 8px 12px;
+    }
+
+    .property-grid dt {
+      color: var(--muted);
+    }
+
+    .property-grid dd {
       min-width: 0;
-      height: 30px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      background: var(--panel-2);
-      color: var(--text);
-      cursor: pointer;
+      margin: 0;
+      overflow-wrap: anywhere;
     }
-    .inspector-actions button:hover { border-color: var(--accent); }
-    .inspector-actions .wide { grid-column: span 3; }
-    .inspector-actions .danger { color: var(--danger); }
+
+    .command-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .inspector-command {
+      min-height: 34px;
+      padding: 6px 8px;
+    }
+
+    .inspector-command.wide {
+      grid-column: 1 / -1;
+    }
+
+    .revision-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .revision-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+    }
+
+    .revision-row strong {
+      color: var(--text);
+    }
 
     .statusbar {
-      border-top: 1px solid var(--line);
-      border-bottom: 0;
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
+      max-width: 100vw;
       padding: 0 10px;
+      border-top: 1px solid var(--line);
       color: var(--muted);
+      background: #101416;
       font-size: 11px;
       gap: 14px;
     }
-    .statusbar .ready { color: #78cf8e; }
-    .statusbar .problem { color: var(--warning); }
 
-    .hidden-by-mode { display: none !important; }
+    #statusMessage {
+      min-width: 0;
+      overflow: hidden;
+      color: #b6c0c5;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
-    @media (max-width: 860px) {
-      :root { --label-width: 104px; --inspector-width: 100%; }
-      .app { min-height: 760px; }
-      .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(430px, 1fr) 280px; }
-      .editor { border-right: 0; border-bottom: 1px solid var(--line); }
-      .inspector { display: block; min-width: 0; }
-      .model-pill { display: none; }
-      .object-name { display: none; }
-      .toolbar { padding-right: 6px; }
-      .zoom-control { margin-left: 0; }
-      .statusbar { overflow-x: auto; white-space: nowrap; }
+    .status-revisions {
+      display: flex;
+      margin-left: auto;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .status-revisions b:nth-child(1) { color: var(--segment); }
+    .status-revisions b:nth-child(2) { color: var(--kana); }
+    .status-revisions b:nth-child(3) { color: var(--h-token); }
+    .status-revisions b:nth-child(4) { color: var(--midi); }
+
+    .context-menu {
+      position: fixed;
+      z-index: 50;
+      display: none;
+      min-width: 238px;
+      padding: 5px;
+      border: 1px solid #465159;
+      border-radius: 6px;
+      background: #1a1f23;
+      box-shadow: 0 12px 28px rgb(0 0 0 / 0.38);
+    }
+
+    .context-menu.open {
+      display: block;
+    }
+
+    .context-item {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-height: 34px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 4px;
+      color: #e2e7e9;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      gap: 9px;
+    }
+
+    .context-item:hover {
+      background: #293137;
+    }
+
+    .context-item.danger {
+      color: #f1a09d;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgb(5 7 8 / 0.74);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: min(520px, 100%);
+      max-height: min(720px, calc(100vh - 36px));
+      overflow: auto;
+      border: 1px solid #465159;
+      border-radius: 7px;
+      background: #171c20;
+      box-shadow: 0 18px 45px rgb(0 0 0 / 0.42);
+    }
+
+    .modal.large {
+      width: min(680px, 100%);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: flex-start;
+      padding: 15px 16px 12px;
+      border-bottom: 1px solid var(--line);
+      gap: 10px;
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .modal-header p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .modal-close {
+      margin-left: auto;
+    }
+
+    .modal-body {
+      padding: 15px 16px;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 11px 16px 15px;
+      border-top: 1px solid var(--line);
+      gap: 8px;
+    }
+
+    .modal-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 13px;
+      gap: 7px;
+    }
+
+    .modal-button.primary {
+      border-color: #4b9f91;
+      color: #d3f5ef;
+      background: #1b4a43;
+    }
+
+    .modal-button.danger {
+      border-color: #8f4947;
+      color: #ffd2d0;
+      background: #492423;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 110px minmax(0, 1fr);
+      gap: 11px 12px;
+      align-items: center;
+    }
+
+    .field-grid label {
+      color: var(--muted);
+    }
+
+    .field-grid input,
+    .search-input,
+    .midi-slider {
+      width: 100%;
+    }
+
+    .field-grid input,
+    .search-input {
+      height: 36px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--text);
+      background: #101416;
+    }
+
+    .operation-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .operation-summary div {
+      padding: 11px;
+      border-right: 1px solid var(--line-soft);
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .operation-summary div:nth-child(2n) {
+      border-right: 0;
+    }
+
+    .operation-summary div:nth-last-child(-n + 2) {
+      border-bottom: 0;
+    }
+
+    .operation-summary span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .operation-summary strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 13px;
+    }
+
+    .operation-note {
+      margin: 13px 0 0;
+      color: #b9c2c6;
+      line-height: 1.6;
+    }
+
+    .token-toolbar {
+      display: flex;
+      margin-bottom: 12px;
+      gap: 8px;
+    }
+
+    .token-toolbar .search-input {
+      flex: 1;
+    }
+
+    .token-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .token-option {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      min-height: 58px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      color: var(--text);
+      background: #12171a;
+      text-align: left;
+      cursor: pointer;
+      gap: 7px;
+    }
+
+    .token-option:hover {
+      border-color: #a95577;
+      background: #251a20;
+    }
+
+    .token-symbol {
+      display: grid;
+      place-items: center;
+      height: 36px;
+      border: 1px solid #7a4058;
+      border-radius: 4px;
+      color: #ffd0e1;
+      background: #432334;
+      font-size: 15px;
+    }
+
+    .token-copy strong,
+    .token-copy small {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .token-copy small {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .token-tooltip {
+      position: fixed;
+      z-index: 55;
+      display: none;
+      width: 250px;
+      padding: 10px 11px;
+      border: 1px solid #5d4a53;
+      border-radius: 5px;
+      background: #181b1e;
+      box-shadow: 0 10px 24px rgb(0 0 0 / 0.36);
+      pointer-events: none;
+    }
+
+    .token-tooltip.open {
+      display: block;
+    }
+
+    .token-tooltip strong {
+      color: #ffd2e2;
+    }
+
+    .token-tooltip p {
+      margin: 5px 0 0;
+      color: #bec7cb;
+      line-height: 1.45;
+    }
+
+    .token-tooltip small {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+    }
+
+    .midi-picker-value {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr) 46px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-button {
+      display: grid;
+      place-items: center;
+      height: 38px;
+      padding: 0;
+    }
+
+    .midi-value-display {
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #111518;
+      text-align: center;
+    }
+
+    .midi-value-display strong {
+      display: block;
+      color: #cce7ff;
+      font-size: 18px;
+    }
+
+    .midi-value-display small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+    }
+
+    .midi-slider {
+      margin-top: 16px;
+      accent-color: var(--midi);
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 44px;
+      z-index: 80;
+      max-width: min(420px, calc(100vw - 36px));
+      padding: 10px 12px;
+      border: 1px solid #4b575e;
+      border-radius: 5px;
+      color: #edf1f2;
+      background: #20262a;
+      box-shadow: 0 10px 25px rgb(0 0 0 / 0.35);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 140ms ease, transform 140ms ease;
+      pointer-events: none;
+    }
+
+    .toast.open {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .hidden-row {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        height: auto;
+        min-height: 100vh;
+        grid-template-rows: auto auto 28px;
+      }
+
+      .workspace {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .editor {
+        min-height: 470px;
+      }
+
+      .inspector {
+        max-height: none;
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+
+      .runtime {
+        gap: 7px;
+      }
+
+      .runtime span + span {
+        padding-left: 7px;
+      }
+
+      .zoom-control {
+        margin-left: 3px;
+      }
+
+      .token-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 540px) {
+      :root {
+        --label-width: 108px;
+      }
+
+      .title-row {
+        flex-wrap: wrap;
+        padding-block: 7px;
+      }
+
+      .brand {
+        width: 100%;
+      }
+
+      .runtime {
+        margin-left: 0;
+        font-size: 10px;
+      }
+
+      .toolbar {
+        align-items: flex-start;
+      }
+
+      .zoom-control span {
+        display: none;
+      }
+
+      .zoom-control input {
+        width: 90px;
+      }
+
+      .lane-label {
+        padding-inline: 7px;
+      }
+
+      .lane-name {
+        font-size: 11px;
+      }
+
+      .token-list {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .field-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+      }
+
+      .operation-summary {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .operation-summary div {
+        border-right: 0;
+      }
+
+      .operation-summary div:nth-last-child(-n + 2) {
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .operation-summary div:last-child {
+        border-bottom: 0;
+      }
+
+      .statusbar {
+        gap: 6px;
+      }
+
+      .statusbar > span:first-child,
+      .status-revisions b:nth-child(-n + 2) {
+        display: none;
+      }
     }
   </style>
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand">演唱控制编辑器</div>
-      <div class="object-name">Vocal Part 03 · きみを見るたびに</div>
-      <div class="top-spacer"></div>
-      <div class="model-pill">V5-P · 21.533 Hz</div>
-      <div class="sync-state">Control r12</div>
+      <div class="title-row">
+        <div class="brand">合成单元编辑器</div>
+        <div class="unit-title">Synthesis Unit 03 · 夏の温度に溶けて</div>
+        <div class="runtime">
+          <span>V5-P</span>
+          <span>21.533 Hz</span>
+          <span id="unitRevision">Unit r12</span>
+        </div>
+      </div>
+      <nav class="toolbar" aria-label="编辑器工具栏">
+        <button class="icon-button" id="playButton" aria-label="播放" title="播放">
+          <i data-lucide="play"></i>
+        </button>
+        <button class="icon-button" id="undoButton" aria-label="撤销" title="撤销">
+          <i data-lucide="undo-2"></i>
+        </button>
+        <button class="icon-button" id="redoButton" aria-label="重做" title="重做">
+          <i data-lucide="redo-2"></i>
+        </button>
+        <div class="toolbar-divider"></div>
+        <button class="tool-button active" id="snapButton" aria-pressed="true">
+          <i data-lucide="magnet"></i>
+          <span>Frame 吸附</span>
+        </button>
+        <div class="toolbar-divider"></div>
+        <button class="group-toggle" data-group-toggle="source" aria-pressed="true">
+          <i data-lucide="audio-waveform"></i>
+          <span>Source</span>
+        </button>
+        <button class="group-toggle" data-group-toggle="text" aria-pressed="true">
+          <i data-lucide="captions"></i>
+          <span>Text</span>
+        </button>
+        <button class="group-toggle" data-group-toggle="melody" aria-pressed="true">
+          <i data-lucide="music-2"></i>
+          <span>Melody</span>
+        </button>
+        <div class="toolbar-divider"></div>
+        <div class="preview-group" aria-label="空格播放源">
+          <button class="preview-source" data-preview-source="guide" aria-pressed="true">
+            <i data-lucide="audio-waveform"></i>
+            <span>Guide</span>
+          </button>
+          <button class="preview-source" data-preview-source="midi" aria-pressed="false">
+            <i data-lucide="piano"></i>
+            <span>MIDI-P</span>
+          </button>
+        </div>
+        <label class="zoom-control">
+          <span>缩放</span>
+          <input id="zoomSlider" type="range" min="22" max="44" value="28" aria-label="时间轴缩放">
+        </label>
+      </nav>
     </header>
 
-    <nav class="toolbar" aria-label="Editor toolbar">
-      <button id="playButton" class="icon-button" type="button" title="播放 / 暂停">▶</button>
-      <button id="loopButton" class="icon-button active" type="button" title="循环选区">↻</button>
-      <div class="divider"></div>
-      <div class="segmented" role="tablist" aria-label="编辑层级">
-        <button class="segment-button" data-mode="compose" type="button">编排</button>
-        <button class="segment-button" data-mode="align" type="button">对齐</button>
-        <button class="segment-button active" data-mode="token" type="button">Token</button>
-      </div>
-      <div class="divider"></div>
-      <button id="snapButton" class="tool-button active" type="button">Frame 吸附</button>
-      <button id="lockSelection" class="tool-button" type="button">锁定</button>
-      <div class="zoom-control">
-        <span>缩放</span>
-        <input id="zoomSlider" type="range" min="22" max="58" value="32" step="2" aria-label="时间轴缩放">
-      </div>
-    </nav>
-
     <main class="workspace">
-      <section class="editor">
-        <div class="ruler-shell">
-          <div class="ruler-label">Frame / Time</div>
-          <div id="rulerViewport" class="ruler-viewport"><div id="rulerTrack" class="ruler-track"></div></div>
-        </div>
-
-        <div id="lanesViewport" class="lanes-viewport">
-          <div id="lanes" class="lanes">
-            <div class="lane-row" data-lane="wave">
-              <div class="lane-label"><div class="lane-name">Guide / F0</div><div class="lane-meta">44.1 kHz · B-local</div></div>
-              <div class="lane-viewport"><div class="lane-track"><div class="a-region"></div><svg class="wave-svg" viewBox="0 0 1536 92" preserveAspectRatio="none"><path d="M0,46 C40,31 60,61 96,44 C135,24 165,68 205,40 C244,16 275,73 320,42 C355,23 390,61 430,38 C470,13 510,78 552,44 C592,18 628,65 670,38 C715,10 753,74 798,42 C840,20 882,64 925,41 C967,18 1008,69 1050,39 C1094,14 1136,73 1178,42 C1220,17 1261,67 1304,40 C1348,13 1392,72 1435,43 C1470,28 1502,54 1536,46 L1536,62 C1498,73 1470,53 1433,66 C1390,82 1345,27 1302,64 C1258,84 1218,31 1176,64 C1135,83 1090,29 1048,65 C1004,81 965,31 922,64 C880,81 838,31 796,65 C750,82 710,27 668,66 C625,83 588,31 550,65 C505,83 466,27 428,64 C386,80 352,31 318,66 C272,84 240,28 203,65 C162,81 132,33 94,65 C57,77 35,57 0,62 Z"></path><path class="f0-line" d="M0,66 C120,63 170,58 240,51 S390,37 470,42 S620,61 705,55 S860,36 945,39 S1100,59 1190,51 S1360,32 1536,40"></path></svg></div></div>
+      <section class="editor" aria-label="合成单元时间轴">
+        <div class="timeline-layout">
+          <div class="label-rail" id="labelRail">
+            <div class="lane-label ruler-label">
+              <span>Frame / Time</span>
             </div>
-
-            <div class="lane-row" data-lane="midi">
-              <div class="lane-label"><div class="lane-name">Piano Roll</div><div class="lane-meta">Note / note group</div></div>
-              <div class="lane-viewport"><div id="midiTrack" class="lane-track"><div class="a-region"></div><div class="piano-grid"></div></div></div>
+            <div class="lane-label audio-label" data-group="source">
+              <span class="group-name">Source</span>
+              <span class="lane-name">Guide Audio</span>
+              <span class="lane-meta">44.1 kHz · fixed</span>
             </div>
-
-            <div class="lane-row" data-lane="kana">
-              <div class="lane-label"><div class="lane-name">Kana / Mora</div><div class="lane-meta">歌词与音符组</div></div>
-              <div class="lane-viewport"><div id="kanaTrack" class="lane-track"><div class="a-region"></div></div></div>
+            <div class="lane-label segment-label" data-group="text">
+              <span class="group-name">Text</span>
+              <span class="lane-name">Segment</span>
+              <span class="lane-meta">句级对象</span>
             </div>
-
-            <div class="lane-row align-lane" data-lane="phone">
-              <div class="lane-label"><div class="lane-name">Phone</div><div class="lane-meta">SOFA interval</div></div>
-              <div class="lane-viewport"><div id="phoneTrack" class="lane-track"><div class="a-region"></div></div></div>
+            <div class="lane-label kana-label" data-group="text">
+              <span class="lane-name">Kana</span>
+              <span class="lane-meta">mora + SEG</span>
             </div>
-
-            <div class="lane-row token-lane" data-lane="h">
-              <div class="lane-label"><div class="lane-name">H Token</div><div class="lane-meta">Sparse anchor</div></div>
-              <div class="lane-viewport"><div id="hTrack" class="lane-track"><div class="a-region"></div></div></div>
+            <div class="lane-label h-label" data-group="text">
+              <span class="lane-name">H Token</span>
+              <span class="lane-meta">single-frame event</span>
             </div>
-
-            <div class="lane-row token-lane" data-lane="midip">
-              <div class="lane-label"><div class="lane-name">MIDI-P</div><div class="lane-meta">Dense frame class</div></div>
-              <div class="lane-viewport"><div id="midiPTrack" class="lane-track"><div class="a-region"></div></div></div>
+            <div class="lane-label midi-label" data-group="melody">
+              <span class="group-name">Melody</span>
+              <span class="lane-name">MIDI-P</span>
+              <span class="lane-meta">dense frame class</span>
             </div>
           </div>
-          <div id="playhead" class="playhead"></div>
+
+          <div class="timeline-viewport" id="timelineViewport">
+            <div class="timeline-canvas" id="timelineCanvas">
+              <div class="ruler" id="ruler"></div>
+              <div class="lane audio-lane" id="audioLane" data-group="source">
+                <canvas id="waveform"></canvas>
+                <div class="frame-grid" aria-hidden="true"></div>
+                <div class="audio-badge">鹿乃-温柔.mp3 · 0.000–2.972s</div>
+              </div>
+              <div class="lane segment-lane" id="segmentLane" data-group="text"></div>
+              <div class="lane kana-lane" id="kanaLane" data-group="text"></div>
+              <div class="lane h-lane" id="hLane" data-group="text"></div>
+              <div class="lane midi-lane" id="midiLane" data-group="melody"></div>
+              <div class="playhead" id="playhead"></div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <aside class="inspector">
-        <h2 id="inspectorTitle">MIDI-P Token</h2>
-        <div id="inspectorSub" class="inspector-sub">B local frame 12</div>
-        <div class="inspector-section">
-          <div class="field-row"><div class="field-label">Frame</div><div id="fieldFrame" class="field-value">12</div></div>
-          <div class="field-row"><div class="field-label">时间</div><div id="fieldTime" class="field-value">0.5573 s</div></div>
-          <div class="field-row"><div class="field-label">PCM</div><div id="fieldPcm" class="field-value">24576 - 26623</div></div>
-          <div class="field-row"><div class="field-label">值</div><div id="fieldValue" class="field-value">class 120 · C4</div></div>
-          <div class="field-row"><div class="field-label">来源</div><div id="fieldSource" class="field-value source-badge">note compiler</div></div>
-          <div class="field-row"><div class="field-label">状态</div><div id="fieldState" class="field-value">未锁定</div></div>
-        </div>
-        <div id="midiActions" class="inspector-section inspector-actions">
-          <button id="pitchDown" type="button" title="下降 0.5 半音">− 0.5</button>
-          <button id="pitchUp" type="button" title="上升 0.5 半音">+ 0.5</button>
-          <button id="setRest" type="button">REST</button>
-          <button id="restoreToken" class="wide" type="button">恢复自动结果</button>
-        </div>
-        <div id="hActions" class="inspector-section inspector-actions" hidden>
-          <button id="hLeft" type="button">← 1f</button>
-          <button id="hRight" type="button">1f →</button>
-          <button id="hLock" type="button">锁定</button>
-          <button id="hDelete" class="wide danger" type="button">删除发音覆盖</button>
-        </div>
-        <div class="inspector-section">
-          <div class="field-row"><div class="field-label">父级</div><div id="fieldParent" class="field-value">mora き</div></div>
-          <div class="field-row"><div class="field-label">边界</div><div id="fieldBoundary" class="field-value warning-value">B start + 4 frames</div></div>
-        </div>
-      </aside>
+      <aside class="inspector" id="inspector" aria-live="polite"></aside>
     </main>
 
     <footer class="statusbar">
-      <span class="ready">Frame contract ready</span>
-      <span>44100 / 2048 = 21.533203125 Hz</span>
-      <span class="problem">1 个用户覆盖</span>
-      <span>H 7 · MIDI-P 40</span>
+      <span>44100 / 2048</span>
+      <span id="statusMessage">SynthesisUnit frame contract ready</span>
+      <div class="status-revisions" id="statusRevisions"></div>
     </footer>
   </div>
 
+  <audio id="guideAudio" preload="auto" src="../exports/对比数据集_MSST人声_20260726_235533/鹿乃-温柔.mp3"></audio>
+
+  <div class="context-menu" id="contextMenu" role="menu"></div>
+  <div class="token-tooltip" id="tokenTooltip"></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="modal-backdrop" id="operationBackdrop" role="dialog" aria-modal="true" aria-labelledby="operationTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="operationTitle">局部覆盖</h2>
+          <p id="operationSubtitle"></p>
+        </div>
+        <button class="icon-button modal-close" data-close-modal="operationBackdrop" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="operation-summary" id="operationSummary"></div>
+        <p class="operation-note" id="operationNote"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button" data-close-modal="operationBackdrop">取消</button>
+        <button class="modal-button primary" id="confirmOperation">
+          <i data-lucide="replace"></i>
+          <span>强制覆盖目标范围</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="textEditBackdrop" role="dialog" aria-modal="true" aria-labelledby="textEditTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="textEditTitle">编辑对象</h2>
+          <p id="textEditSubtitle"></p>
+        </div>
+        <button class="icon-button modal-close" data-close-modal="textEditBackdrop" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="field-grid" id="textEditFields"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button" data-close-modal="textEditBackdrop">取消</button>
+        <button class="modal-button primary" id="saveTextEdit">
+          <i data-lucide="check"></i>
+          <span>保存</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="tokenPickerBackdrop" role="dialog" aria-modal="true" aria-labelledby="tokenPickerTitle">
+    <div class="modal large">
+      <div class="modal-header">
+        <div>
+          <h2 id="tokenPickerTitle">H Token Picker</h2>
+          <p id="tokenPickerSubtitle"></p>
+        </div>
+        <button class="icon-button modal-close" data-close-modal="tokenPickerBackdrop" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="token-toolbar">
+          <input class="search-input" id="tokenSearch" type="search" placeholder="搜索中文、symbol 或 romaji" aria-label="搜索 H token">
+          <button class="modal-button danger" id="clearHToken">
+            <i data-lucide="eraser"></i>
+            <span>清为 0</span>
+          </button>
+        </div>
+        <div class="token-list" id="tokenList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="midiPickerBackdrop" role="dialog" aria-modal="true" aria-labelledby="midiPickerTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="midiPickerTitle">替换 MIDI-P Token</h2>
+          <p id="midiPickerSubtitle"></p>
+        </div>
+        <button class="icon-button modal-close" data-close-modal="midiPickerBackdrop" aria-label="关闭">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="midi-picker-value">
+          <button class="step-button" id="midiDown" aria-label="降低 0.5 半音">−0.5</button>
+          <div class="midi-value-display" id="midiValueDisplay"></div>
+          <button class="step-button" id="midiUp" aria-label="升高 0.5 半音">+0.5</button>
+        </div>
+        <input class="midi-slider" id="midiSlider" type="range" min="0" max="254" value="120" aria-label="MIDI-P class">
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button" id="setMidiRest">
+          <i data-lucide="pause"></i>
+          <span>REST</span>
+        </button>
+        <button class="modal-button primary" id="saveMidiToken">
+          <i data-lucide="check"></i>
+          <span>强制替换</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const FRAME_COUNT = 64;
     const FRAME_RATE = 44100 / 2048;
-    const HOP = 2048;
-    const B_START = 8;
-    const FRAME_COUNT = 48;
-    const root = document.documentElement;
-    const rulerTrack = document.getElementById('rulerTrack');
-    const rulerViewport = document.getElementById('rulerViewport');
-    const lanesViewport = document.getElementById('lanesViewport');
-    const playhead = document.getElementById('playhead');
-    const playButton = document.getElementById('playButton');
+    const GUIDE_OFFSET_SECONDS = 0;
+    const GUIDE_WINDOW_SECONDS = FRAME_COUNT / FRAME_RATE;
+    const GUIDE_END_SECONDS = GUIDE_OFFSET_SECONDS + GUIDE_WINDOW_SECONDS;
+    const GUIDE_FILE_NAME = "鹿乃-温柔.mp3";
+    const REST = 255;
+    const PAD = 256;
 
-    const notes = [
-      { start: 9, end: 16, pitch: 60, name: 'C4' },
-      { start: 16, end: 23, pitch: 62, name: 'D4' },
-      { start: 23, end: 32, pitch: 64, name: 'E4' },
-      { start: 34, end: 43, pitch: 62, name: 'D4' }
+    const tokenCatalog = [
+      { id: 28, symbol: "p", name: "清双唇爆破音", approx: "ぱ行起始音", romaji: "pa / pi / pu / pe / po" },
+      { id: 29, symbol: "b", name: "浊双唇爆破音", approx: "ば行起始音", romaji: "ba / bi / bu / be / bo" },
+      { id: 30, symbol: "t", name: "清舌尖爆破音", approx: "た行起始音", romaji: "ta / te / to" },
+      { id: 31, symbol: "d", name: "浊舌尖爆破音", approx: "だ行起始音", romaji: "da / de / do" },
+      { id: 32, symbol: "k", name: "清软腭爆破音", approx: "近似中文“卡”的起始音", romaji: "ka / ki / ku / ke / ko" },
+      { id: 35, symbol: "v", name: "浊唇齿擦音", approx: "外来语ヴ行", romaji: "vu / va" },
+      { id: 38, symbol: "s", name: "清 s 擦音", approx: "さ行起始音", romaji: "sa / su / se / so" },
+      { id: 39, symbol: "z", name: "浊 z 擦音", approx: "ざ行起始音", romaji: "za / zu / ze / zo" },
+      { id: 45, symbol: "m", name: "双唇鼻音", approx: "ま行起始音", romaji: "ma / mi / mu / me / mo" },
+      { id: 46, symbol: "n", name: "舌尖鼻音", approx: "な行起始音", romaji: "na / ni / nu / ne / no" },
+      { id: 48, symbol: "j", name: "y 类滑音", approx: "近似中文拼音 y", romaji: "ya / yu / yo" },
+      { id: 56, symbol: "i", name: "i 元音", approx: "近似中文“衣”", romaji: "i" },
+      { id: 59, symbol: "ɾ", name: "日语轻弹 r", approx: "舌尖快速轻触，不是卷舌 r", romaji: "ra / ri / ru / re / ro" },
+      { id: 211, symbol: "a", name: "a 元音", approx: "近似中文“啊”", romaji: "a" },
+      { id: 216, symbol: "o", name: "o 元音", approx: "近似中文“哦”的元音", romaji: "o" },
+      { id: 319, symbol: "ɯ", name: "日语 u 元音", approx: "接近“乌”但通常不圆唇", romaji: "u" },
+      { id: 320, symbol: "e", name: "日语 e 元音", approx: "近似“诶”的起始位置", romaji: "e" },
+      { id: 324, symbol: "ç", name: "日语 h 系擦音", approx: "ひ/ほ等 h 系输出之一", romaji: "hi / he / ho" },
+      { id: 325, symbol: "ɸ", name: "日语 fu 辅音", approx: "双唇轻吹气的 f", romaji: "fu" },
+      { id: 326, symbol: "ɰᵝ", name: "日语 w 系滑音", approx: "很轻的 w", romaji: "wa / wo" },
+      { id: 327, symbol: "ɴ", name: "日语拨音", approx: "日语ん", romaji: "n" },
+      { id: 328, symbol: "g", name: "日语 g 辅音", approx: "が行起始音", romaji: "ga / gi / gu / ge / go" },
+      { id: 329, symbol: "dʑ", name: "日语 ji 系塞擦音", approx: "近似“机”的起始音但带声", romaji: "ji" },
+      { id: 330, symbol: "q", name: "日语促音闭塞", approx: "小写っ带来的蓄力闭塞", romaji: "small tsu" },
+      { id: 332, symbol: "bj", name: "日语 by 拗音", approx: "b 后立即滑向 y", romaji: "bya / byu / byo" },
+      { id: 333, symbol: "tɕ", name: "日语 chi 辅音", approx: "近似中文“七”的起始音", romaji: "chi / cha / chu / cho" },
+      { id: 334, symbol: "dej", name: "日语 dy 复合音", approx: "外来语デャ/デュ/デョ", romaji: "dya / dyu / dyo" },
+      { id: 336, symbol: "gj", name: "日语 gy 拗音", approx: "g 后立即滑向 y", romaji: "gya / gyu / gyo" },
+      { id: 338, symbol: "çj", name: "日语 hy 拗音", approx: "ひゃ/ひゅ/ひょ的起始音", romaji: "hya / hyu / hyo" },
+      { id: 339, symbol: "kj", name: "日语 ky 拗音", approx: "k 后立即滑向 y", romaji: "kya / kyu / kyo" },
+      { id: 341, symbol: "mj", name: "日语 my 拗音", approx: "みゃ/みゅ/みょ", romaji: "mya / myu / myo" },
+      { id: 342, symbol: "nj", name: "日语 ny 拗音", approx: "にゃ/にゅ/にょ", romaji: "nya / nyu / nyo" },
+      { id: 343, symbol: "pj", name: "日语 py 拗音", approx: "ぴゃ/ぴゅ/ぴょ", romaji: "pya / pyu / pyo" },
+      { id: 344, symbol: "ɾj", name: "日语 ry 拗音", approx: "りゃ/りゅ/りょ", romaji: "rya / ryu / ryo" },
+      { id: 345, symbol: "ɕ", name: "日语 shi 辅音", approx: "近似中文“西”的起始音", romaji: "shi / sha / shu / sho" },
+      { id: 346, symbol: "tsɯ", name: "日语 tsu 复合辅音", approx: "つ的起始复合音", romaji: "tsu" }
     ];
-    const moras = [
-      { start: 9, end: 16, kana: 'き', romaji: 'ki' },
-      { start: 16, end: 23, kana: 'み', romaji: 'mi' },
-      { start: 23, end: 32, kana: 'を', romaji: 'o' },
-      { start: 34, end: 43, kana: 'みる', romaji: 'miru' }
-    ];
-    const phones = [
-      { start: 9, end: 11, symbol: 'k' }, { start: 11, end: 16, symbol: 'i' },
-      { start: 16, end: 18, symbol: 'm' }, { start: 18, end: 23, symbol: 'i' },
-      { start: 23, end: 32, symbol: 'o' },
-      { start: 34, end: 36, symbol: 'm' }, { start: 36, end: 39, symbol: 'i' },
-      { start: 39, end: 41, symbol: 'r' }, { start: 41, end: 43, symbol: 'u' }
-    ];
-    const hTokens = [
-      { frame: 9, id: 142, symbol: 'k', parent: 'き', locked: false },
-      { frame: 11, id: 19, symbol: 'i', parent: 'き', locked: false },
-      { frame: 16, id: 151, symbol: 'm', parent: 'み', locked: false },
-      { frame: 18, id: 19, symbol: 'i', parent: 'み', locked: true },
-      { frame: 23, id: 31, symbol: 'o', parent: 'を', locked: false },
-      { frame: 34, id: 151, symbol: 'm', parent: 'みる', locked: false },
-      { frame: 47, id: 365, symbol: 'SEP', parent: 'phrase 03', locked: true, special: true }
-    ];
-    const midiClasses = Array.from({ length: FRAME_COUNT }, (_, frame) => {
-      if (frame < B_START) return { value: 256, origin: 'A / PAD', locked: true, original: 256 };
-      const note = notes.find(item => frame >= item.start && frame < item.end);
-      const value = note ? Math.round(note.pitch * 2) : 255;
-      return { value, origin: note ? 'note compiler' : 'REST', locked: false, original: value };
-    });
 
-    let mode = 'token';
-    let selected = { lane: 'midip', index: 12 };
-    let currentFrame = B_START;
+    const tokenBySymbol = Object.fromEntries(tokenCatalog.map((token) => [token.symbol, token]));
+    const specialTokens = {
+      SEP: { id: 365, symbol: "SEP", name: "句结构边界", approx: "下一句即将开始", romaji: "runtime" },
+      PUL: { id: 366, symbol: "PUL", name: "时间分配未知", approx: "fallback 由模型自行分配", romaji: "runtime" }
+    };
+
+    const kanaRomaji = {
+      "な": "na", "つ": "tsu", "の": "no", "お": "o", "ん": "n", "ど": "do", "に": "ni",
+      "と": "to", "け": "ke", "て": "te"
+    };
+
+    const kanaPhones = {
+      "な": ["n", "a"], "つ": ["tsɯ", "ɯ"], "の": ["n", "o"], "お": ["o"],
+      "ん": ["ɴ"], "ど": ["d", "o"], "に": ["n", "i"], "と": ["t", "o"],
+      "け": ["k", "e"], "て": ["t", "e"]
+    };
+
+    // Generated from the same 131072-sample Guide window shown in this editor.
+    const generatedSegments = [
+      { id: "s1", text: "夏の温度に溶けて", kana: "なつのおんどにとけて", romaji: "na tsu no o ndo ni to ke te", start: 8, speechEnd: 64, origin: "whisper-sofa" }
+    ];
+
+    const generatedKana = [
+      { id: "k1", kana: "な", romaji: "na", start: 8, end: 12, origin: "sofa-mora" },
+      { id: "k2", kana: "つ", romaji: "tsu", start: 12, end: 19, origin: "sofa-mora" },
+      { id: "k3", kana: "の", romaji: "no", start: 19, end: 27, origin: "sofa-mora" },
+      { id: "k4", kana: "お", romaji: "o", start: 27, end: 36, origin: "sofa-mora" },
+      { id: "k5", kana: "ん", romaji: "n", start: 36, end: 37, origin: "sofa-mora" },
+      { id: "k6", kana: "ど", romaji: "do", start: 37, end: 43, origin: "sofa-mora" },
+      { id: "k7", kana: "に", romaji: "ni", start: 43, end: 49, origin: "sofa-mora" },
+      { id: "k8", kana: "と", romaji: "to", start: 49, end: 55, origin: "sofa-mora" },
+      { id: "k9", kana: "け", romaji: "ke", start: 55, end: 61, origin: "sofa-mora" },
+      { id: "k10", kana: "て", romaji: "te", start: 61, end: 64, origin: "sofa-mora" }
+    ];
+
+    const generatedHEvents = [
+      [8, "n"], [9, "a"], [12, "tsɯ"], [16, "ɯ"], [19, "n"], [21, "o"],
+      [27, "o"], [36, "ɴ"], [37, "d"], [38, "o"], [43, "n"], [44, "i"],
+      [49, "t"], [51, "o"], [54, "k"], [57, "e"], [61, "t"], [62, "e"], [63, "SEP"]
+    ];
+
+    const generatedMidi = [
+      255, 255, 255, 255, 255, 255, 255, 255, 255,
+      130, 130, 130, 130, 130, 130, 130,
+      134, 134, 134, 134, 134,
+      140, 140, 140, 140, 140, 140,
+      150, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150,
+      148, 148, 148, 148, 148, 148, 148,
+      140, 140, 140, 140, 140, 140, 140, 140, 140, 140, 140, 140,
+      134, 134, 134, 134, 134, 134,
+      144
+    ];
+
+    function generatedHState() {
+      return Object.fromEntries(generatedHEvents.map(([frame, symbol]) => [
+        frame,
+        { ...(symbol === "SEP" ? specialTokens.SEP : tokenBySymbol[symbol]), origin: "sofa-phone" }
+      ]));
+    }
+
+    let state = {
+      unitRevision: 1,
+      revisions: { segment: 1, kana: 1, h: 1, midi: 1 },
+      playhead: 8,
+      selection: { type: "segment", id: "s1" },
+      segments: deepClone(generatedSegments),
+      kana: deepClone(generatedKana),
+      kanaBreaks: [],
+      h: generatedHState(),
+      midi: [...generatedMidi],
+      midiOrigin: Array.from({ length: FRAME_COUNT }, () => "game"),
+      preview: null
+    };
+
+    let history = [];
+    let future = [];
+    let cellWidth = 28;
+    let snapEnabled = true;
     let playing = false;
-    let animation = 0;
-    let lastTimestamp = 0;
+    let playTimer = null;
+    let playbackMode = "guide";
     let audioContext = null;
-    let oscillator = null;
-    let gainNode = null;
+    let guideBuffer = null;
+    let lastPianoPreviewAt = 0;
+    let activeOperation = null;
+    let activeTextEditor = null;
+    let activeTokenFrame = null;
+    let activeMidiFrame = null;
+    let midiDraft = 120;
+    let dragState = null;
+    let statusMessage = "SynthesisUnit frame contract ready";
+    let toastTimer = null;
 
-    function frameLeft(frame) { return `calc(${frame} * var(--frame-width))`; }
-    function frameWidth(count) { return `calc(${count} * var(--frame-width))`; }
-    function frameTime(frame) { return frame / FRAME_RATE; }
+    const ruler = document.getElementById("ruler");
+    const timelineViewport = document.getElementById("timelineViewport");
+    const timelineCanvas = document.getElementById("timelineCanvas");
+    const audioLane = document.getElementById("audioLane");
+    const segmentLane = document.getElementById("segmentLane");
+    const kanaLane = document.getElementById("kanaLane");
+    const hLane = document.getElementById("hLane");
+    const midiLane = document.getElementById("midiLane");
+    const playhead = document.getElementById("playhead");
+    const inspector = document.getElementById("inspector");
+    const contextMenu = document.getElementById("contextMenu");
+    const tokenTooltip = document.getElementById("tokenTooltip");
+    const toast = document.getElementById("toast");
+    const guideAudio = document.getElementById("guideAudio");
+
+    function deepClone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function snapshotState() {
+      const snapshot = deepClone(state);
+      snapshot.preview = null;
+      return snapshot;
+    }
+
+    function pushHistory() {
+      history.push(snapshotState());
+      if (history.length > 60) history.shift();
+      future = [];
+    }
+
+    function refreshIcons() {
+      if (window.lucide) {
+        window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } });
+      }
+    }
+
+    function clamp(value, minimum, maximum) {
+      return Math.min(maximum, Math.max(minimum, value));
+    }
+
+    function formatTime(frame) {
+      return `${(frame / FRAME_RATE).toFixed(4)} s`;
+    }
+
+    function frameSampleRange(frame) {
+      const start = frame * 2048;
+      return `${start} - ${start + 2047}`;
+    }
+
+    function classToMidi(classId) {
+      return classId / 2;
+    }
+
+    function midiLabel(classId) {
+      if (classId === REST) return "REST";
+      if (classId === PAD) return "PAD";
+      const midi = classToMidi(classId);
+      const base = Math.floor(midi);
+      const names = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+      const note = `${names[base % 12]}${Math.floor(base / 12) - 1}`;
+      return midi % 1 === 0 ? note : `${note}+50`;
+    }
+
+    function makeGrid() {
+      return `<div class="frame-grid" aria-hidden="true">${Array.from({ length: FRAME_COUNT }, () => "<i></i>").join("")}</div>`;
+    }
+
+    function segmentOwnedEnd(segment) {
+      const sorted = [...state.segments].sort((a, b) => a.start - b.start);
+      const index = sorted.findIndex((item) => item.id === segment.id);
+      return index >= 0 && index < sorted.length - 1 ? sorted[index + 1].start : FRAME_COUNT;
+    }
+
+    function segmentForFrame(frame) {
+      return [...state.segments]
+        .sort((a, b) => a.start - b.start)
+        .find((segment) => frame >= segment.start && frame < segmentOwnedEnd(segment));
+    }
+
+    function kanaForFrame(frame) {
+      return state.kana.find((unit) => frame >= unit.start && frame < unit.end);
+    }
+
+    function frameFromPointer(event) {
+      const rect = timelineViewport.getBoundingClientRect();
+      return clamp(Math.floor((event.clientX - rect.left + timelineViewport.scrollLeft) / cellWidth), 0, FRAME_COUNT - 1);
+    }
 
     function renderRuler() {
-      rulerTrack.innerHTML = '';
-      for (let frame = 0; frame < FRAME_COUNT; frame++) {
-        const tick = document.createElement('div');
-        tick.className = `frame-tick ${frame % 4 === 0 ? 'major' : ''}`;
-        tick.style.left = frameLeft(frame);
-        tick.innerHTML = `<span>${frame}</span>${frame % 4 === 0 ? `<span class="seconds">${frameTime(frame).toFixed(2)}s</span>` : ''}`;
-        tick.addEventListener('click', () => selectFrame(frame));
-        rulerTrack.appendChild(tick);
-      }
-    }
-
-    function renderNotes() {
-      const track = document.getElementById('midiTrack');
-      track.querySelectorAll('.note, .pitch-line, .pitch-label').forEach(el => el.remove());
-      for (let row = 0; row < 6; row++) {
-        const line = document.createElement('div');
-        line.className = 'pitch-line';
-        line.style.top = `${row * 25}px`;
-        track.appendChild(line);
-      }
-      notes.forEach((note, index) => {
-        const el = document.createElement('div');
-        el.className = 'note';
-        el.textContent = note.name;
-        el.style.left = frameLeft(note.start);
-        el.style.width = `calc(${note.end - note.start} * var(--frame-width) - 2px)`;
-        el.style.top = `${109 - (note.pitch - 60) * 18}px`;
-        el.addEventListener('click', () => {
-          selected = { lane: 'note', index };
-          selectFrame(note.start, false);
-          renderInspector();
-          renderNotes();
+      ruler.innerHTML = Array.from({ length: FRAME_COUNT }, (_, frame) => {
+        const major = frame % 4 === 0;
+        return `<button class="ruler-cell ${major ? "major" : ""}" data-frame="${frame}"><span>${frame}</span>${major ? `<small>${(frame / FRAME_RATE).toFixed(2)}s</small>` : ""}</button>`;
+      }).join("");
+      ruler.querySelectorAll(".ruler-cell").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.playhead = Number(button.dataset.frame);
+          renderPlayhead();
         });
-        if (selected.lane === 'note' && selected.index === index) el.classList.add('selected');
-        track.appendChild(el);
       });
     }
 
-    function renderSpanBlocks(trackId, data, className, renderer) {
-      const track = document.getElementById(trackId);
-      track.querySelectorAll(`.${className}`).forEach(el => el.remove());
-      data.forEach((item, index) => {
-        const el = document.createElement('div');
-        el.className = className;
-        el.style.left = frameLeft(item.start);
-        el.style.width = `calc(${item.end - item.start} * var(--frame-width) - 2px)`;
-        el.innerHTML = renderer(item);
-        el.addEventListener('click', () => {
-          selected = { lane: className.startsWith('kana') ? 'kana' : 'phone', index };
-          selectFrame(item.start, false);
-          renderInspector();
-        });
-        track.appendChild(el);
+    function renderSegments() {
+      segmentLane.innerHTML = makeGrid();
+      state.segments.forEach((segment) => {
+        const ownedEnd = segmentOwnedEnd(segment);
+        const selected = state.selection.type === "segment" && state.selection.id === segment.id;
+        const wrap = document.createElement("div");
+        wrap.className = `segment-wrap ${selected ? "selected" : ""}`;
+        wrap.dataset.id = segment.id;
+        wrap.style.left = `${segment.start * cellWidth}px`;
+        wrap.style.width = `${(ownedEnd - segment.start) * cellWidth}px`;
+
+        const speech = document.createElement("button");
+        speech.className = "segment-speech";
+        speech.style.width = `${Math.max(1, segment.speechEnd - segment.start) * cellWidth}px`;
+        speech.innerHTML = `<strong>${segment.text}</strong><span>${segment.romaji}</span>`;
+        speech.addEventListener("click", () => selectObject("segment", segment.id));
+        speech.addEventListener("dblclick", () => openTextEditor("segment", segment.id));
+        speech.addEventListener("contextmenu", (event) => openSegmentContext(event, segment.id));
+
+        const tail = document.createElement("div");
+        tail.className = "segment-tail";
+        tail.textContent = `SEP @${ownedEnd - 1}`;
+        tail.addEventListener("contextmenu", (event) => openSegmentContext(event, segment.id));
+
+        const leftHandle = document.createElement("button");
+        leftHandle.className = "boundary-handle segment-boundary left";
+        leftHandle.setAttribute("aria-label", `${segment.id} start boundary`);
+        leftHandle.addEventListener("pointerdown", (event) => startBoundaryDrag(event, "segment", segment.id, "start"));
+
+        const rightHandle = document.createElement("button");
+        rightHandle.className = "boundary-handle segment-boundary right";
+        rightHandle.style.left = `${Math.max(1, segment.speechEnd - segment.start) * cellWidth - 7}px`;
+        rightHandle.setAttribute("aria-label", `${segment.id} end boundary`);
+        rightHandle.addEventListener("pointerdown", (event) => startBoundaryDrag(event, "segment", segment.id, "end"));
+
+        wrap.append(speech, tail, leftHandle, rightHandle);
+        segmentLane.appendChild(wrap);
       });
+      addPreview(segmentLane, "segment");
     }
 
-    function renderHTokens() {
-      const track = document.getElementById('hTrack');
-      track.querySelectorAll('.h-anchor').forEach(el => el.remove());
-      hTokens.forEach((token, index) => {
-        const el = document.createElement('div');
-        el.className = `h-anchor ${token.special ? 'special' : ''} ${token.locked ? 'locked' : ''} ${selected.lane === 'h' && selected.index === index ? 'selected' : ''}`;
-        el.style.left = `calc(${token.frame} * var(--frame-width) + var(--frame-width) / 2)`;
-        el.textContent = token.symbol;
-        el.title = `${token.symbol} · token ${token.id} · frame ${token.frame}`;
-        el.addEventListener('pointerdown', event => startHDrag(event, index));
-        el.addEventListener('click', event => {
+    function renderKana() {
+      kanaLane.innerHTML = makeGrid();
+      state.kana.forEach((unit) => {
+        const button = document.createElement("button");
+        const selected = state.selection.type === "kana" && state.selection.id === unit.id;
+        button.className = `kana-unit ${selected ? "selected" : ""}`;
+        button.dataset.id = unit.id;
+        button.style.left = `${unit.start * cellWidth + 1}px`;
+        button.style.width = `${Math.max(1, unit.end - unit.start) * cellWidth - 2}px`;
+        button.innerHTML = `<span>${unit.kana}</span><small>${unit.romaji}</small>`;
+        button.addEventListener("click", () => selectObject("kana", unit.id));
+        button.addEventListener("dblclick", () => openTextEditor("kana", unit.id));
+        button.addEventListener("contextmenu", (event) => openKanaContext(event, unit.id));
+
+        const leftHandle = document.createElement("span");
+        leftHandle.className = "boundary-handle left";
+        leftHandle.setAttribute("role", "button");
+        leftHandle.setAttribute("aria-label", `${unit.kana} start boundary`);
+        leftHandle.addEventListener("pointerdown", (event) => startBoundaryDrag(event, "kana", unit.id, "start"));
+
+        const rightHandle = document.createElement("span");
+        rightHandle.className = "boundary-handle right";
+        rightHandle.setAttribute("role", "button");
+        rightHandle.setAttribute("aria-label", `${unit.kana} end boundary`);
+        rightHandle.addEventListener("pointerdown", (event) => startBoundaryDrag(event, "kana", unit.id, "end"));
+        button.append(leftHandle, rightHandle);
+        kanaLane.appendChild(button);
+      });
+
+      state.kanaBreaks.forEach((boundary) => {
+        const marker = document.createElement("div");
+        marker.className = "kana-seg";
+        marker.style.left = `${boundary.frame * cellWidth - 1}px`;
+        marker.innerHTML = "<span>SEG</span>";
+        kanaLane.appendChild(marker);
+      });
+      addPreview(kanaLane, "kana");
+    }
+
+    function renderH() {
+      hLane.innerHTML = `${makeGrid()}<div class="h-hit-grid">${Array.from({ length: FRAME_COUNT }, (_, frame) => `<button class="h-hit" data-frame="${frame}" aria-label="H frame ${frame}"></button>`).join("")}</div>`;
+
+      hLane.querySelectorAll(".h-hit").forEach((hit) => {
+        const frame = Number(hit.dataset.frame);
+        hit.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          openTokenPicker(frame);
+        });
+        hit.addEventListener("dblclick", () => openTokenPicker(frame));
+        hit.addEventListener("click", () => {
+          state.playhead = frame;
+          renderPlayhead();
+        });
+      });
+
+      Object.entries(state.h).forEach(([frameText, token]) => {
+        const frame = Number(frameText);
+        const button = document.createElement("button");
+        const special = token.id === 365 || token.id === 366;
+        const selected = state.selection.type === "h" && Number(state.selection.id) === frame;
+        button.className = `h-token ${special ? "special" : ""} ${token.id === 366 ? "pul" : ""} ${selected ? "selected" : ""}`;
+        button.dataset.frame = String(frame);
+        button.style.left = `${frame * cellWidth + 3}px`;
+        button.textContent = token.symbol;
+        button.addEventListener("click", (event) => {
           event.stopPropagation();
-          selected = { lane: 'h', index };
-          selectFrame(token.frame, false);
-          renderHTokens();
-          renderInspector();
+          selectObject("h", frame);
         });
-        track.appendChild(el);
-      });
-    }
-
-    function renderMidiP() {
-      const track = document.getElementById('midiPTrack');
-      track.querySelectorAll('.midi-cell').forEach(el => el.remove());
-      midiClasses.forEach((cell, frame) => {
-        const el = document.createElement('div');
-        const kind = cell.value === 255 ? 'rest' : cell.value === 256 ? 'pad' : '';
-        el.className = `midi-cell ${kind} ${cell.locked ? 'locked' : ''} ${selected.lane === 'midip' && selected.index === frame ? 'selected' : ''}`;
-        el.style.left = frameLeft(frame);
-        el.textContent = cell.value === 255 ? 'R' : cell.value === 256 ? 'P' : pitchName(cell.value);
-        el.title = midiDescription(frame);
-        el.addEventListener('click', event => {
+        button.addEventListener("dblclick", (event) => {
           event.stopPropagation();
-          selected = { lane: 'midip', index: frame };
-          selectFrame(frame, false);
-          renderMidiP();
-          renderInspector();
+          openTokenPicker(frame);
         });
-        track.appendChild(el);
+        button.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openTokenPicker(frame);
+        });
+        button.addEventListener("mouseenter", (event) => showTokenTooltip(event, frame, token));
+        button.addEventListener("mousemove", moveTokenTooltip);
+        button.addEventListener("mouseleave", hideTokenTooltip);
+        button.addEventListener("pointerdown", (event) => startHTokenDrag(event, frame));
+        hLane.appendChild(button);
       });
+      addPreview(hLane, "h");
     }
 
-    function renderAll() {
-      renderRuler();
-      renderNotes();
-      renderSpanBlocks('kanaTrack', moras, 'kana-block', item => `<span>${item.kana}<br><small>${item.romaji}</small></span>`);
-      renderSpanBlocks('phoneTrack', phones, 'phone-block', item => item.symbol);
-      renderHTokens();
-      renderMidiP();
-      applyMode();
-      renderInspector();
+    function renderMidi(draft = null) {
+      midiLane.innerHTML = makeGrid();
+      const grid = document.createElement("div");
+      grid.className = "midi-grid";
+      state.midi.forEach((classId, frame) => {
+        const draftHere = draft && draft.frame === frame;
+        const visibleClass = draftHere ? draft.classId : classId;
+        const button = document.createElement("button");
+        const selected = state.selection.type === "midi" && Number(state.selection.id) === frame;
+        button.className = `midi-cell ${visibleClass === REST ? "rest" : ""} ${selected ? "selected" : ""} ${draftHere ? "draft" : ""}`;
+        button.dataset.frame = String(frame);
+        button.textContent = visibleClass === REST ? "R" : midiLabel(visibleClass);
+        button.title = `frame ${frame} · class ${visibleClass} · ${midiLabel(visibleClass)}`;
+        button.addEventListener("click", () => {
+          selectObject("midi", frame);
+          playPianoPreview(classId);
+        });
+        button.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          openMidiPicker(frame);
+        });
+        button.addEventListener("pointerdown", (event) => startMidiDrag(event, frame));
+        grid.appendChild(button);
+      });
+      midiLane.appendChild(grid);
+      addPreview(midiLane, "midi");
     }
 
-    function selectFrame(frame, updateSelection = true) {
-      currentFrame = Math.max(0, Math.min(FRAME_COUNT - 1, frame));
-      if (updateSelection) selected = { lane: 'midip', index: currentFrame };
-      updatePlayhead();
-      renderInspector();
-      renderMidiP();
+    function addPreview(lane, target) {
+      if (!state.preview || state.preview.target !== target) return;
+      const preview = document.createElement("div");
+      preview.className = "replace-preview";
+      preview.style.left = `${state.preview.start * cellWidth}px`;
+      preview.style.width = `${Math.max(1, state.preview.end - state.preview.start) * cellWidth}px`;
+      lane.appendChild(preview);
     }
 
-    function updatePlayhead() {
-      root.style.setProperty('--play-frame', currentFrame);
-    }
-
-    function applyMode() {
-      document.querySelectorAll('.token-lane').forEach(el => el.classList.toggle('hidden-by-mode', mode !== 'token'));
-      document.querySelectorAll('.align-lane').forEach(el => el.classList.toggle('hidden-by-mode', mode === 'compose'));
-      document.querySelectorAll('[data-mode]').forEach(el => el.classList.toggle('active', el.dataset.mode === mode));
+    function renderPlayhead() {
+      playhead.style.left = `${state.playhead * cellWidth}px`;
     }
 
     function renderInspector() {
-      const title = document.getElementById('inspectorTitle');
-      const sub = document.getElementById('inspectorSub');
-      const frameField = document.getElementById('fieldFrame');
-      const timeField = document.getElementById('fieldTime');
-      const pcmField = document.getElementById('fieldPcm');
-      const valueField = document.getElementById('fieldValue');
-      const sourceField = document.getElementById('fieldSource');
-      const stateField = document.getElementById('fieldState');
-      const parentField = document.getElementById('fieldParent');
-      const boundaryField = document.getElementById('fieldBoundary');
-      const midiActions = document.getElementById('midiActions');
-      const hActions = document.getElementById('hActions');
+      const selection = state.selection;
+      let title = "SynthesisUnit";
+      let subtitle = `frameCount ${FRAME_COUNT}`;
+      let body = "";
 
-      let frame = currentFrame;
-      let value = '';
-      let source = 'user';
-      let locked = false;
-      let parent = '-';
-      let heading = 'Frame';
-
-      if (selected.lane === 'h') {
-        const token = hTokens[selected.index];
-        if (!token) return;
-        frame = token.frame;
-        heading = 'H Token';
-        value = `${token.symbol} · token ${token.id}`;
-        source = token.locked ? 'user override' : 'SOFA / runtime';
-        locked = token.locked;
-        parent = `mora ${token.parent}`;
-        midiActions.hidden = true;
-        hActions.hidden = false;
-      } else if (selected.lane === 'note') {
-        const note = notes[selected.index];
-        heading = 'MIDI Note';
-        frame = note.start;
-        value = `${note.name} · MIDI ${note.pitch}`;
-        source = 'MidiObject';
-        parent = moras.find(item => item.start === note.start)?.kana || '-';
-        midiActions.hidden = true;
-        hActions.hidden = true;
-      } else if (selected.lane === 'kana') {
-        const mora = moras[selected.index];
-        heading = 'Kana / Mora';
-        frame = mora.start;
-        value = `${mora.kana} · ${mora.romaji}`;
-        source = 'user confirmed';
-        parent = 'phrase 03';
-        midiActions.hidden = true;
-        hActions.hidden = true;
-      } else if (selected.lane === 'phone') {
-        const phone = phones[selected.index];
-        heading = 'Phone Interval';
-        frame = phone.start;
-        value = `${phone.symbol} · ${phone.end - phone.start} frames`;
-        source = 'SOFA';
-        parent = moras.find(item => frame >= item.start && frame < item.end)?.kana || '-';
-        midiActions.hidden = true;
-        hActions.hidden = true;
-      } else {
-        const cell = midiClasses[selected.index] || midiClasses[currentFrame];
-        frame = selected.index;
-        heading = 'MIDI-P Token';
-        value = cell.value === 255 ? 'REST · class 255' : cell.value === 256 ? 'PAD · class 256' : `class ${cell.value} · ${pitchName(cell.value)}`;
-        source = cell.origin;
-        locked = cell.locked;
-        parent = moras.find(item => frame >= item.start && frame < item.end)?.kana ? `mora ${moras.find(item => frame >= item.start && frame < item.end).kana}` : 'pause';
-        midiActions.hidden = false;
-        hActions.hidden = true;
+      if (selection.type === "audio") {
+        title = "Guide Audio";
+        subtitle = "Source · fixed boundary";
+        body = inspectorProperties([
+          ["文件", GUIDE_FILE_NAME],
+          ["源区间", `${GUIDE_OFFSET_SECONDS.toFixed(3)}–${GUIDE_END_SECONDS.toFixed(3)} s`],
+          ["采样率", "44100 Hz"],
+          ["模型帧", String(FRAME_COUNT)],
+          ["PCM", "131072 samples"],
+          ["窗口时长", `${GUIDE_WINDOW_SECONDS.toFixed(6)} s`]
+        ]) + inspectorCommands([
+          ["GAME → MIDI-P", "audio-midi"],
+          ["转录 → Segment", "audio-segment"]
+        ]);
+      } else if (selection.type === "segment") {
+        const segment = state.segments.find((item) => item.id === selection.id);
+        if (segment) {
+          const ownedEnd = segmentOwnedEnd(segment);
+          title = "Segment";
+          subtitle = `${segment.id} · ${segment.origin}`;
+          body = inspectorProperties([
+            ["文本", segment.text],
+            ["Kana", segment.kana],
+            ["发声", `${segment.start}..${segment.speechEnd}`],
+            ["H 范围", `${segment.start}..${ownedEnd}`],
+            ["SEP", `frame ${ownedEnd - 1}`]
+          ]) + inspectorCommands([
+            ["编辑 Segment", "edit-segment"],
+            ["对齐至 Kana", "segment-kana"],
+            ["对齐至 H", "segment-h"]
+          ]);
+        }
+      } else if (selection.type === "kana") {
+        const unit = state.kana.find((item) => item.id === selection.id);
+        if (unit) {
+          title = "KanaUnit";
+          subtitle = `${unit.id} · ${unit.origin}`;
+          body = inspectorProperties([
+            ["Kana", unit.kana],
+            ["Romaji", unit.romaji],
+            ["范围", `${unit.start}..${unit.end}`],
+            ["时长", `${((unit.end - unit.start) / FRAME_RATE).toFixed(3)} s`]
+          ]) + inspectorCommands([
+            ["编辑 Kana", "edit-kana"],
+            ["对齐至 H", "kana-h"]
+          ]);
+        }
+      } else if (selection.type === "h") {
+        const frame = Number(selection.id);
+        const token = state.h[frame];
+        title = token ? `H Token · ${token.symbol}` : "H Token · 0";
+        subtitle = `frame ${frame} · ${formatTime(frame)}`;
+        body = inspectorProperties([
+          ["Token", token ? `${token.symbol} · ID ${token.id}` : "0 · no explicit event"],
+          ["中文", token ? token.name : "空 frame"],
+          ["PCM", frameSampleRange(frame)],
+          ["来源", token ? token.origin : "filler"],
+          ["训练暴露", token && token.id <= 366 ? "V5-P 40K 已核验" : "-"],
+          ["Segment", segmentForFrame(frame)?.text || "无"],
+          ["Kana", kanaForFrame(frame)?.kana || "无"]
+        ]) + inspectorCommands([
+          ["替换 Token", "replace-h"],
+          ["清为 0", "clear-h"]
+        ]);
+      } else if (selection.type === "midi") {
+        const frame = Number(selection.id);
+        const classId = state.midi[frame];
+        title = "MIDI-P Token";
+        subtitle = `frame ${frame} · fixed boundary`;
+        body = inspectorProperties([
+          ["Class", String(classId)],
+          ["音高", midiLabel(classId)],
+          ["MIDI", classId < REST ? classToMidi(classId).toFixed(1) : "-"],
+          ["PCM", frameSampleRange(frame)],
+          ["来源", state.midiOrigin[frame]],
+          ["Segment", segmentForFrame(frame)?.text || "无"]
+        ]) + inspectorCommands([
+          ["强制替换", "replace-midi"],
+          ["写入 REST", "midi-rest"]
+        ]);
       }
 
-      title.textContent = heading;
-      sub.textContent = `${frame < B_START ? 'A global' : 'B local'} frame ${frame < B_START ? frame : frame - B_START}`;
-      frameField.textContent = String(frame);
-      timeField.textContent = `${frameTime(frame).toFixed(4)} s`;
-      pcmField.textContent = `${frame * HOP} - ${(frame + 1) * HOP - 1}`;
-      valueField.textContent = value;
-      sourceField.textContent = source;
-      stateField.textContent = locked ? '已锁定' : '未锁定';
-      parentField.textContent = parent;
-      boundaryField.textContent = frame < B_START ? 'A reference · read only' : `B start + ${frame - B_START} frames`;
+      inspector.innerHTML = `
+        <div class="inspector-header"><h2>${title}</h2><p>${subtitle}</p></div>
+        ${body}
+        <div class="inspector-section">
+          <h3>Track revisions</h3>
+          <div class="revision-list">
+            <div class="revision-row"><span>Segment</span><strong>r${state.revisions.segment}</strong></div>
+            <div class="revision-row"><span>Kana</span><strong>r${state.revisions.kana}</strong></div>
+            <div class="revision-row"><span>H Token</span><strong>r${state.revisions.h}</strong></div>
+            <div class="revision-row"><span>MIDI-P</span><strong>r${state.revisions.midi}</strong></div>
+          </div>
+        </div>`;
+
+      inspector.querySelectorAll("[data-inspector-action]").forEach((button) => {
+        button.addEventListener("click", () => handleInspectorAction(button.dataset.inspectorAction));
+      });
+      refreshIcons();
     }
 
-    function pitchName(classId) {
-      const midi = classId / 2;
-      const base = Math.floor(midi);
-      const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-      const name = names[((base % 12) + 12) % 12];
-      const octave = Math.floor(base / 12) - 1;
-      return `${name}${octave}${midi % 1 ? '+50' : ''}`;
+    function inspectorProperties(entries) {
+      return `<div class="inspector-section"><h3>Properties</h3><dl class="property-grid">${entries.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("")}</dl></div>`;
     }
 
-    function midiDescription(frame) {
-      const cell = midiClasses[frame];
-      return cell.value === 255 ? `frame ${frame} · REST` : cell.value === 256 ? `frame ${frame} · PAD` : `frame ${frame} · class ${cell.value} · ${pitchName(cell.value)}`;
+    function inspectorCommands(commands) {
+      return `<div class="inspector-section"><h3>Commands</h3><div class="command-row">${commands.map(([label, action], index) => `<button class="inspector-command ${commands.length % 2 === 1 && index === commands.length - 1 ? "wide" : ""}" data-inspector-action="${action}">${label}</button>`).join("")}</div></div>`;
     }
 
-    function editSelectedMidi(delta, rest = false) {
-      if (selected.lane !== 'midip') return;
-      const frame = selected.index;
-      if (frame < B_START) return;
-      const cell = midiClasses[frame];
-      if (rest) cell.value = 255;
-      else if (cell.value >= 0 && cell.value <= 254) cell.value = Math.max(0, Math.min(254, cell.value + delta));
-      else cell.value = 120;
-      cell.origin = 'user override';
-      cell.locked = true;
-      renderMidiP();
+    function renderStatus() {
+      document.getElementById("unitRevision").textContent = `Unit r${state.unitRevision}`;
+      document.getElementById("statusMessage").textContent = statusMessage;
+      document.getElementById("statusRevisions").innerHTML = `
+        <b>S r${state.revisions.segment}</b>
+        <b>K r${state.revisions.kana}</b>
+        <b>H r${state.revisions.h}</b>
+        <b>M r${state.revisions.midi}</b>`;
+      document.getElementById("undoButton").disabled = history.length === 0;
+      document.getElementById("redoButton").disabled = future.length === 0;
+    }
+
+    function renderAll() {
+      document.documentElement.style.setProperty("--cell", `${cellWidth}px`);
+      renderRuler();
+      renderSegments();
+      renderKana();
+      renderH();
+      renderMidi();
+      renderPlayhead();
       renderInspector();
-      updateTone();
+      renderStatus();
+      drawWaveform();
+      refreshIcons();
     }
 
-    function moveSelectedH(delta) {
-      if (selected.lane !== 'h') return;
-      const token = hTokens[selected.index];
-      const previous = hTokens[selected.index - 1];
-      const next = hTokens[selected.index + 1];
-      const lower = Math.max(B_START, previous ? previous.frame + 1 : B_START);
-      const upper = Math.min(FRAME_COUNT - 1, next ? next.frame - 1 : FRAME_COUNT - 1);
-      token.frame = Math.max(lower, Math.min(upper, token.frame + delta));
-      token.locked = true;
-      currentFrame = token.frame;
-      updatePlayhead();
-      renderHTokens();
+    function drawWaveform() {
+      const canvas = document.getElementById("waveform");
+      const width = FRAME_COUNT * cellWidth;
+      const height = audioLane.clientHeight || 92;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const context = canvas.getContext("2d");
+      context.scale(ratio, ratio);
+      context.clearRect(0, 0, width, height);
+
+      context.strokeStyle = "#3ec5b2";
+      context.lineWidth = 1;
+      context.beginPath();
+      if (guideBuffer) {
+        const samples = guideBuffer.getChannelData(0);
+        const windowStart = Math.floor(GUIDE_OFFSET_SECONDS * guideBuffer.sampleRate);
+        const windowEnd = Math.min(samples.length, Math.ceil(GUIDE_END_SECONDS * guideBuffer.sampleRate));
+        const samplesPerPixel = (windowEnd - windowStart) / width;
+        for (let x = 0; x < width; x += 1) {
+          const start = windowStart + Math.floor(x * samplesPerPixel);
+          const end = Math.min(windowEnd, windowStart + Math.ceil((x + 1) * samplesPerPixel));
+          let minimum = 1;
+          let maximum = -1;
+          for (let sample = start; sample < end; sample += 1) {
+            minimum = Math.min(minimum, samples[sample]);
+            maximum = Math.max(maximum, samples[sample]);
+          }
+          const yTop = height / 2 - maximum * (height * 0.38);
+          const yBottom = height / 2 - minimum * (height * 0.38);
+          context.moveTo(x, yTop);
+          context.lineTo(x, yBottom);
+        }
+      } else {
+        context.moveTo(0, height / 2);
+        context.lineTo(width, height / 2);
+      }
+      context.stroke();
+    }
+
+    async function loadGuideWaveform() {
+      try {
+        const response = await fetch(guideAudio.src);
+        if (!response.ok) throw new Error(`Guide HTTP ${response.status}`);
+        const payload = await response.arrayBuffer();
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) throw new Error("Web Audio unavailable");
+        if (!audioContext) audioContext = new AudioContextClass({ sampleRate: 44100 });
+        guideBuffer = await audioContext.decodeAudioData(payload.slice(0));
+        statusMessage = `Guide 已载入 · ${GUIDE_FILE_NAME} · ${GUIDE_OFFSET_SECONDS.toFixed(3)}–${GUIDE_END_SECONDS.toFixed(3)} s`;
+        drawWaveform();
+        renderStatus();
+      } catch (error) {
+        statusMessage = `Guide 加载失败 · ${error.message}`;
+        renderStatus();
+      }
+    }
+
+    function selectObject(type, id) {
+      state.selection = { type, id };
+      if (type === "h" || type === "midi") state.playhead = Number(id);
+      renderAll();
+    }
+
+    function showContext(items, x, y) {
+      contextMenu.innerHTML = "";
+      items.forEach((item) => {
+        const button = document.createElement("button");
+        button.className = `context-item ${item.danger ? "danger" : ""}`;
+        button.innerHTML = `<i data-lucide="${item.icon}"></i><span>${item.label}</span>`;
+        button.addEventListener("click", () => {
+          closeContextMenu();
+          item.action();
+        });
+        contextMenu.appendChild(button);
+      });
+      contextMenu.classList.add("open");
+      const menuWidth = 250;
+      const menuHeight = items.length * 36 + 12;
+      contextMenu.style.left = `${Math.min(x, window.innerWidth - menuWidth - 8)}px`;
+      contextMenu.style.top = `${Math.min(y, window.innerHeight - menuHeight - 8)}px`;
+      refreshIcons();
+    }
+
+    function closeContextMenu() {
+      contextMenu.classList.remove("open");
+    }
+
+    function openSegmentContext(event, segmentId) {
+      event.preventDefault();
+      event.stopPropagation();
+      selectObjectWithoutRender("segment", segmentId);
+      showContext([
+        { icon: "align-horizontal-distribute-center", label: "自动对齐至 Kana", action: () => beginOperation("segment-kana", segmentId) },
+        { icon: "binary", label: "自动对齐至 H token", action: () => beginOperation("segment-h", segmentId) },
+        { icon: "square-pen", label: "编辑 Segment", action: () => openTextEditor("segment", segmentId) }
+      ], event.clientX, event.clientY);
+    }
+
+    function openKanaContext(event, kanaId) {
+      event.preventDefault();
+      event.stopPropagation();
+      selectObjectWithoutRender("kana", kanaId);
+      showContext([
+        { icon: "binary", label: "自动对齐至 H token", action: () => beginOperation("kana-h", kanaId) },
+        { icon: "square-pen", label: "编辑 Kana", action: () => openTextEditor("kana", kanaId) }
+      ], event.clientX, event.clientY);
+    }
+
+    function selectObjectWithoutRender(type, id) {
+      state.selection = { type, id };
       renderInspector();
     }
 
-    function startHDrag(event, index) {
-      if (event.button !== 0) return;
-      const token = hTokens[index];
-      const startX = event.clientX;
-      const startFrame = token.frame;
-      const frameWidthPx = parseFloat(getComputedStyle(root).getPropertyValue('--frame-width')) || 32;
+    function countManualInRange(target, start, end) {
+      if (target === "h") {
+        return Object.entries(state.h).filter(([frame, token]) => Number(frame) >= start && Number(frame) < end && token.origin === "user").length;
+      }
+      if (target === "kana") {
+        return state.kana.filter((unit) => unit.start < end && unit.end > start && unit.origin === "user").length;
+      }
+      if (target === "segment") {
+        return state.segments.filter((segment) => segment.origin === "user").length;
+      }
+      if (target === "midi") {
+        return state.midiOrigin.filter((origin, frame) => frame >= start && frame < end && origin === "user").length;
+      }
+      return 0;
+    }
+
+    function beginOperation(kind, sourceId = null) {
+      closeContextMenu();
+      let operation;
+      if (kind === "audio-midi") {
+        operation = { kind, sourceId, title: "GAME 自动生成 MIDI-P", source: "Guide Audio", target: "midi", targetLabel: "MIDI-P Track", start: 0, end: FRAME_COUNT };
+      } else if (kind === "audio-segment") {
+        operation = { kind, sourceId, title: "Whisper + SOFA 转录 Segment", source: "Guide Audio", target: "segment", targetLabel: "Segment Track", start: 0, end: FRAME_COUNT };
+      } else if (kind === "segment-kana") {
+        const segment = state.segments.find((item) => item.id === sourceId);
+        operation = { kind, sourceId, title: "Segment 自动对齐至 Kana", source: segment.text, target: "kana", targetLabel: "Kana Track", start: segment.start, end: segment.speechEnd };
+      } else if (kind === "segment-h") {
+        const segment = state.segments.find((item) => item.id === sourceId);
+        operation = { kind, sourceId, title: "Segment 自动对齐至 H token", source: segment.text, target: "h", targetLabel: "H Token Track", start: segment.start, end: segmentOwnedEnd(segment) };
+      } else if (kind === "kana-h") {
+        const unit = state.kana.find((item) => item.id === sourceId);
+        operation = { kind, sourceId, title: "Kana 自动对齐至 H token", source: `${unit.kana} · ${unit.romaji}`, target: "h", targetLabel: "H Token Track", start: unit.start, end: kanaControlEnd(unit) };
+      }
+
+      operation.manualCount = countManualInRange(operation.target, operation.start, operation.end);
+      operation.targetRevision = state.revisions[operation.target === "midi" ? "midi" : operation.target];
+      activeOperation = operation;
+      state.preview = { target: operation.target, start: operation.start, end: operation.end };
+      renderAll();
+
+      document.getElementById("operationTitle").textContent = operation.title;
+      document.getElementById("operationSubtitle").textContent = `只写 ${operation.targetLabel}`;
+      document.getElementById("operationSummary").innerHTML = `
+        <div><span>源</span><strong>${operation.source}</strong></div>
+        <div><span>唯一目标</span><strong>${operation.targetLabel} r${operation.targetRevision}</strong></div>
+        <div><span>覆盖 Frame</span><strong>${operation.start}..${operation.end - 1}</strong></div>
+        <div><span>手工对象</span><strong>${operation.manualCount}</strong></div>`;
+      document.getElementById("operationNote").textContent = operation.manualCount > 0
+        ? `目标范围内的 ${operation.manualCount} 个手工修改将被覆盖。Segment、Kana、H、MIDI-P 中的其他轨道不会改变。`
+        : "操作只替换高亮目标范围，其他轨道及目标轨范围外的 frame 保持不变。";
+      openModal("operationBackdrop");
+    }
+
+    function executeOperation() {
+      if (!activeOperation) return;
+      const operation = activeOperation;
+      const before = { ...state.revisions };
+      pushHistory();
+
+      if (operation.kind === "audio-midi") {
+        state.midi = [...generatedMidi];
+        state.midiOrigin = state.midi.map(() => "game");
+        state.revisions.midi += 1;
+      } else if (operation.kind === "audio-segment") {
+        state.segments = deepClone(generatedSegments);
+        state.revisions.segment += 1;
+      } else if (operation.kind === "segment-kana") {
+        const segment = state.segments.find((item) => item.id === operation.sourceId);
+        state.kana = state.kana.filter((unit) => !(unit.start < operation.end && unit.end > operation.start));
+        const generated = segment.id === "s1" && segment.kana === generatedSegments[0].kana
+          ? deepClone(generatedKana)
+          : generateKanaForSegment(segment);
+        state.kana.push(...generated);
+        state.kana.sort((a, b) => a.start - b.start);
+        const boundary = segmentOwnedEnd(segment);
+        state.kanaBreaks = state.kanaBreaks.filter((item) => item.frame !== boundary);
+        if (boundary < FRAME_COUNT) {
+          state.kanaBreaks.push({ id: `seg-${segment.id}-${state.revisions.kana + 1}`, frame: boundary, origin: "segment-align" });
+        }
+        state.kanaBreaks.sort((a, b) => a.frame - b.frame);
+        state.revisions.kana += 1;
+      } else if (operation.kind === "segment-h") {
+        clearHRange(operation.start, operation.end);
+        const segment = state.segments.find((item) => item.id === operation.sourceId);
+        if (segment.id === "s1" && segment.kana === generatedSegments[0].kana) {
+          generatedHEvents.forEach(([frame, symbol]) => {
+            if (frame >= operation.start && frame < operation.end) {
+              state.h[frame] = {
+                ...(symbol === "SEP" ? specialTokens.SEP : tokenBySymbol[symbol]),
+                origin: "sofa-phone"
+              };
+            }
+          });
+        } else {
+          const generated = generateHForKanaString(segment.kana, operation.start, segment.speechEnd, operation.end - 1, "segment-align");
+          generated.forEach(({ frame, token }) => { state.h[frame] = token; });
+          state.h[operation.end - 1] = { ...specialTokens.SEP, origin: "segment-align" };
+        }
+        state.revisions.h += 1;
+      } else if (operation.kind === "kana-h") {
+        clearHRange(operation.start, operation.end);
+        const unit = state.kana.find((item) => item.id === operation.sourceId);
+        const phones = kanaPhones[unit.kana] || ["a"];
+        placeSymbols(phones, operation.start, operation.end, "kana-align").forEach(({ frame, token }) => { state.h[frame] = token; });
+        if (state.kanaBreaks.some((boundary) => boundary.frame === operation.end)) {
+          state.h[operation.end - 1] = { ...specialTokens.SEP, origin: "kana-align" };
+        }
+        state.revisions.h += 1;
+      }
+
+      state.unitRevision += 1;
+      state.preview = null;
+      const changedTrack = Object.keys(state.revisions).find((key) => state.revisions[key] !== before[key]);
+      statusMessage = `${operation.targetLabel} 局部覆盖完成；仅 ${changedTrack} revision 改变`;
+      activeOperation = null;
+      closeModal("operationBackdrop");
+      renderAll();
+      showToast(`${operation.targetLabel} 已更新，其他轨保持 r${before.segment}/r${before.kana}/r${before.h}/r${before.midi}`);
+    }
+
+    function generateKanaForSegment(segment) {
+      const characters = Array.from(segment.kana.replace(/[\s、。,.!?！？]/g, ""));
+      const available = Math.max(characters.length, segment.speechEnd - segment.start);
+      return characters.map((kana, index) => {
+        const start = segment.start + Math.floor((index * available) / characters.length);
+        const end = segment.start + Math.floor(((index + 1) * available) / characters.length);
+        return {
+          id: `auto-${segment.id}-${state.revisions.kana + 1}-${index}`,
+          kana,
+          romaji: kanaRomaji[kana] || "?",
+          start: clamp(start, segment.start, segment.speechEnd - 1),
+          end: clamp(Math.max(start + 1, end), segment.start + 1, segment.speechEnd),
+          origin: "segment-align"
+        };
+      });
+    }
+
+    function generateHForKanaString(kanaText, start, speechEnd, sepFrame, origin) {
+      const symbols = Array.from(kanaText.replace(/[\s、。,.!?！？]/g, "")).flatMap((kana) => kanaPhones[kana] || ["a"]);
+      const placed = placeSymbols(symbols, start, Math.max(start + 1, Math.min(speechEnd, sepFrame)), origin);
+      return placed.filter((item) => item.frame < sepFrame);
+    }
+
+    function placeSymbols(symbols, start, end, origin) {
+      const capacity = Math.max(1, end - start);
+      let previous = start - 1;
+      return symbols.map((symbol, index) => {
+        let frame = start + Math.floor((index * capacity) / Math.max(1, symbols.length));
+        frame = Math.max(previous + 1, frame);
+        frame = Math.min(end - 1, frame);
+        previous = frame;
+        const source = tokenBySymbol[symbol] || tokenBySymbol.a;
+        return { frame, token: { ...source, origin } };
+      }).filter((item, index, array) => index === 0 || item.frame > array[index - 1].frame);
+    }
+
+    function clearHRange(start, end) {
+      Object.keys(state.h).forEach((frame) => {
+        const numeric = Number(frame);
+        if (numeric >= start && numeric < end) delete state.h[frame];
+      });
+    }
+
+    function kanaControlEnd(unit) {
+      const nextKana = state.kana.filter((item) => item.start > unit.start).sort((a, b) => a.start - b.start)[0];
+      const nextBoundary = state.kanaBreaks.filter((item) => item.frame > unit.start).sort((a, b) => a.frame - b.frame)[0];
+      const candidates = [unit.end, nextKana?.start, nextBoundary?.frame].filter((value) => Number.isFinite(value) && value > unit.start);
+      return Math.min(...candidates, FRAME_COUNT);
+    }
+
+    function openTextEditor(type, id) {
+      activeTextEditor = { type, id };
+      const isSegment = type === "segment";
+      const object = isSegment ? state.segments.find((item) => item.id === id) : state.kana.find((item) => item.id === id);
+      document.getElementById("textEditTitle").textContent = isSegment ? "编辑 Segment" : "编辑 KanaUnit";
+      document.getElementById("textEditSubtitle").textContent = `${id} · 只修改 ${isSegment ? "SegmentTrack" : "KanaTrack"}`;
+      document.getElementById("textEditFields").innerHTML = isSegment
+        ? `
+          <label for="editText">原句</label><input id="editText" value="${escapeAttribute(object.text)}">
+          <label for="editKana">Kana</label><input id="editKana" value="${escapeAttribute(object.kana)}">
+          <label for="editRomaji">Romaji</label><input id="editRomaji" value="${escapeAttribute(object.romaji)}">
+          <label for="editStart">Start frame</label><input id="editStart" type="number" min="0" max="${FRAME_COUNT - 1}" value="${object.start}">
+          <label for="editEnd">Speech end</label><input id="editEnd" type="number" min="1" max="${FRAME_COUNT}" value="${object.speechEnd}">`
+        : `
+          <label for="editKana">Kana</label><input id="editKana" value="${escapeAttribute(object.kana)}">
+          <label for="editRomaji">Romaji</label><input id="editRomaji" value="${escapeAttribute(object.romaji)}">
+          <label for="editStart">Start frame</label><input id="editStart" type="number" min="0" max="${FRAME_COUNT - 1}" value="${object.start}">
+          <label for="editEnd">End frame</label><input id="editEnd" type="number" min="1" max="${FRAME_COUNT}" value="${object.end}">`;
+      openModal("textEditBackdrop");
+    }
+
+    function saveTextEdit() {
+      if (!activeTextEditor) return;
+      const { type, id } = activeTextEditor;
+      pushHistory();
+      if (type === "segment") {
+        const object = state.segments.find((item) => item.id === id);
+        object.text = document.getElementById("editText").value;
+        object.kana = document.getElementById("editKana").value;
+        object.romaji = document.getElementById("editRomaji").value;
+        object.start = clamp(Number(document.getElementById("editStart").value), 0, FRAME_COUNT - 2);
+        object.speechEnd = clamp(Number(document.getElementById("editEnd").value), object.start + 1, FRAME_COUNT);
+        object.origin = "user";
+        state.segments.sort((a, b) => a.start - b.start);
+        state.revisions.segment += 1;
+        statusMessage = "Segment 已编辑；Kana/H/MIDI-P 未改变";
+      } else {
+        const object = state.kana.find((item) => item.id === id);
+        object.kana = document.getElementById("editKana").value;
+        object.romaji = document.getElementById("editRomaji").value;
+        object.start = clamp(Number(document.getElementById("editStart").value), 0, FRAME_COUNT - 2);
+        object.end = clamp(Number(document.getElementById("editEnd").value), object.start + 1, FRAME_COUNT);
+        object.origin = "user";
+        state.kana.sort((a, b) => a.start - b.start);
+        state.revisions.kana += 1;
+        statusMessage = "Kana 已编辑；Segment/H/MIDI-P 未改变";
+      }
+      state.unitRevision += 1;
+      activeTextEditor = null;
+      closeModal("textEditBackdrop");
+      renderAll();
+    }
+
+    function escapeAttribute(value) {
+      return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    }
+
+    function openTokenPicker(frame) {
+      closeContextMenu();
+      activeTokenFrame = frame;
+      state.selection = { type: "h", id: frame };
+      document.getElementById("tokenPickerSubtitle").textContent = `frame ${frame} · ${formatTime(frame)} · ${state.h[frame] ? "强制替换" : "插入新事件"}`;
+      document.getElementById("tokenSearch").value = "";
+      renderTokenOptions();
+      document.getElementById("clearHToken").disabled = !state.h[frame];
+      openModal("tokenPickerBackdrop");
+      renderAll();
+      setTimeout(() => document.getElementById("tokenSearch").focus(), 0);
+    }
+
+    function renderTokenOptions() {
+      const query = document.getElementById("tokenSearch").value.trim().toLowerCase();
+      const filtered = tokenCatalog.filter((token) => `${token.symbol} ${token.name} ${token.approx} ${token.romaji}`.toLowerCase().includes(query));
+      document.getElementById("tokenList").innerHTML = filtered.map((token) => `
+        <button class="token-option" data-token-id="${token.id}">
+          <span class="token-symbol">${token.symbol}</span>
+          <span class="token-copy"><strong>${token.name}</strong><small>${token.approx} · ID ${token.id}</small></span>
+        </button>`).join("");
+      document.querySelectorAll(".token-option").forEach((button) => {
+        button.addEventListener("click", () => {
+          const token = tokenCatalog.find((item) => item.id === Number(button.dataset.tokenId));
+          replaceHToken(activeTokenFrame, token);
+        });
+      });
+    }
+
+    function replaceHToken(frame, token) {
+      pushHistory();
+      state.h[frame] = { ...token, origin: "user" };
+      state.revisions.h += 1;
+      state.unitRevision += 1;
+      state.selection = { type: "h", id: frame };
+      statusMessage = `H frame ${frame} 强制替换为 ${token.symbol}；其他轨未改变`;
+      closeModal("tokenPickerBackdrop");
+      renderAll();
+    }
+
+    function clearHToken(frame = activeTokenFrame) {
+      if (!state.h[frame]) return;
+      pushHistory();
+      delete state.h[frame];
+      state.revisions.h += 1;
+      state.unitRevision += 1;
+      state.selection = { type: "h", id: frame };
+      statusMessage = `H frame ${frame} 已清为 0；其他轨未改变`;
+      closeModal("tokenPickerBackdrop");
+      renderAll();
+    }
+
+    function showTokenTooltip(event, frame, token) {
+      tokenTooltip.innerHTML = `<strong>${token.name} · ${token.symbol}</strong><p>${token.approx}</p><small>frame ${frame} · ID ${token.id} · ${token.romaji}<br>V5-P 40K：训练见过</small>`;
+      tokenTooltip.classList.add("open");
+      moveTokenTooltip(event);
+    }
+
+    function moveTokenTooltip(event) {
+      tokenTooltip.style.left = `${Math.min(event.clientX + 14, window.innerWidth - 264)}px`;
+      tokenTooltip.style.top = `${Math.min(event.clientY + 14, window.innerHeight - 150)}px`;
+    }
+
+    function hideTokenTooltip() {
+      tokenTooltip.classList.remove("open");
+    }
+
+    function startHTokenDrag(event, frame) {
+      if (event.button !== 0 || state.h[frame]?.id >= 365) return;
+      event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
-      const move = moveEvent => {
-        const delta = Math.round((moveEvent.clientX - startX) / frameWidthPx);
-        selected = { lane: 'h', index };
-        const previous = hTokens[index - 1];
-        const next = hTokens[index + 1];
-        token.frame = Math.max(previous ? previous.frame + 1 : B_START, Math.min(next ? next.frame - 1 : FRAME_COUNT - 1, startFrame + delta));
-        token.locked = true;
-        currentFrame = token.frame;
-        updatePlayhead();
-        renderHTokens();
-        renderInspector();
-      };
-      const up = () => {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
+      event.currentTarget.classList.add("dragging");
+      dragState = { type: "h", source: frame, target: frame, pointerId: event.pointerId, element: event.currentTarget };
     }
 
-    function togglePlay() {
-      playing = !playing;
-      playButton.textContent = playing ? 'Ⅱ' : '▶';
-      playButton.classList.toggle('active', playing);
+    function startMidiDrag(event, frame) {
+      if (event.button !== 0 || state.midi[frame] >= REST) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      playPianoPreview(state.midi[frame]);
+      dragState = {
+        type: "midi",
+        source: frame,
+        target: frame,
+        originalClass: state.midi[frame],
+        classId: state.midi[frame],
+        lastPreviewClass: state.midi[frame],
+        startY: event.clientY,
+        pointerId: event.pointerId,
+        element: event.currentTarget
+      };
+    }
+
+    function handlePointerMove(event) {
+      if (!dragState) return;
+      if (dragState.type === "h") {
+        dragState.target = frameFromPointer(event);
+        hLane.querySelectorAll(".h-hit").forEach((hit) => hit.classList.toggle("drag-target", Number(hit.dataset.frame) === dragState.target));
+      } else if (dragState.type === "midi") {
+        dragState.target = frameFromPointer(event);
+        const deltaClass = Math.round((dragState.startY - event.clientY) / 10);
+        dragState.classId = clamp(dragState.originalClass + deltaClass, 0, 254);
+        if (dragState.classId !== dragState.lastPreviewClass) {
+          dragState.lastPreviewClass = dragState.classId;
+          playPianoPreview(dragState.classId);
+        }
+        renderMidi({ frame: dragState.target, classId: dragState.classId });
+      } else if (dragState.type === "segment-boundary") {
+        updateSegmentBoundaryDrag(dragState, frameFromPointer(event));
+      } else if (dragState.type === "kana-boundary") {
+        updateKanaBoundaryDrag(dragState, frameFromPointer(event));
+      }
+    }
+
+    function handlePointerUp() {
+      if (!dragState) return;
+      const drag = dragState;
+      dragState = null;
+      if (drag.type === "h") {
+        drag.element?.classList.remove("dragging");
+        if (drag.target !== drag.source) {
+          if (state.h[drag.target]) {
+            showToast(`frame ${drag.target} 已有 ${state.h[drag.target].symbol}，请右键强制替换`);
+          } else {
+            pushHistory();
+            state.h[drag.target] = { ...state.h[drag.source], origin: "user" };
+            delete state.h[drag.source];
+            state.revisions.h += 1;
+            state.unitRevision += 1;
+            state.selection = { type: "h", id: drag.target };
+            statusMessage = `H token 从 frame ${drag.source} 移至 ${drag.target}`;
+          }
+        }
+        renderAll();
+      } else if (drag.type === "midi") {
+        pushHistory();
+        if (drag.target !== drag.source) {
+          state.midi[drag.source] = REST;
+          state.midiOrigin[drag.source] = "user";
+        }
+        state.midi[drag.target] = drag.classId;
+        state.midiOrigin[drag.target] = "user";
+        state.revisions.midi += 1;
+        state.unitRevision += 1;
+        state.selection = { type: "midi", id: drag.target };
+        statusMessage = `MIDI-P frame ${drag.target} = class ${drag.classId} · ${midiLabel(drag.classId)}`;
+        playPianoPreview(drag.classId);
+        renderAll();
+      } else if (drag.type === "segment-boundary" || drag.type === "kana-boundary") {
+        if (drag.moved) {
+          const track = drag.type === "segment-boundary" ? "segment" : "kana";
+          state.revisions[track] += 1;
+          state.unitRevision += 1;
+          statusMessage = `${track === "segment" ? "Segment" : "Kana"} 边界已调整；其他轨未改变`;
+        }
+        renderAll();
+      }
+    }
+
+    function openMidiPicker(frame) {
+      activeMidiFrame = frame;
+      state.selection = { type: "midi", id: frame };
+      midiDraft = state.midi[frame] >= REST ? 120 : state.midi[frame];
+      playPianoPreview(midiDraft);
+      document.getElementById("midiPickerSubtitle").textContent = `frame ${frame} · 当前 ${midiLabel(state.midi[frame])}`;
+      document.getElementById("midiSlider").value = midiDraft;
+      renderMidiPickerValue();
+      openModal("midiPickerBackdrop");
+      renderAll();
+    }
+
+    function renderMidiPickerValue() {
+      document.getElementById("midiSlider").value = midiDraft;
+      document.getElementById("midiValueDisplay").innerHTML = `<strong>${midiLabel(midiDraft)}</strong><small>class ${midiDraft} · MIDI ${classToMidi(midiDraft).toFixed(1)}</small>`;
+    }
+
+    function saveMidiValue(classId) {
+      pushHistory();
+      state.midi[activeMidiFrame] = classId;
+      state.midiOrigin[activeMidiFrame] = "user";
+      state.revisions.midi += 1;
+      state.unitRevision += 1;
+      statusMessage = `MIDI-P frame ${activeMidiFrame} 强制替换为 ${midiLabel(classId)}`;
+      playPianoPreview(classId);
+      closeModal("midiPickerBackdrop");
+      renderAll();
+    }
+
+    function handleInspectorAction(action) {
+      const selection = state.selection;
+      if (action === "audio-midi" || action === "audio-segment") beginOperation(action);
+      if (action === "edit-segment") openTextEditor("segment", selection.id);
+      if (action === "segment-kana" || action === "segment-h") beginOperation(action, selection.id);
+      if (action === "edit-kana") openTextEditor("kana", selection.id);
+      if (action === "kana-h") beginOperation(action, selection.id);
+      if (action === "replace-h") openTokenPicker(Number(selection.id));
+      if (action === "clear-h") clearHToken(Number(selection.id));
+      if (action === "replace-midi") openMidiPicker(Number(selection.id));
+      if (action === "midi-rest") {
+        activeMidiFrame = Number(selection.id);
+        saveMidiValue(REST);
+      }
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add("open");
+      refreshIcons();
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("open");
+      if (id === "operationBackdrop" && activeOperation) {
+        activeOperation = null;
+        state.preview = null;
+        renderAll();
+      }
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("open");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("open"), 2600);
+    }
+
+    function undo() {
+      if (!history.length) return;
+      future.push(snapshotState());
+      state = history.pop();
+      statusMessage = "已撤销上一次语义操作";
+      renderAll();
+    }
+
+    function redo() {
+      if (!future.length) return;
+      history.push(snapshotState());
+      state = future.pop();
+      statusMessage = "已重做语义操作";
+      renderAll();
+    }
+
+    function ensureAudioContext() {
+      if (!audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        audioContext = new AudioContextClass({ sampleRate: 44100 });
+      }
+      if (audioContext.state === "suspended") audioContext.resume();
+      return audioContext;
+    }
+
+    function classFrequency(classId) {
+      const midi = classToMidi(classId);
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    function playPianoPreview(classId, duration = 0.72) {
+      if (classId >= REST) return;
+      const context = ensureAudioContext();
+      if (!context) return;
+      const nowMs = performance.now();
+      if (nowMs - lastPianoPreviewAt < 36) return;
+      lastPianoPreviewAt = nowMs;
+
+      const now = context.currentTime;
+      const frequency = classFrequency(classId);
+      const envelope = context.createGain();
+      envelope.gain.setValueAtTime(0.0001, now);
+      envelope.gain.exponentialRampToValueAtTime(0.16, now + 0.008);
+      envelope.gain.exponentialRampToValueAtTime(0.035, now + 0.12);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      envelope.connect(context.destination);
+
+      [[1, "sine", 0.8], [2, "sine", 0.23], [3, "triangle", 0.09]].forEach(([ratio, type, level]) => {
+        const oscillator = context.createOscillator();
+        const partial = context.createGain();
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency * ratio, now);
+        partial.gain.setValueAtTime(level, now);
+        oscillator.connect(partial).connect(envelope);
+        oscillator.start(now);
+        oscillator.stop(now + duration + 0.03);
+      });
+    }
+
+    function midiRunDuration(frame) {
+      const classId = state.midi[frame];
+      let end = frame + 1;
+      while (end < FRAME_COUNT && state.midi[end] === classId) end += 1;
+      return Math.max(0.18, (end - frame) / FRAME_RATE);
+    }
+
+    function previewPlaybackFrame(frame) {
+      if (playbackMode !== "midi") return;
+      const classId = state.midi[frame];
+      const previous = frame > 0 ? state.midi[frame - 1] : null;
+      if (classId < REST && classId !== previous) playPianoPreview(classId, midiRunDuration(frame));
+    }
+
+    function stopPlayback(resetButton = true) {
+      playing = false;
+      clearInterval(playTimer);
+      playTimer = null;
+      guideAudio.pause();
+      if (resetButton) {
+        document.getElementById("playButton").innerHTML = '<i data-lucide="play"></i>';
+        refreshIcons();
+      }
+    }
+
+    function togglePlayback() {
       if (playing) {
-        ensureAudio();
-        lastTimestamp = performance.now();
-        animation = requestAnimationFrame(stepPlayback);
-      } else {
-        cancelAnimationFrame(animation);
-        silenceTone();
-      }
-    }
-
-    function stepPlayback(timestamp) {
-      if (!playing) return;
-      if (timestamp - lastTimestamp >= 1000 / FRAME_RATE) {
-        currentFrame++;
-        if (currentFrame >= FRAME_COUNT) currentFrame = B_START;
-        lastTimestamp = timestamp;
-        updatePlayhead();
-        updateTone();
-        renderInspector();
-      }
-      animation = requestAnimationFrame(stepPlayback);
-    }
-
-    function ensureAudio() {
-      if (audioContext) return;
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      oscillator = audioContext.createOscillator();
-      gainNode = audioContext.createGain();
-      oscillator.type = 'sine';
-      gainNode.gain.value = 0;
-      oscillator.connect(gainNode).connect(audioContext.destination);
-      oscillator.start();
-    }
-
-    function updateTone() {
-      if (!playing || !oscillator || !gainNode) return;
-      const value = midiClasses[currentFrame]?.value;
-      if (value == null || value >= 255) {
-        gainNode.gain.setTargetAtTime(0, audioContext.currentTime, .01);
+        stopPlayback();
+        statusMessage = `试听暂停 · ${playbackMode === "guide" ? "Guide" : "MIDI-P"}`;
+        renderStatus();
         return;
       }
-      const midi = value / 2;
-      const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-      oscillator.frequency.setTargetAtTime(frequency, audioContext.currentTime, .01);
-      gainNode.gain.setTargetAtTime(.06, audioContext.currentTime, .01);
+      playing = true;
+      document.getElementById("playButton").innerHTML = '<i data-lucide="pause"></i>';
+      refreshIcons();
+      if (playbackMode === "guide") {
+        guideAudio.currentTime = clamp(
+          GUIDE_OFFSET_SECONDS + state.playhead / FRAME_RATE,
+          GUIDE_OFFSET_SECONDS,
+          Math.min(guideAudio.duration || GUIDE_END_SECONDS, GUIDE_END_SECONDS)
+        );
+        guideAudio.play().catch((error) => {
+          stopPlayback();
+          statusMessage = `Guide 播放失败 · ${error.message}`;
+          renderStatus();
+        });
+      } else {
+        ensureAudioContext();
+        previewPlaybackFrame(state.playhead);
+      }
+      statusMessage = `空格播放 · ${playbackMode === "guide" ? "Guide Audio" : "MIDI-P 钢琴"}`;
+      renderStatus();
+      playTimer = setInterval(() => {
+        if (playbackMode === "guide") {
+          const localTime = guideAudio.currentTime - GUIDE_OFFSET_SECONDS;
+          state.playhead = clamp(Math.floor(localTime * FRAME_RATE), 0, FRAME_COUNT - 1);
+          if (guideAudio.ended || guideAudio.currentTime >= GUIDE_END_SECONDS) {
+            state.playhead = 0;
+            stopPlayback();
+            renderPlayhead();
+            return;
+          }
+        } else {
+          state.playhead += 1;
+          if (state.playhead >= FRAME_COUNT) {
+            state.playhead = 0;
+            stopPlayback();
+            renderPlayhead();
+            return;
+          }
+          previewPlaybackFrame(state.playhead);
+        }
+        renderPlayhead();
+      }, 1000 / FRAME_RATE);
     }
 
-    function silenceTone() {
-      if (gainNode && audioContext) gainNode.gain.setTargetAtTime(0, audioContext.currentTime, .01);
+    function setPlaybackMode(mode) {
+      if (playing) stopPlayback();
+      playbackMode = mode;
+      document.querySelectorAll("[data-preview-source]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.previewSource === mode));
+      });
+      statusMessage = `空格播放源：${mode === "guide" ? "Guide Audio" : "MIDI-P 钢琴"}`;
+      renderStatus();
     }
 
-    document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
-      mode = button.dataset.mode;
-      applyMode();
-    }));
-    document.getElementById('zoomSlider').addEventListener('input', event => {
-      root.style.setProperty('--frame-width', `${event.target.value}px`);
-    });
-    document.getElementById('snapButton').addEventListener('click', event => event.currentTarget.classList.toggle('active'));
-    document.getElementById('loopButton').addEventListener('click', event => event.currentTarget.classList.toggle('active'));
-    document.getElementById('lockSelection').addEventListener('click', () => {
-      if (selected.lane === 'midip') midiClasses[selected.index].locked = !midiClasses[selected.index].locked;
-      if (selected.lane === 'h') hTokens[selected.index].locked = !hTokens[selected.index].locked;
-      renderMidiP(); renderHTokens(); renderInspector();
-    });
-    document.getElementById('pitchDown').addEventListener('click', () => editSelectedMidi(-1));
-    document.getElementById('pitchUp').addEventListener('click', () => editSelectedMidi(1));
-    document.getElementById('setRest').addEventListener('click', () => editSelectedMidi(0, true));
-    document.getElementById('restoreToken').addEventListener('click', () => {
-      if (selected.lane !== 'midip') return;
-      const cell = midiClasses[selected.index];
-      cell.value = cell.original; cell.origin = cell.value === 255 ? 'REST' : 'note compiler'; cell.locked = false;
-      renderMidiP(); renderInspector();
-    });
-    document.getElementById('hLeft').addEventListener('click', () => moveSelectedH(-1));
-    document.getElementById('hRight').addEventListener('click', () => moveSelectedH(1));
-    document.getElementById('hLock').addEventListener('click', () => document.getElementById('lockSelection').click());
-    document.getElementById('hDelete').addEventListener('click', () => {
-      if (selected.lane !== 'h') return;
-      hTokens.splice(selected.index, 1);
-      selected = { lane: 'midip', index: currentFrame };
-      renderHTokens(); renderInspector();
-    });
-    playButton.addEventListener('click', togglePlay);
-    lanesViewport.addEventListener('scroll', () => { rulerViewport.scrollLeft = lanesViewport.scrollLeft; });
-    rulerViewport.addEventListener('scroll', () => { lanesViewport.scrollLeft = rulerViewport.scrollLeft; });
-    document.querySelectorAll('.lane-track').forEach(track => track.addEventListener('click', event => {
-      const rect = track.getBoundingClientRect();
-      const frameWidthPx = parseFloat(getComputedStyle(root).getPropertyValue('--frame-width')) || 32;
-      selectFrame(Math.floor((event.clientX - rect.left) / frameWidthPx));
-    }));
+    function toggleGroup(group, button) {
+      const visible = button.getAttribute("aria-pressed") !== "true";
+      button.setAttribute("aria-pressed", String(visible));
+      document.querySelectorAll(`[data-group="${group}"]`).forEach((element) => element.classList.toggle("hidden-row", !visible));
+    }
 
+    function startBoundaryDrag(event, track, id, edge) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      state.selection = { type: track, id };
+      dragState = {
+        type: `${track}-boundary`,
+        id,
+        edge,
+        moved: false,
+        historyPushed: false
+      };
+    }
+
+    function ensureBoundaryHistory(drag) {
+      if (drag.historyPushed) return;
+      pushHistory();
+      drag.historyPushed = true;
+    }
+
+    function updateSegmentBoundaryDrag(drag, frame) {
+      const sorted = [...state.segments].sort((a, b) => a.start - b.start);
+      const index = sorted.findIndex((segment) => segment.id === drag.id);
+      const segment = sorted[index];
+      if (!segment) return;
+      let nextValue;
+      if (drag.edge === "start") {
+        const minimum = index > 0 ? sorted[index - 1].speechEnd : 0;
+        nextValue = clamp(frame, minimum, segment.speechEnd - 1);
+        if (nextValue === segment.start) return;
+        ensureBoundaryHistory(drag);
+        segment.start = nextValue;
+      } else {
+        const maximum = index < sorted.length - 1 ? sorted[index + 1].start : FRAME_COUNT;
+        nextValue = clamp(frame + 1, segment.start + 1, maximum);
+        if (nextValue === segment.speechEnd) return;
+        ensureBoundaryHistory(drag);
+        segment.speechEnd = nextValue;
+      }
+      drag.moved = true;
+      renderSegments();
+      renderInspector();
+    }
+
+    function hasKanaBreakBetween(leftFrame, rightFrame) {
+      return state.kanaBreaks.some((boundary) => boundary.frame > leftFrame && boundary.frame <= rightFrame);
+    }
+
+    function updateKanaBoundaryDrag(drag, frame) {
+      const sorted = [...state.kana].sort((a, b) => a.start - b.start);
+      const index = sorted.findIndex((unit) => unit.id === drag.id);
+      const unit = sorted[index];
+      if (!unit) return;
+      const previous = index > 0 ? sorted[index - 1] : null;
+      const next = index < sorted.length - 1 ? sorted[index + 1] : null;
+      let nextValue;
+
+      if (drag.edge === "start") {
+        const sharesBoundary = previous && !hasKanaBreakBetween(previous.start, unit.start);
+        const nearestBreak = [...state.kanaBreaks].filter((boundary) => boundary.frame <= unit.start).sort((a, b) => b.frame - a.frame)[0];
+        const minimum = sharesBoundary ? previous.start + 1 : (nearestBreak?.frame || 0);
+        nextValue = clamp(frame, minimum, unit.end - 1);
+        if (nextValue === unit.start) return;
+        ensureBoundaryHistory(drag);
+        unit.start = nextValue;
+        if (sharesBoundary) previous.end = nextValue;
+      } else {
+        const sharesBoundary = next && !hasKanaBreakBetween(unit.start, next.start);
+        const nearestBreak = [...state.kanaBreaks].filter((boundary) => boundary.frame > unit.start).sort((a, b) => a.frame - b.frame)[0];
+        const maximum = sharesBoundary ? next.end - 1 : (nearestBreak?.frame || FRAME_COUNT);
+        nextValue = clamp(frame + 1, unit.start + 1, maximum);
+        if (nextValue === unit.end) return;
+        ensureBoundaryHistory(drag);
+        unit.end = nextValue;
+        if (sharesBoundary) next.start = nextValue;
+      }
+      drag.moved = true;
+      state.kana.sort((a, b) => a.start - b.start);
+      renderKana();
+      renderInspector();
+    }
+
+    audioLane.addEventListener("click", (event) => {
+      state.playhead = frameFromPointer(event);
+      state.selection = { type: "audio", id: "guide" };
+      guideAudio.currentTime = GUIDE_OFFSET_SECONDS + state.playhead / FRAME_RATE;
+      renderPlayhead();
+      renderInspector();
+    });
+
+    audioLane.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      state.selection = { type: "audio", id: "guide" };
+      renderInspector();
+      showContext([
+        { icon: "audio-lines", label: "GAME 自动生成 MIDI-P token", action: () => beginOperation("audio-midi") },
+        { icon: "captions", label: "自动转录为 Segment", action: () => beginOperation("audio-segment") }
+      ], event.clientX, event.clientY);
+    });
+
+    document.getElementById("playButton").addEventListener("click", togglePlayback);
+    document.getElementById("undoButton").addEventListener("click", undo);
+    document.getElementById("redoButton").addEventListener("click", redo);
+    document.getElementById("snapButton").addEventListener("click", (event) => {
+      snapEnabled = !snapEnabled;
+      event.currentTarget.classList.toggle("active", snapEnabled);
+      event.currentTarget.setAttribute("aria-pressed", String(snapEnabled));
+    });
+
+    document.querySelectorAll("[data-group-toggle]").forEach((button) => {
+      button.addEventListener("click", () => toggleGroup(button.dataset.groupToggle, button));
+    });
+
+    document.querySelectorAll("[data-preview-source]").forEach((button) => {
+      button.addEventListener("click", () => setPlaybackMode(button.dataset.previewSource));
+    });
+
+    document.getElementById("zoomSlider").addEventListener("input", (event) => {
+      cellWidth = Number(event.target.value);
+      renderAll();
+    });
+
+    document.getElementById("confirmOperation").addEventListener("click", executeOperation);
+    document.getElementById("saveTextEdit").addEventListener("click", saveTextEdit);
+    document.getElementById("tokenSearch").addEventListener("input", renderTokenOptions);
+    document.getElementById("clearHToken").addEventListener("click", () => clearHToken());
+    document.getElementById("midiSlider").addEventListener("input", (event) => {
+      midiDraft = Number(event.target.value);
+      renderMidiPickerValue();
+      playPianoPreview(midiDraft);
+    });
+    document.getElementById("midiDown").addEventListener("click", () => {
+      midiDraft = clamp(midiDraft - 1, 0, 254);
+      renderMidiPickerValue();
+      playPianoPreview(midiDraft);
+    });
+    document.getElementById("midiUp").addEventListener("click", () => {
+      midiDraft = clamp(midiDraft + 1, 0, 254);
+      renderMidiPickerValue();
+      playPianoPreview(midiDraft);
+    });
+    document.getElementById("setMidiRest").addEventListener("click", () => saveMidiValue(REST));
+    document.getElementById("saveMidiToken").addEventListener("click", () => saveMidiValue(midiDraft));
+
+    document.querySelectorAll("[data-close-modal]").forEach((button) => {
+      button.addEventListener("click", () => closeModal(button.dataset.closeModal));
+    });
+
+    document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
+      backdrop.addEventListener("mousedown", (event) => {
+        if (event.target === backdrop) closeModal(backdrop.id);
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!contextMenu.contains(event.target)) closeContextMenu();
+    });
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+        document.querySelectorAll(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
+      }
+      if (event.code === "Space" && !event.target.matches("input")) {
+        event.preventDefault();
+        togglePlayback();
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        event.shiftKey ? redo() : undo();
+      }
+    });
+
+    window.addEventListener("resize", drawWaveform);
     renderAll();
-    updatePlayhead();
+    loadGuideWaveform();
   </script>
 </body>
 </html>

@@ -12,6 +12,7 @@ __pycache__/
 data/
 server/data/
 resources/
+exports/
 
 # 项目 blob 文件（大二进制音频文件）
 projects/*/blobs/

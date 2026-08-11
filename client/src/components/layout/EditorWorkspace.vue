@@ -4,6 +4,7 @@ import MainCanvas from '@/components/layout/MainCanvas.vue'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
 import KeymapHelpPage from '@/components/settings/KeymapHelpPage.vue'
 import TextObjectEditor from '@/components/text/TextObjectEditor.vue'
+import SynthesisUnitEditor from '@/components/synthesis/SynthesisUnitEditor.vue'
 
 const editorWorkspace = useEditorWorkspaceStore()
 </script>
@@ -40,7 +41,8 @@ const editorWorkspace = useEditorWorkspaceStore()
       <SettingsPage v-if="editorWorkspace.activeTab?.kind === 'settings'" />
       <KeymapHelpPage v-if="editorWorkspace.activeTab?.kind === 'keymap'" />
       <TextObjectEditor v-if="editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'text'" :object-id="editorWorkspace.activeTab.contextObjectId" />
-      <div v-if="editorWorkspace.activeTab?.kind !== 'timeline' && editorWorkspace.activeTab?.kind !== 'settings' && editorWorkspace.activeTab?.kind !== 'keymap' && !(editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'text')" class="empty-editor">Editor unavailable</div>
+      <SynthesisUnitEditor v-if="editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'synthesisUnit'" :object-id="editorWorkspace.activeTab.contextObjectId" />
+      <div v-if="editorWorkspace.activeTab?.kind !== 'timeline' && editorWorkspace.activeTab?.kind !== 'settings' && editorWorkspace.activeTab?.kind !== 'keymap' && !(editorWorkspace.activeTab?.kind === 'object' && (editorWorkspace.activeTab.objectKind === 'text' || editorWorkspace.activeTab.objectKind === 'synthesisUnit'))" class="empty-editor">Editor unavailable</div>
     </div>
   </section>
 </template>

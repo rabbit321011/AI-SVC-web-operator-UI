@@ -14,7 +14,7 @@ import tempfile
 
 
 SCHEMA = "aisvc.v4h-web-alignment.v1"
-EXPECTED_HASHES = {
+V4H_EXPECTED_HASHES = {
     "h_runner": "936d4a0e34a4f72f52592e741d4c0f1b36ff03e5657cba3d5eaf8242d18090da",
     "frontend": "a121d614d2a0962e4c8db796e186826ef69b7fba5428ecd5167808eff61c27c8",
     "manifest": "67f0abb8f75b1a0b79f17fb2846da086370f49633b71d497acdb10abce75d6c2",
@@ -22,6 +22,11 @@ EXPECTED_HASHES = {
     "japanese": "46dea1dabb4a63c7a1aa7ed03f86ad752da32ea0ff8098b23ee6cb4c75834c89",
     "vocab": "0f5c44e05f79df8ae4fd77d7772950436a8bacc83d134fdf0ae3c72412b5676a",
     "sofa_checkpoint": "d408bb1f511c79ae3fe7ea4f72d02032b384677c1435e9c2e54973139fdf3fc8",
+}
+V5P_SOURCE_EXPECTED_HASHES = {
+    **V4H_EXPECTED_HASHES,
+    "japanese": "b68cf2a90ae65a8158aacba80fa5b5220e68b589482ec9c879d98a8ee07ac7a8",
+    "vocab": "4246e275721cffd944906ad2e148d85ac93250441e04ac75d2670106bc8ada72",
 }
 
 
@@ -37,12 +42,12 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def require_hash(label, path):
+def require_hash(label, path, expected_hashes):
     path = Path(path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"missing V4H {label}: {path}")
     actual = sha256_file(path)
-    expected = EXPECTED_HASHES[label]
+    expected = expected_hashes[label]
     if actual != expected:
         raise ValueError(f"V4H {label} SHA256 mismatch: {actual} != {expected}: {path}")
     return actual
@@ -68,6 +73,13 @@ def parse_args():
     parser.add_argument("--sofa-repo", type=Path, required=True)
     parser.add_argument("--sofa-checkpoint", type=Path, required=True)
     parser.add_argument("--escape-seconds", type=float, required=True)
+    parser.add_argument("--japanese", type=Path)
+    parser.add_argument("--vocab", type=Path)
+    parser.add_argument(
+        "--hash-contract",
+        choices=("v4h", "v5p-source-20260810"),
+        default="v4h",
+    )
     parser.add_argument("--gpu", type=int, default=0)
     return parser.parse_args()
 
@@ -103,6 +115,22 @@ def validate_phrases(source, duration, label, tokenizer):
                 "start": start,
                 "end": min(end, duration),
                 "tokens": tokens,
+                **(
+                    {
+                        "sourceStartFrame": int(raw["startFrame"]),
+                        "sourceEndFrameExclusive": int(raw["endFrameExclusive"]),
+                    }
+                    if raw.get("startFrame") is not None
+                    and raw.get("endFrameExclusive") is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "controlEndFrameExclusive": int(raw["controlEndFrameExclusive"]),
+                    }
+                    if raw.get("controlEndFrameExclusive") is not None
+                    else {}
+                ),
             }
         )
         previous_end = end
@@ -275,16 +303,26 @@ def main():
     singer_root = args.singer_root.resolve()
     h_runner_path = args.h_runner.resolve()
     sofa_checkpoint = args.sofa_checkpoint.resolve()
+    expected_hashes = (
+        V5P_SOURCE_EXPECTED_HASHES
+        if args.hash_contract == "v5p-source-20260810"
+        else V4H_EXPECTED_HASHES
+    )
+    japanese_path = (args.japanese or (runtime / "japanese.py")).resolve()
+    vocab_path = (args.vocab or (runtime / "vocab.json")).resolve()
     required = {
         "h_runner": h_runner_path,
         "frontend": runtime / "h_alignment" / "frontend.py",
         "manifest": runtime / "h_alignment" / "manifest.py",
         "placement": runtime / "h_alignment" / "placement.py",
-        "japanese": runtime / "japanese.py",
-        "vocab": runtime / "vocab.json",
+        "japanese": japanese_path,
+        "vocab": vocab_path,
         "sofa_checkpoint": sofa_checkpoint,
     }
-    hashes = {label: require_hash(label, path) for label, path in required.items()}
+    hashes = {
+        label: require_hash(label, path, expected_hashes)
+        for label, path in required.items()
+    }
 
     sys.path.insert(0, str(h_runner_path.parents[2]))
     h_runner = load_module(h_runner_path, "v4h_authoritative_h_runner_web")
@@ -294,7 +332,7 @@ def main():
         "placement": Path(sys.modules[h_runner.canonical_sha256.__module__].__file__).resolve(),
     }
     for label, module_path in actual_module_paths.items():
-        require_hash(label, module_path)
+        require_hash(label, module_path, expected_hashes)
 
     sys.path.insert(0, str(singer_root))
     os.chdir(singer_root)
@@ -303,8 +341,8 @@ def main():
     tokenizer = CNENTokenizer()
     if int(tokenizer.phone2id["<SEP>"]) != 365:
         raise ValueError("tokenizer SEP ID is not 365")
-    ipa_converter, phone_to_ipa = h_runner.load_japanese_frontend(runtime / "japanese.py")
-    vocab = json.loads((runtime / "vocab.json").read_text(encoding="utf-8"))["vocab"]
+    ipa_converter, phone_to_ipa = h_runner.load_japanese_frontend(japanese_path)
+    vocab = json.loads(vocab_path.read_text(encoding="utf-8"))["vocab"]
 
     class SofaArgs:
         gpu = args.gpu
@@ -317,29 +355,32 @@ def main():
     job = json.loads(args.job_manifest.read_text(encoding="utf-8"))
     temp_dir = Path(tempfile.mkdtemp(prefix="v4h_phrase_", dir=str(args.output.parent)))
     try:
+        b_only = job.get("mode") == "b_only"
         ref_phrases = job.get("refPhrases") or []
         target_phrases = job.get("targetPhrases") or []
-        ref = prepare_region(
-            label="A",
-            audio_path=job["refAudio"],
-            raw_phrases=ref_phrases,
-            escape_seconds=args.escape_seconds,
-            temp_dir=temp_dir,
-            batch_offset=0,
-            h_runner=h_runner,
-            sofa_runtime=sofa_runtime,
-            tokenizer=tokenizer,
-            ipa_converter=ipa_converter,
-            phone_to_ipa=phone_to_ipa,
-            vocab=vocab,
-        )
+        ref = None
+        if not b_only:
+            ref = prepare_region(
+                label="A",
+                audio_path=job["refAudio"],
+                raw_phrases=ref_phrases,
+                escape_seconds=args.escape_seconds,
+                temp_dir=temp_dir,
+                batch_offset=0,
+                h_runner=h_runner,
+                sofa_runtime=sofa_runtime,
+                tokenizer=tokenizer,
+                ipa_converter=ipa_converter,
+                phone_to_ipa=phone_to_ipa,
+                vocab=vocab,
+            )
         target = prepare_region(
             label="B",
             audio_path=job["melodyAudio"],
             raw_phrases=target_phrases,
             escape_seconds=args.escape_seconds,
             temp_dir=temp_dir,
-            batch_offset=len(ref_phrases),
+            batch_offset=0 if b_only else len(ref_phrases),
             h_runner=h_runner,
             sofa_runtime=sofa_runtime,
             tokenizer=tokenizer,
@@ -348,7 +389,7 @@ def main():
             vocab=vocab,
         )
         all_candidates = [
-            *ref["HAlignment"]["phrase_candidates"],
+            *([] if ref is None else ref["HAlignment"]["phrase_candidates"]),
             *target["HAlignment"]["phrase_candidates"],
         ]
         eligible = sum(item.get("status") == "eligible" for item in all_candidates)

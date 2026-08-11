@@ -73,6 +73,23 @@ describe('editor workspace state', () => {
     })
   })
 
+  it('opens SynthesisUnit editors as singleton object tabs', () => {
+    setActivePinia(createPinia())
+    const workspace = useEditorWorkspaceStore()
+
+    workspace.openSynthesisUnitTab('node:synthesisUnit:a', 'Verse A')
+    workspace.openSynthesisUnitTab('node:synthesisUnit:a', 'Verse A')
+
+    expect(workspace.tabs.filter(tab => tab.contextObjectId === 'node:synthesisUnit:a')).toHaveLength(1)
+    expect(workspace.activeTab).toMatchObject({
+      kind: 'object',
+      objectKind: 'synthesisUnit',
+      title: 'Verse A',
+      contextObjectId: 'node:synthesisUnit:a',
+      closable: true,
+    })
+  })
+
   it('keeps timeline scroll state while switching editor tabs', () => {
     setActivePinia(createPinia())
     const workspace = useEditorWorkspaceStore()

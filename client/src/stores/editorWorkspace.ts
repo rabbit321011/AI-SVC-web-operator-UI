@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 export type EditorTabKind = 'timeline' | 'object' | 'settings' | 'keymap'
-export type EditorObjectKind = 'midi' | 'text' | 'pitch' | 'analysis' | 'unknown'
+export type EditorObjectKind = 'midi' | 'text' | 'synthesisUnit' | 'pitch' | 'analysis' | 'unknown'
 
 export interface EditorTab {
   id: string
@@ -78,6 +78,17 @@ export const useEditorWorkspaceStore = defineStore('editorWorkspace', () => {
     })
   }
 
+  function openSynthesisUnitTab(objectId: string, title: string) {
+    openSingletonTab({
+      id: objectEditorId(objectId),
+      kind: 'object',
+      title,
+      contextObjectId: objectId,
+      objectKind: 'synthesisUnit',
+      closable: true,
+    })
+  }
+
   function closeTab(tabId: string): boolean {
     const tab = tabs.value.find(item => item.id === tabId)
     if (!tab || !tab.closable) return false
@@ -117,6 +128,7 @@ export const useEditorWorkspaceStore = defineStore('editorWorkspace', () => {
     openSettingsTab,
     openKeymapTab,
     openTextObjectTab,
+    openSynthesisUnitTab,
     setTimelineScroll,
     closeTab,
     resetToProjectTimeline,

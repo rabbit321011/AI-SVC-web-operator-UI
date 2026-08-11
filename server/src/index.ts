@@ -15,6 +15,21 @@ import { runSvc } from './services/svc.service.js'
 import { buildSvsArgs, runSvs, verifySvsResources } from './services/svs.service.js'
 import { runV4h, verifyV4hResources } from './services/v4h.service.js'
 import { runWhisper } from './services/whisper.service.js'
+import {
+  runSynthesisTextControl,
+  verifySynthesisTextControlResources,
+  type SynthesisTextControlRequest,
+} from './services/synthesis-text-control.service.js'
+import {
+  runSynthesisMidiP,
+  verifySynthesisMidiPResources,
+  type SynthesisMidiPRequest,
+} from './services/synthesis-midi-p.service.js'
+import {
+  runSynthesisDirectControl,
+  verifySynthesisDirectControlResources,
+  type SynthesisDirectControlRequest,
+} from './services/synthesis-direct-control.service.js'
 import { MSST_MODEL_IDS, MSST_OUTPUT_IDS, runMsst, verifyMsstResources } from './services/msst.service.js'
 import { GlobalResourceRepository } from './services/global-resource.service.js'
 import { compareAudioPitch, pitchShiftAudio } from './services/pitch.service.js'
@@ -31,6 +46,9 @@ const wss = new WebSocketServer({ server, path: '/ws/svc' })
 const svcJobs = new Map<string, WebSocket>()
 const svsJobs = new Map<string, WebSocket>()
 const whisperJobs = new Map<string, WebSocket>()
+const textControlJobs = new Map<string, WebSocket>()
+const midiPJobs = new Map<string, WebSocket>()
+const v5pJobs = new Map<string, WebSocket>()
 const msstJobs = new Map<string, WebSocket>()
 
 wss.on('connection', (ws: WebSocket) => {
@@ -43,6 +61,9 @@ wss.on('connection', (ws: WebSocket) => {
         svcJobs.set(msg.jobId, ws)
         svsJobs.set(msg.jobId, ws)
         whisperJobs.set(msg.jobId, ws)
+        textControlJobs.set(msg.jobId, ws)
+        midiPJobs.set(msg.jobId, ws)
+        v5pJobs.set(msg.jobId, ws)
         msstJobs.set(msg.jobId, ws)
         console.log(`[WS] registered job ${msg.jobId}`)
       }
@@ -545,6 +566,101 @@ app.post('/api/whisper/run', (req, res) => {
       if (!tryRun()) console.error(`[Whisper] job ${jobId} WS never connected`)
     }, 2000)
   }
+})
+
+app.post('/api/synthesis/text-control/run', (req, res) => {
+  const request = req.body as SynthesisTextControlRequest
+  try {
+    verifySynthesisTextControlResources(request)
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+    return
+  }
+
+  res.json({ ok: true, jobId: request.jobId, status: 'started' })
+  function tryRun() {
+    const ws = textControlJobs.get(request.jobId)
+    if (!ws) return false
+    console.log(`[TextControl] job ${request.jobId} started, WS found`)
+    void runSynthesisTextControl(request, ws)
+    return true
+  }
+  if (!tryRun()) {
+    console.log(`[TextControl] job ${request.jobId} waiting for WS registration...`)
+    setTimeout(() => {
+      if (!tryRun()) console.error(`[TextControl] job ${request.jobId} WS never connected`)
+    }, 2000)
+  }
+})
+
+app.post('/api/synthesis/midi-p/run', (req, res) => {
+  const request = req.body as SynthesisMidiPRequest
+  try {
+    verifySynthesisMidiPResources(request)
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || String(error) })
+    return
+  }
+
+  res.json({ ok: true, jobId: request.jobId, status: 'started' })
+  function tryRun() {
+    const ws = midiPJobs.get(request.jobId)
+    if (!ws) return false
+    console.log(`[MidiP] job ${request.jobId} started, WS found`)
+    void runSynthesisMidiP(request, ws)
+    return true
+  }
+  if (!tryRun()) {
+    console.log(`[MidiP] job ${request.jobId} waiting for WS registration...`)
+    setTimeout(() => {
+      if (!tryRun()) console.error(`[MidiP] job ${request.jobId} WS never connected`)
+    }, 2000)
+  }
+})
+
+app.post('/api/synthesis/v5p/preflight', (req, res) => {
+  const request = req.body as SynthesisDirectControlRequest
+  void verifySynthesisDirectControlResources(request).then(
+    result => res.json(result),
+    (error: any) => res.status(400).json({ error: error?.message || String(error) }),
+  )
+})
+
+app.post('/api/synthesis/v5p/run', (req, res) => {
+  const request = req.body as SynthesisDirectControlRequest
+  void verifySynthesisDirectControlResources(request).then(verified => {
+    res.json({ ok: true, jobId: request.jobId, status: 'started', preflight: verified })
+    function tryRun() {
+      const ws = v5pJobs.get(request.jobId)
+      if (!ws) return false
+      console.log(`[V5P] job ${request.jobId} started, WS found`)
+      void runSynthesisDirectControl(request, ws, verified)
+      return true
+    }
+    if (!tryRun()) {
+      console.log(`[V5P] job ${request.jobId} waiting for WS registration...`)
+      setTimeout(() => {
+        if (!tryRun()) console.error(`[V5P] job ${request.jobId} WS never connected`)
+      }, 2000)
+    }
+  }, (error: any) => {
+    res.status(400).json({ error: error?.message || String(error) })
+  })
+})
+
+app.get('/api/synthesis/v5p/jobs/:jobId/take.wav', (req, res) => {
+  const jobId = String(req.params.jobId || '')
+  if (!/^[a-zA-Z0-9_-]{4,64}$/.test(jobId)) {
+    res.status(400).json({ error: 'V5-P jobId 无效' })
+    return
+  }
+  const output = path.resolve(PROJECT_ROOT, 'data', `render_${jobId}_v5p`, 'take.wav')
+  const relative = path.relative(path.resolve(PROJECT_ROOT, 'data'), output)
+  if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(output)) {
+    res.status(404).json({ error: 'V5-P Take 不存在' })
+    return
+  }
+  res.sendFile(output)
 })
 
 app.post('/api/msst/run', (req, res) => {

@@ -150,6 +150,11 @@ export interface Command {
         kind: 'snapshot'
         before: unknown
         after: unknown
+        blobChanges?: Array<{
+          key: string
+          before: Blob | null
+          after: Blob | null
+        }>
       }
 }
 

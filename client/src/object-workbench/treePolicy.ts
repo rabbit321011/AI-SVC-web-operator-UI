@@ -36,6 +36,7 @@ export function canDropIntoRenderSlot(node: TreeNode): TreePolicyResult {
 export function canDragIntoTimeline(node: TreeNode, index: RuntimeTreeIndex): TreePolicyResult {
   const area = getProjectArea(index, node.id)
   if (node.kind === 'group') return { ok: false, reason: 'GroupObject 不能拖入中间时间线' }
+  if (node.kind === 'synthesisUnit') return { ok: false, reason: '合成单元需要先把 Take 导出为正式音频' }
   if (node.kind === 'folder' || node.kind === 'trackFolder' || node.kind === 'trackObject') {
     return { ok: false, reason: '该节点不能作为普通素材拖入时间线' }
   }
