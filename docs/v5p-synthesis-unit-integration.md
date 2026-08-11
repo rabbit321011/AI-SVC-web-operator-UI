@@ -43,7 +43,7 @@ AudioObject 的有效音频区间
 | Guide 范围 | 复制该 AudioObject 当前解析后的有效音频区间，不复制整个原始文件 |
 | Guide 所有权 | 复制到项目存储，成为 SynthesisUnit 自有且不可被源对象变化影响的音频资产 |
 | 创建副作用 | 创建时只有 Guide；Whisper、SOFA、GAME、Kana/H 生成均不自动运行 |
-| 编辑入口 | 双击 `SynthesisUnitObject` 打开专用合成单元编辑器 |
+| 编辑入口 | 双击资源树对象或时间线上的 `SynthesisUnit TrackObject`，打开专用编辑器 |
 | B 区控制 | Segment、Kana、H Token、MIDI-P 都是合成单元内部独立物化轨道 |
 | A 区来源 | 绑定另一个 `SynthesisUnitObject`，不分别绑定音色 AudioObject/TextObject |
 | A 音频 | 始终使用参考单元的完整 Guide，不允许使用 Take，不选择局部范围 |
@@ -51,22 +51,25 @@ AudioObject 的有效音频区间
 | A 的 MIDI-P | 不消费；adapter 按训练/推理合同清零 A 区 MIDI 条件 |
 | Take | 每次合成新增不可变 Take；旧 Take 不覆盖、不随当前轨道变化 |
 | 正式音轨 | Take 只有经过“导出到正式音轨”才物化为普通 AudioObject/TrackObject |
-| 默认位置 | SynthesisUnit 继承来源 AudioObject 的 `timelineStart`，导出 Take 时默认回到该位置 |
+| 默认位置 | SynthesisUnit 在独立合成单元轨的来源 `timelineStart` 建立编辑句柄，导出 Take 时默认回到该位置 |
 | TextObject | 现有 TextObject 和旧 Whisper 链路暂时保留；新合成单元内部链路不依赖 TextObject |
 
 ## 3. 对象定位
 
 ### 3.1 四种对象不得混合
 
-| 对象 | 角色 | 可持续编辑 | 直接进入正式时间线 |
-|---|---|---:|---:|
-| `AudioObject` | 普通音频资源或编排素材 | 仅普通音频操作 | 是 |
-| `SynthesisUnitObject` | 一段歌声的 Guide、控制轨、A 绑定与 Take 容器 | 是 | 否 |
-| `SynthesisTake` | 某次 A/B/control/model snapshot 的不可变合成候选 | 否 | 否 |
-| 导出的 `AudioObject/TrackObject` | 已采用的正式编排结果 | 按普通音频处理 | 是 |
+| 对象 | 角色 | 可持续编辑 | 时间线表现 |
+|---|---|---:|---|
+| `AudioObject` | 普通音频资源或编排素材 | 仅普通音频操作 | 可播放 clip |
+| `SynthesisUnitObject` | 一段歌声的 Guide、控制轨、A 绑定与 Take 容器 | 是 | 由一个不可播放的 audio `TrackObject` 表示 |
+| `SynthesisTake` | 某次 A/B/control/model snapshot 的不可变合成候选 | 否 | 仅在单元内部试听 |
+| 导出的 `AudioObject/TrackObject` | 已采用的正式编排结果 | 按普通音频处理 | 可播放 clip |
 
-`SynthesisUnitObject` 是资源与工程对象，不是一次作业，也不是普通时间线 clip。它可以在没有任何 Take
-时存在，也可以在多次编辑后保存多个 Take。
+`SynthesisUnitObject` 是资源与工程对象，不是一次作业，也不是普通可播放 clip。新建时它的 source 位于内部
+`trackSources/Synthesis Units`，在独立合成单元轨上拥有
+一个 `TrackObject(contentType='audio', sourceObjectId=<SynthesisUnit>)`，让用户看见它与歌曲编排的位置关系并
+双击进入；这个 TrackObject 不进入混音，也不冒充 Take。它可以像其他 TrackObject 一样被移出时间线成为静态
+资源，但移出的是句柄，不会删除合成单元本体。
 
 ### 3.2 对象关系
 
@@ -107,6 +110,7 @@ interface SynthesisUnitObjectNode extends BaseTreeNode {
     takes: SynthesisTake[]
     activeTakeId: string | null
 
+    timelineTrackId: TrackId | null
     defaultTimelineStart: number | null
     createdAt: string
     updatedAt: string
@@ -138,6 +142,14 @@ interface SynthesisFrameContract {
   frameRate: number
   frameCount: number
   compilerVersion: string
+}
+
+interface MidiPTokenTrack {
+  status: 'empty' | 'ready'
+  revision: number
+  classes: number[]
+  flowFrames: number[] // editor-only；runtime 只消费已展开的 classes
+  manualFrames: number[]
 }
 
 interface SynthesisReferenceBinding {
@@ -267,11 +279,12 @@ AudioObject 右键菜单新增：
 
 命令成功后：
 
-1. 在可编辑项目对象区域的“Synthesis Units/合成单元”目录创建新对象；
+1. 在内部 `trackSources/Synthesis Units` 创建 source，并新建独立的合成单元 TrackFolder 与可见 TrackObject；
 2. 复制 AudioObject 的有效音频区间到项目自有 asset/blob；
 3. 保存来源对象、有效 sample range、hash 和默认时间线位置；
 4. 初始化空的四条控制轨、空引用和空 Take 列表；
-5. 打开或选中新建对象，但不启动任何分析任务。
+5. 在独立合成单元轨和来源起点创建一个不可播放的 SynthesisUnit TrackObject；
+6. 打开或选中新建对象，但不启动任何分析任务。
 
 ### 5.2 “有效区间”的含义
 
@@ -298,13 +311,37 @@ SynthesisUnit 的可用性重新绑定到源 AudioObject 生命周期。
 若来源 AudioObject 有明确 `timelineStart`，写入 `defaultTimelineStart`。若来源只是没有编排位置的资源对象，
 该值为 `null`。
 
-`defaultTimelineStart` 只服务 Take 导出，不参与 SynthesisUnit 内部 frame 计算。用户移动来源 AudioObject 不会
-更新已经创建的 SynthesisUnit。
+`timelineTrackId + defaultTimelineStart` 决定 SynthesisUnit 编辑句柄的位置，也作为 Take 导出的默认位置，
+但不参与 SynthesisUnit 内部 frame 计算。用户移动来源 AudioObject 不会更新已经创建的 SynthesisUnit。
 
 ## 6. 合成单元编辑器入口
 
-双击资源栏中的 `SynthesisUnitObject`，打开对象绑定的合成单元编辑器 tab。编辑器复用当前工作台的 tab
-生命周期，不在 SVS 工具面板中塞入完整 Token 编辑界面。
+双击资源栏中的 `SynthesisUnitObject` 或时间线上的 SynthesisUnit TrackObject，打开对象绑定的合成单元编辑器
+tab。编辑器复用当前工作台的 tab 生命周期，不在 SVS 工具面板中塞入完整 Token 编辑界面。
+
+### 6.1 时间线对象菜单
+
+音频 TrackObject 的菜单固定提供：
+
+```text
+创建音轨合成单元
+删除本音频段
+复制
+定位到文件树
+移动到静态资源
+```
+
+SynthesisUnit TrackObject 或静态 SynthesisUnit 的菜单固定提供：
+
+```text
+进入详细编辑页面
+复制
+定位到文件树
+移动到静态资源
+删除本合成单元
+```
+
+菜单背景使用全局主题的侧栏透明度和 backdrop 设置，不再使用独立的不透明颜色。
 
 编辑器负责：
 

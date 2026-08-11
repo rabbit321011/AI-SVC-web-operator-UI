@@ -23,7 +23,12 @@ export function useKeyboard() {
     const tag = (e.target as HTMLElement)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
-    if (e.key === ' ') { e.preventDefault(); handleSpacebar(); return }
+    if (e.key === ' ') {
+      if ((window as any).__synthesisUnitEditorActive) return
+      e.preventDefault()
+      handleSpacebar()
+      return
+    }
     if (altLocate && e.key.toLowerCase() === 'n') { e.preventDefault(); locateTrackObjectShortcut(); return }
     if (altLocate && e.key.toLowerCase() === 'l') { e.preventDefault(); locateAudioShortcut(); return }
     if (altLocate && e.key.toLowerCase() === 'm') { e.preventDefault(); locateBoundObjectShortcut('midi'); return }
@@ -54,6 +59,10 @@ export function useKeyboard() {
 
   function pasteFromClipboard() {
     if (!clipboard.hasContent) return
+    if (clipboard.synthesisItems.length > 0) {
+      pasteSynthesisUnitsFromClipboard()
+      return
+    }
     const tracks = useTracksStore()
     const objectTree = useObjectTreeStore()
     const objectTreeUi = useObjectTreeUiStore()
@@ -111,6 +120,49 @@ export function useKeyboard() {
 
     objectTreeUi.clearSelection()
     selection.selectAll(newSegs.map(s => s.id), 'segments')
+  }
+
+  function pasteSynthesisUnitsFromClipboard() {
+    const tracks = useTracksStore()
+    const objectTree = useObjectTreeStore()
+    const objectTreeUi = useObjectTreeUiStore()
+    const before = objectTree.snapshotTree()
+    const tracksBefore = tracks.snapshotState()
+    const blobKeysBefore = new Set(tracks.sourceBlobs.keys())
+    const pastedUnitIds: string[] = []
+    const blobChanges: Array<{ key: string; before: Blob | null; after: Blob | null }> = []
+    for (const item of clipboard.synthesisItems) {
+      const result = objectTree.pasteSynthesisUnitFromClipboard(item)
+      if (!result.ok || !result.unitId) {
+        objectTree.restoreTree(before)
+        tracks.restoreState(tracksBefore)
+        for (const key of tracks.sourceBlobs.keys()) {
+          if (!blobKeysBefore.has(key)) tracks.sourceBlobs.delete(key)
+        }
+        objectTreeUi.flashNotice(result.reason ?? '合成单元粘贴失败')
+        return
+      }
+      pastedUnitIds.push(result.unitId)
+      blobChanges.push(...(result.blobChanges ?? []))
+    }
+    history.push({
+      description: '粘贴合成单元',
+      patches: [],
+      inversePatches: [],
+      objectTree: {
+        kind: 'snapshot',
+        before,
+        after: objectTree.snapshotTree(),
+        tracksBefore,
+        tracksAfter: tracks.snapshotState(),
+        blobChanges,
+      },
+    })
+    selection.clear()
+    objectTreeUi.clearSelection()
+    pastedUnitIds.forEach((id, index) => objectTreeUi.selectById(id, index > 0))
+    objectTreeUi.flashNotice(`已粘贴 ${pastedUnitIds.length} 个合成单元到新音轨`)
+    useProjectStore().bumpRedraw()
   }
 
   function mergeSelected() {
@@ -474,6 +526,15 @@ export function useKeyboard() {
         return
       }
       ;(window as any).__timelineLocateTrackObject?.(leftNode.id)
+      return
+    }
+    if (leftNode?.kind === 'synthesisUnit') {
+      const trackObject = trackObjectReferencingSource(leftNode.id)
+      if (trackObject) {
+        ;(window as any).__timelineLocateTrackObject?.(trackObject.id)
+        return
+      }
+      ui.flashNotice('该合成单元尚未放入时间线')
       return
     }
     if (leftNode?.kind === 'audio') {

@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { buildKanaPhraseContexts, getKanaControlRange, normalizeKanaMora, sofaPhrasesToSegmentObjects } from '@/object-workbench'
+import { buildKanaPhraseContexts, getKanaControlRange, sofaPhrasesToSegmentObjects } from '@/object-workbench'
 import { useHistoryStore } from '@/stores/history'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useTracksStore } from '@/stores/tracks'
@@ -9,12 +9,14 @@ import type { SynthesisTextControlResult } from './synthesisTextControlProtocol'
 import { runSynthesisMidiP } from './synthesisMidiPClient'
 
 export type SegmentTextControlTarget = 'kana' | 'h'
+export type SynthesisAnalysisTaskKind = 'segment' | 'kana' | 'h' | 'midi-p'
 
 export interface SynthesisAnalysisJobState {
   running: boolean
   progress: number
   message: string
   error: string
+  kind: SynthesisAnalysisTaskKind | null
 }
 
 export function useSynthesisUnitAnalysis() {
@@ -25,7 +27,7 @@ export function useSynthesisUnitAnalysis() {
   const textControlCache = new Map<string, SynthesisTextControlResult>()
 
   function stateFor(unitId: string): SynthesisAnalysisJobState {
-    return jobs[unitId] ??= { running: false, progress: 0, message: '', error: '' }
+    return jobs[unitId] ??= { running: false, progress: 0, message: '', error: '', kind: null }
   }
 
   async function transcribeSegmentTrack(unitId: string): Promise<{ ok: boolean; reason?: string }> {
@@ -46,6 +48,7 @@ export function useSynthesisUnitAnalysis() {
     state.progress = 0
     state.message = '准备 Whisper + SOFA'
     state.error = ''
+    state.kind = 'segment'
     try {
       const result = await runWhisperSofa({
         blob,
@@ -86,6 +89,7 @@ export function useSynthesisUnitAnalysis() {
       return { ok: false, reason: state.error }
     } finally {
       state.running = false
+      state.kind = null
     }
   }
 
@@ -121,6 +125,7 @@ export function useSynthesisUnitAnalysis() {
     state.progress = 0
     state.message = target === 'kana' ? '准备 Segment → Kana' : '准备 Segment → H Token'
     state.error = ''
+    state.kind = target
     try {
       const cacheKey = [unitId, sourceSnapshot.guideSHA256, sourceSnapshot.frameCount, sourceSnapshot.segmentRevision].join(':')
       let result = textControlCache.get(cacheKey)
@@ -257,6 +262,7 @@ export function useSynthesisUnitAnalysis() {
       return { ok: false, reason: state.error }
     } finally {
       state.running = false
+      state.kind = null
     }
   }
 
@@ -305,6 +311,7 @@ export function useSynthesisUnitAnalysis() {
     state.progress = 0
     state.message = '准备 Kana → H Token'
     state.error = ''
+    state.kind = 'h'
     try {
       const cacheKey = [
         'kana', unitId, sourceSnapshot.guideSHA256,
@@ -371,17 +378,6 @@ export function useSynthesisUnitAnalysis() {
       if (phraseMode?.placementMode !== 'phone') {
         throw new Error(`该 Kana 分句无法取得可靠 phone placement（${phraseMode?.fallbackReason || phraseMode?.placementMode || 'unknown'}）；请改用整句 Segment → H`)
       }
-      const compiledMoras = result.kanaUnits.filter(item => item.phraseId === sourceSnapshot.phraseId)
-      const currentMoras = currentRange.phrase.units.map(item => normalizeKanaMora(item.unit.kana))
-      const alignedMoras = compiledMoras.map(item => normalizeKanaMora(item.kana))
-      if (
-        alignedMoras.length !== currentMoras.length
-        || !compiledMoras[sourceSnapshot.moraIndex]
-        || alignedMoras.some((mora, index) => !mora || mora !== currentMoras[index])
-      ) {
-        throw new Error('SOFA mora 切分与当前 KanaUnit 不一致；未覆盖 H')
-      }
-
       const selectedEvents = result.hEvents.filter(event => (
         event.phraseId === sourceSnapshot.phraseId
         && event.moraIndex === sourceSnapshot.moraIndex
@@ -463,6 +459,7 @@ export function useSynthesisUnitAnalysis() {
       return { ok: false, reason: state.error }
     } finally {
       state.running = false
+      state.kind = null
     }
   }
 
@@ -483,6 +480,7 @@ export function useSynthesisUnitAnalysis() {
     state.progress = 0
     state.message = '准备 GAME medium K=4'
     state.error = ''
+    state.kind = 'midi-p'
     try {
       const result = await runSynthesisMidiP({
         blob,
@@ -534,6 +532,7 @@ export function useSynthesisUnitAnalysis() {
       return { ok: false, reason: state.error }
     } finally {
       state.running = false
+      state.kind = null
     }
   }
 

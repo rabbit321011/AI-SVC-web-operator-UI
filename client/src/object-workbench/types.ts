@@ -182,6 +182,8 @@ export interface SynthesisMidiPTokenTrack {
   revision: number
   origin: SynthesisTrackOrigin
   classes: number[]
+  /** Editor-only continuation markers. Runtime transport always uses expanded classes. */
+  flowFrames: number[]
   manualFrames: number[]
   revisions: SynthesisTrackRevision[]
   gameModelHash?: string
@@ -262,10 +264,18 @@ export interface SynthesisUnitObjectNode extends BaseTreeNode {
     unitRevision: number
     takes: SynthesisTake[]
     activeTakeId: string | null
+    timelineTrackId: TrackId | null
     defaultTimelineStart: number | null
     createdAt: string
     updatedAt: string
   }
+}
+
+export interface SynthesisClipboardItem {
+  unit: SynthesisUnitObjectNode
+  trackObject: TrackObjectNode | null
+  assets: AudioAsset[]
+  blobs: Array<{ key: string; blob: Blob }>
 }
 
 export interface TrackObjectNode extends BaseTreeNode {
@@ -278,7 +288,7 @@ export interface TrackObjectNode extends BaseTreeNode {
     ignored: boolean
   }
   legacy?: {
-    segmentId: SegmentId
+    segmentId?: SegmentId
     trackId: TrackId
   }
 }

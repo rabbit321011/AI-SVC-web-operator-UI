@@ -36,7 +36,11 @@ export function canDropIntoRenderSlot(node: TreeNode): TreePolicyResult {
 export function canDragIntoTimeline(node: TreeNode, index: RuntimeTreeIndex): TreePolicyResult {
   const area = getProjectArea(index, node.id)
   if (node.kind === 'group') return { ok: false, reason: 'GroupObject 不能拖入中间时间线' }
-  if (node.kind === 'synthesisUnit') return { ok: false, reason: '合成单元需要先把 Take 导出为正式音频' }
+  if (node.kind === 'synthesisUnit') {
+    return area === 'workspace' || area === 'resource'
+      ? { ok: true }
+      : { ok: false, reason: '只有 Workspace/Resource 中的合成单元可拖入时间线' }
+  }
   if (node.kind === 'folder' || node.kind === 'trackFolder' || node.kind === 'trackObject') {
     return { ok: false, reason: '该节点不能作为普通素材拖入时间线' }
   }
@@ -79,6 +83,14 @@ export function canTransferTreeNode(
 
   if (targetArea === 'renders') {
     return { ok: false, reason: 'renders 只接收模型输出，不能手动放入对象' }
+  }
+
+  if (node.kind === 'trackObject') {
+    const source = index.nodes[node.trackObject.sourceObjectId]
+    if (source?.kind === 'audio' || source?.kind === 'synthesisUnit') {
+      if (action === 'copy' && (targetArea === 'workspace' || targetArea === 'resource')) return { ok: true }
+      if (targetParent.kind === 'trackFolder' && targetParent.trackFolder.trackType === 'audio') return { ok: true }
+    }
   }
 
   if (sourceArea === 'renders') {

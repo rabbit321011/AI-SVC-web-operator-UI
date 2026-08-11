@@ -99,6 +99,16 @@ describe('SynthesisUnit track transactions', () => {
     })).toThrow('MIDI-P requires 16 dense classes')
   })
 
+  it('materializes FLOW only while writing an automatic GAME track', () => {
+    const unit = fixtureUnit()
+    const classes = [255, 120, 120, 120, 255, 120, 120, 121, 121, 255, 255, 122, 123, 123, 255, 255]
+    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes })
+
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames).toEqual([2, 3, 6, 8, 13])
+    replaceMidiPFrame(unit, { frame: 3, midiClass: 120 })
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames).toEqual([2, 6, 8, 13])
+  })
+
   it('blocks H collisions unless force replacement is explicit', () => {
     const unit = fixtureUnit()
     replaceHTokenTrackRange(unit, {
@@ -116,22 +126,35 @@ describe('SynthesisUnit track transactions', () => {
     ])
   })
 
-  it('edits one dense MIDI-P frame without changing neighboring frames', () => {
+  it('makes explicit FLOW followers track a changed head pitch', () => {
     const unit = fixtureUnit()
     replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes: Array(16).fill(120) })
     replaceMidiPFrame(unit, { frame: 7, midiClass: 121 })
 
-    expect(unit.synthesisUnit.midiPTokenTrack.classes.slice(6, 9)).toEqual([120, 121, 120])
-    expect(unit.synthesisUnit.midiPTokenTrack.manualFrames).toEqual([7])
+    expect(unit.synthesisUnit.midiPTokenTrack.classes.slice(6, 9)).toEqual([120, 121, 121])
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames.includes(7)).toBe(false)
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames.includes(8)).toBe(true)
+    expect(unit.synthesisUnit.midiPTokenTrack.manualFrames).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15])
     expect(unit.synthesisUnit.midiPTokenTrack.revisions.at(-1)).toMatchObject({
       affectedStartFrame: 7,
-      affectedEndFrameExclusive: 8,
+      affectedEndFrameExclusive: 16,
     })
+  })
+
+  it('moves a note head vertically with all of its FLOW frames', () => {
+    const unit = fixtureUnit()
+    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes: Array(16).fill(120) })
+    moveMidiPFrame(unit, { sourceFrame: 0, targetFrame: 0, targetClass: 124 })
+
+    expect(unit.synthesisUnit.midiPTokenTrack.classes).toEqual(Array(16).fill(124))
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames).toEqual(Array.from({ length: 15 }, (_, index) => index + 1))
   })
 
   it('moves one MIDI-P cell horizontally and leaves REST at its source frame', () => {
     const unit = fixtureUnit()
-    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes: Array(16).fill(120) })
+    const classes = Array(16).fill(255)
+    classes.splice(4, 5, 120, 120, 120, 120, 120)
+    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes })
     moveMidiPFrame(unit, {
       sourceFrame: 4,
       targetFrame: 9,
@@ -143,7 +166,8 @@ describe('SynthesisUnit track transactions', () => {
     expect(unit.synthesisUnit.midiPTokenTrack.classes[4]).toBe(255)
     expect(unit.synthesisUnit.midiPTokenTrack.classes[9]).toBe(123)
     expect(unit.synthesisUnit.midiPTokenTrack.classes.slice(5, 9)).toEqual([120, 120, 120, 120])
-    expect(unit.synthesisUnit.midiPTokenTrack.manualFrames).toEqual([4, 9])
+    expect(unit.synthesisUnit.midiPTokenTrack.flowFrames).toEqual([6, 7, 8])
+    expect(unit.synthesisUnit.midiPTokenTrack.manualFrames).toEqual([4, 5, 6, 7, 8, 9])
     expect(unit.synthesisUnit.midiPTokenTrack.revisions.at(-1)).toMatchObject({
       affectedStartFrame: 4,
       affectedEndFrameExclusive: 10,
@@ -152,7 +176,10 @@ describe('SynthesisUnit track transactions', () => {
 
   it('blocks a horizontal move onto a manual MIDI-P frame unless forced', () => {
     const unit = fixtureUnit()
-    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes: Array(16).fill(120) })
+    const classes = Array(16).fill(255)
+    classes[4] = 120
+    classes[9] = 120
+    replaceMidiPTrack(unit, { operation: 'GAME', origin: 'game', classes })
     replaceMidiPFrame(unit, { frame: 9, midiClass: 130 })
 
     expect(() => moveMidiPFrame(unit, { sourceFrame: 4, targetFrame: 9, targetClass: 123 }))

@@ -10,7 +10,7 @@ import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
 import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import type { TrackId, AudioSegment, F0Frame } from '@/types'
-import type { TextObjectNode, TextSegment, TrackObjectNode } from '@/object-workbench'
+import type { SynthesisUnitObjectNode, TextObjectNode, TextSegment, TrackObjectNode } from '@/object-workbench'
 import { kanaToRomaji, romajiToKana } from '@/utils/kanaRomaji'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 import { buildSplitCommand } from '@/commands/split'
@@ -25,6 +25,7 @@ const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
 const uiSettings = useUiSettingsStore()
 const editorWorkspace = useEditorWorkspaceStore()
+const history = useHistoryStore()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const playheadRef = ref<HTMLCanvasElement | null>(null)
@@ -53,6 +54,25 @@ const inlineEditor = ref<{
 const inlineKana = ref('')
 const inlineRomaji = ref('')
 const composingField = ref<'kana' | 'romaji' | null>(null)
+const audioObjectMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  segmentId: '',
+  trackObjectId: '',
+  sourceAudioObjectId: '',
+  synthesisUnitId: '',
+  creating: false,
+})
+const synthesisUnitDrag = ref<{
+  unitId: string
+  trackObjectId: string | null
+  targetTrackId: string | null
+  startClientX: number
+  originalStart: number
+  beforeTree: ReturnType<typeof objectTree.snapshotTree>
+  moved: boolean
+} | null>(null)
 
 const track = computed(() => tracks.tracks[props.trackId])
 const segments = computed(() => tracks.getTrackSegments(props.trackId))
@@ -71,6 +91,25 @@ const textTrackRevision = computed(() => textTrackObjects.value.reduce(
   (revision, item) => revision + objectTree.textRevision(item.source.id),
   0,
 ))
+type TimelineSynthesisUnit = { unit: SynthesisUnitObjectNode; trackObject: TrackObjectNode | null }
+const timelineSynthesisUnits = computed(() => Object.values(objectTree.index.nodes)
+  .filter((node): node is SynthesisUnitObjectNode => node.kind === 'synthesisUnit')
+  .flatMap((unit): TimelineSynthesisUnit[] => {
+    const trackObjects = Object.values(objectTree.index.nodes).filter((node): node is TrackObjectNode => (
+      node.kind === 'trackObject'
+      && node.trackObject.contentType === 'audio'
+      && node.trackObject.sourceObjectId === unit.id
+      && node.legacy?.trackId === props.trackId
+    ))
+    if (trackObjects.length > 0) return trackObjects.map(trackObject => ({ unit, trackObject }))
+    return synthesisUnitTimelineTrackId(unit) === props.trackId && unit.synthesisUnit.defaultTimelineStart != null
+      ? [{ unit, trackObject: null }]
+      : []
+  })
+  .sort((left, right) => (
+    timelineStartOf(left) - timelineStartOf(right)
+    || left.unit.name.localeCompare(right.unit.name, 'zh-CN')
+  )))
 
 const totalDuration = computed(() => {
   if (track.value?.trackType === 'text') {
@@ -78,19 +117,39 @@ const totalDuration = computed(() => {
     return Math.max(10, maxTextEnd)
   }
   const segs = segments.value
+  const synthesisEnd = Math.max(0, ...timelineSynthesisUnits.value.map(item => timelineEndOf(item)))
   if (segs.length > 0) {
-    return Math.max(...segs.map(s => s.timelineEnd))
+    return Math.max(synthesisEnd, ...segs.map(s => s.timelineEnd))
   }
   const allSegs = tracks.getAllSegments()
   if (allSegs.length > 0) {
-    return Math.max(...allSegs.map(s => s.timelineEnd))
+    return Math.max(synthesisEnd, ...allSegs.map(s => s.timelineEnd))
   }
-  return 10
+  return Math.max(10, synthesisEnd)
 })
 
 const totalW = computed(() => {
   return PAD_L + totalDuration.value * project.pxPerSec + PAD_R
 })
+const timelineObjectMenuStyle = computed(() => {
+  const palette = floatingMenuPalette(uiSettings.settings.theme)
+  return {
+    left: `${audioObjectMenu.value.x}px`,
+    top: `${audioObjectMenu.value.y}px`,
+    '--floating-menu-panel': palette.panel,
+    '--floating-menu-border': palette.border,
+    '--floating-menu-text': palette.text,
+    '--floating-menu-hover': palette.hover,
+    '--floating-menu-opacity': `${Math.round(uiSettings.settings.centerOpacity * 100)}%`,
+    '--floating-menu-backdrop': uiSettings.settings.centerGlassEnabled ? 'blur(14px) saturate(1.15)' : 'none',
+  }
+})
+
+function floatingMenuPalette(theme: string) {
+  if (theme === 'light') return { panel: '#ffffff', border: '#d7dde4', text: '#1f2328', hover: '#e7edf3' }
+  if (theme === 'cream') return { panel: '#fff8dc', border: '#d7c58f', text: '#2f2517', hover: '#efe1b8' }
+  return { panel: '#161b22', border: '#21262d', text: '#c9d1d9', hover: '#21262d' }
+}
 
 function freqToY(f: number): number {
   if (f <= 0) return -1
@@ -165,6 +224,14 @@ function draw() {
   }
 
   for (const seg of segments.value) {
+    const coveredBySynthesisMidi = timelineSynthesisUnits.value.some(item => {
+      const midi = item.unit.synthesisUnit.midiPTokenTrack
+      if (midi.status !== 'ready' || midi.classes.length === 0) return false
+      const start = timelineStartOf(item)
+      const end = timelineEndOf(item)
+      return seg.timelineStart < end && start < seg.timelineEnd
+    })
+    if (coveredBySynthesisMidi) continue
     if (!seg.f0Data || seg.f0Data.length < 2) continue
     const f0data = seg.f0Data
     let drawing = false
@@ -202,6 +269,10 @@ function draw() {
     ctx.stroke()
   }
 
+  // Synthesis units use the normal audio clip lane. Their pitch lane shows
+  // dense MIDI-P, rather than the F0 belonging to their immutable Guide.
+  drawSynthesisMidi(ctx)
+
   const segAreaTop = PAD_T + CHART_H + PAD_B
   const trackMuted = track.value?.muted ?? false
   for (const seg of segments.value) {
@@ -232,7 +303,94 @@ function draw() {
     }
   }
 
+  drawSynthesisUnitObjects(ctx, theme)
   drawTimeGrid(ctx, theme)
+}
+
+function synthesisUnitTimelineTrackId(unit: SynthesisUnitObjectNode): string | null {
+  if (unit.synthesisUnit.timelineTrackId) return unit.synthesisUnit.timelineTrackId
+  const source = objectTree.node(unit.synthesisUnit.guide.source.sourceAudioObjectId)
+  return source?.kind === 'audio' ? source.legacy?.trackId ?? null : null
+}
+
+function timelineStartOf(item: TimelineSynthesisUnit): number {
+  return item.trackObject?.trackObject.timelineStart ?? item.unit.synthesisUnit.defaultTimelineStart ?? 0
+}
+
+function timelineEndOf(item: TimelineSynthesisUnit): number {
+  return item.trackObject?.trackObject.timelineEnd ?? timelineStartOf(item) + item.unit.synthesisUnit.guide.duration
+}
+
+function drawSynthesisUnitObjects(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof canvasTheme>) {
+  const segAreaTop = PAD_T + CHART_H + PAD_B
+  const trackMuted = track.value?.muted ?? false
+  for (const item of timelineSynthesisUnits.value) {
+    const start = timelineStartOf(item)
+    const x = timeToX(start)
+    const width = Math.max(3, (timelineEndOf(item) - start) * project.pxPerSec)
+    const y = segAreaTop
+    const selected = item.trackObject
+      ? selection.isSelected(item.trackObject.id)
+      : objectTreeUi.isSelected(item.unit.id)
+    const ignored = item.trackObject?.trackObject.ignored ?? false
+    const baseColor = track.value?.color ?? '#58a6ff'
+
+    let alpha = 0.5
+    if (ignored) alpha = 0.2
+    else if (trackMuted) alpha = 0.25
+
+    ctx.fillStyle = ignored ? 'rgba(100,100,100,0.2)' : hexToRgba(baseColor, alpha)
+    roundRect(ctx, x, y, width, SEG_H, 3)
+    ctx.fill()
+
+    if (selected) {
+      ctx.strokeStyle = theme.accent
+      ctx.lineWidth = 2
+      ctx.shadowColor = 'rgba(88,166,255,0.4)'
+      ctx.shadowBlur = 4
+      roundRect(ctx, x, y, width, SEG_H, 3)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+    }
+  }
+}
+
+function drawSynthesisMidi(ctx: CanvasRenderingContext2D) {
+  const trackMuted = track.value?.muted ?? false
+  for (const item of timelineSynthesisUnits.value) {
+    const midiTrack = item.unit.synthesisUnit.midiPTokenTrack
+    if (midiTrack.status !== 'ready' || midiTrack.classes.length === 0) continue
+
+    const start = timelineStartOf(item)
+    const end = timelineEndOf(item)
+    const frameRate = item.unit.synthesisUnit.frameContract.frameRate
+    if (!Number.isFinite(frameRate) || frameRate <= 0) continue
+
+    const ignored = item.trackObject?.trackObject.ignored ?? false
+    ctx.strokeStyle = `rgba(88, 166, 255, ${ignored || trackMuted ? 0.18 : 0.78})`
+    ctx.lineWidth = 2
+    let drawing = false
+    ctx.beginPath()
+    for (let frame = 0; frame < midiTrack.classes.length; frame++) {
+      const time = start + frame / frameRate
+      if (time > end) break
+      const midiClass = midiTrack.classes[frame]
+      if (midiClass >= 255) {
+        drawing = false
+        continue
+      }
+      const frequency = 440 * 2 ** ((midiClass / 2 - 69) / 12)
+      const x = timeToX(time)
+      const y = freqToY(frequency)
+      if (!drawing) {
+        ctx.moveTo(x, y)
+        drawing = true
+      } else {
+        ctx.lineTo(x, y)
+      }
+    }
+    ctx.stroke()
+  }
 }
 
 function drawTimeGrid(ctx: CanvasRenderingContext2D, theme: ReturnType<typeof canvasTheme>) {
@@ -427,6 +585,276 @@ function findSegmentAt(cx: number, cy: number): AudioSegment | null {
   return null
 }
 
+function sourceAudioObjectIdForSegment(segmentId: string): string | null {
+  const trackObject = objectTree.node(`node:trackObject:${segmentId}`)
+  if (!trackObject || trackObject.kind !== 'trackObject' || trackObject.trackObject.contentType !== 'audio') return null
+  const source = objectTree.node(trackObject.trackObject.sourceObjectId)
+  return source?.kind === 'audio' ? source.id : null
+}
+
+function findSynthesisUnitAt(cx: number, cy: number): SynthesisUnitObjectNode | null {
+  const time = xToTime(cx)
+  const segAreaTop = PAD_T + CHART_H + PAD_B
+  if (cy < segAreaTop || cy > segAreaTop + SEG_H) return null
+  for (let index = timelineSynthesisUnits.value.length - 1; index >= 0; index--) {
+    const item = timelineSynthesisUnits.value[index]
+    const start = timelineStartOf(item)
+    const end = timelineEndOf(item)
+    if (time >= start && time <= end) return item.unit
+  }
+  return null
+}
+
+function timelineTrackObjectForUnit(unitId: string): TrackObjectNode | null {
+  return timelineSynthesisUnits.value.find(item => item.unit.id === unitId)?.trackObject ?? null
+}
+
+function selectTimelineSynthesisUnit(unit: SynthesisUnitObjectNode) {
+  const trackObject = timelineTrackObjectForUnit(unit.id)
+  if (trackObject) selection.select(trackObject.id, false)
+  else {
+    selection.clear()
+    objectTreeUi.selectById(unit.id)
+  }
+}
+
+function beginSynthesisUnitDrag(event: MouseEvent, unit: SynthesisUnitObjectNode) {
+  if (event.button !== 0 || unit.synthesisUnit.defaultTimelineStart == null) return
+  selectTimelineSynthesisUnit(unit)
+  const item = timelineSynthesisUnits.value.find(candidate => candidate.unit.id === unit.id)
+  synthesisUnitDrag.value = {
+    unitId: unit.id,
+    trackObjectId: item?.trackObject?.id ?? null,
+    targetTrackId: synthesisUnitTimelineTrackId(unit),
+    startClientX: event.clientX,
+    originalStart: timelineStartOf(item ?? { unit, trackObject: null }),
+    beforeTree: objectTree.snapshotTree(),
+    moved: false,
+  }
+  document.addEventListener('mousemove', onSynthesisUnitDragMove)
+  document.addEventListener('mouseup', onSynthesisUnitDragEnd)
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function onSynthesisUnitDragMove(event: MouseEvent) {
+  const drag = synthesisUnitDrag.value
+  if (!drag) return
+  const unit = objectTree.node(drag.unitId)
+  if (!unit || unit.kind !== 'synthesisUnit') return
+  const trackRow = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-track-id]') as HTMLElement | null
+  const targetTrackId = trackRow?.dataset.trackId
+  if (targetTrackId && tracks.tracks[targetTrackId]?.trackType === 'audio') {
+    if (drag.targetTrackId !== targetTrackId) drag.moved = true
+    drag.targetTrackId = targetTrackId
+  }
+  const nextStart = Math.max(0, Math.round((drag.originalStart + (event.clientX - drag.startClientX) / project.pxPerSec) * 1000) / 1000)
+  if (nextStart !== unit.synthesisUnit.defaultTimelineStart) {
+    unit.synthesisUnit.defaultTimelineStart = nextStart
+    unit.synthesisUnit.unitRevision += 1
+    unit.synthesisUnit.updatedAt = new Date().toISOString()
+    const item = timelineSynthesisUnits.value.find(candidate => candidate.unit.id === unit.id)
+    if (item?.trackObject) {
+      const duration = item.trackObject.trackObject.timelineEnd - item.trackObject.trackObject.timelineStart
+      item.trackObject.trackObject.timelineStart = nextStart
+      item.trackObject.trackObject.timelineEnd = nextStart + duration
+    }
+    drag.moved = true
+  }
+  project.bumpRedraw()
+  draw()
+}
+
+function onSynthesisUnitDragEnd() {
+  const drag = synthesisUnitDrag.value
+  document.removeEventListener('mousemove', onSynthesisUnitDragMove)
+  document.removeEventListener('mouseup', onSynthesisUnitDragEnd)
+  synthesisUnitDrag.value = null
+  if (!drag) return
+  let movedAcrossTracks = false
+  const unit = objectTree.node(drag.unitId)
+  const currentTrackId = unit?.kind === 'synthesisUnit' ? synthesisUnitTimelineTrackId(unit) : null
+  if (drag.trackObjectId && drag.targetTrackId && drag.targetTrackId !== currentTrackId) {
+    const result = objectTree.moveNode(drag.trackObjectId, `node:trackFolder:${drag.targetTrackId}`)
+    movedAcrossTracks = result.ok
+    if (!result.ok) objectTreeUi.flashNotice(result.reason ?? '无法移动合成单元到目标音轨')
+  }
+  if (!drag.moved && !movedAcrossTracks) return
+  project.bumpRedraw()
+  history.push({
+    description: movedAcrossTracks ? '移动合成单元时间线位置和音轨' : '移动合成单元时间线位置',
+    patches: [],
+    inversePatches: [],
+    objectTree: { kind: 'snapshot', before: drag.beforeTree, after: objectTree.snapshotTree() },
+  })
+  objectTreeUi.flashNotice(movedAcrossTracks
+    ? '合成单元已移到目标音轨；Take 导出将使用新时间戳'
+    : '合成单元位置已更新；Take 导出将使用新时间戳')
+}
+
+function handleAudioObjectContextMenu(event: MouseEvent) {
+  if (track.value?.trackType !== 'audio') return
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const cx = event.clientX - rect.left
+  const cy = event.clientY - rect.top
+  const synthesisUnit = findSynthesisUnitAt(cx, cy)
+  if (synthesisUnit) {
+    event.preventDefault()
+    event.stopPropagation()
+    selectTimelineSynthesisUnit(synthesisUnit)
+    audioObjectMenu.value = {
+      show: true,
+      x: event.clientX,
+      y: event.clientY,
+      segmentId: '',
+      trackObjectId: timelineTrackObjectForUnit(synthesisUnit.id)?.id ?? '',
+      sourceAudioObjectId: '',
+      synthesisUnitId: synthesisUnit.id,
+      creating: false,
+    }
+    window.removeEventListener('pointerdown', closeAudioObjectMenu)
+    setTimeout(() => window.addEventListener('pointerdown', closeAudioObjectMenu, { once: true }), 0)
+    draw()
+    return
+  }
+  const segment = findSegmentAt(cx, cy)
+  if (!segment) return
+  const sourceAudioObjectId = sourceAudioObjectIdForSegment(segment.id)
+  if (!sourceAudioObjectId) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  selection.select(segment.id, false)
+  audioObjectMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    segmentId: segment.id,
+    trackObjectId: `node:trackObject:${segment.id}`,
+    sourceAudioObjectId,
+    synthesisUnitId: '',
+    creating: false,
+  }
+  window.removeEventListener('pointerdown', closeAudioObjectMenu)
+  setTimeout(() => window.addEventListener('pointerdown', closeAudioObjectMenu, { once: true }), 0)
+  draw()
+}
+
+function openSynthesisUnitFromTimelineMenu() {
+  const unitId = audioObjectMenu.value.synthesisUnitId
+  const unit = unitId ? objectTree.node(unitId) : null
+  closeAudioObjectMenu()
+  if (unit?.kind === 'synthesisUnit') editorWorkspace.openSynthesisUnitTab(unit.id, unit.name)
+}
+
+function locateTimelineObject() {
+  const sourceId = audioObjectMenu.value.sourceAudioObjectId || audioObjectMenu.value.synthesisUnitId
+  closeAudioObjectMenu()
+  if (!sourceId) return
+  objectTreeUi.selectById(sourceId)
+  objectTreeUi.expandPath('L1', objectTree.index.parentById, sourceId)
+  objectTreeUi.expandPath('L2', objectTree.index.parentById, sourceId)
+  objectTreeUi.flashNotice('已定位到文件树')
+}
+
+function recordTimelineObjectChange(
+  description: string,
+  before: ReturnType<typeof objectTree.snapshotTree>,
+  tracksBefore?: ReturnType<typeof tracks.snapshotState>,
+) {
+  history.push({
+    description,
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before,
+      after: objectTree.snapshotTree(),
+      ...(tracksBefore ? { tracksBefore, tracksAfter: tracks.snapshotState() } : {}),
+    },
+  })
+}
+
+function copyTimelineObjectToStatic() {
+  const sourceId = audioObjectMenu.value.sourceAudioObjectId || audioObjectMenu.value.synthesisUnitId
+  closeAudioObjectMenu()
+  if (!sourceId) return
+  const before = objectTree.snapshotTree()
+  const result = objectTree.copyNodeToStaticResources(sourceId)
+  if (!result.ok) {
+    objectTreeUi.flashNotice(result.reason ?? '复制失败')
+    return
+  }
+  recordTimelineObjectChange('复制到静态资源', before)
+  objectTreeUi.flashNotice('已复制到静态资源')
+}
+
+function deleteTimelineObject() {
+  const trackObjectId = audioObjectMenu.value.trackObjectId
+  closeAudioObjectMenu()
+  if (!trackObjectId) return
+  const before = objectTree.snapshotTree()
+  const result = objectTree.deleteNode(trackObjectId)
+  if (!result.ok) {
+    objectTreeUi.flashNotice(result.reason ?? '删除失败')
+    return
+  }
+  recordTimelineObjectChange('删除时间线对象', before)
+  objectTreeUi.flashNotice('已删除')
+}
+
+function moveTimelineObjectToWorkspace() {
+  const trackObjectId = audioObjectMenu.value.trackObjectId
+  closeAudioObjectMenu()
+  if (!trackObjectId) return
+  const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
+  const result = objectTree.moveTrackObjectToWorkspace(trackObjectId)
+  if (!result.ok) {
+    objectTreeUi.flashNotice(result.reason ?? '移动失败')
+    return
+  }
+  recordTimelineObjectChange('移动到 Workspace', before, tracksBefore)
+  objectTreeUi.flashNotice('已移动到 Workspace')
+}
+
+function closeAudioObjectMenu() {
+  audioObjectMenu.value.show = false
+  window.removeEventListener('pointerdown', closeAudioObjectMenu)
+}
+
+async function createSynthesisUnitFromTimelineObject() {
+  const sourceAudioObjectId = audioObjectMenu.value.sourceAudioObjectId
+  if (!sourceAudioObjectId || audioObjectMenu.value.creating) return
+  audioObjectMenu.value.creating = true
+  window.removeEventListener('pointerdown', closeAudioObjectMenu)
+  const beforeTree = objectTree.snapshotTree()
+  const result = await objectTree.createSynthesisUnitFromAudioObject(sourceAudioObjectId)
+  closeAudioObjectMenu()
+  if (!result.ok || !result.unitId || !result.guideBlobKey || !result.guideBlob) {
+    objectTreeUi.flashNotice(result.reason ?? '创建合成单元失败')
+    return
+  }
+  history.push({
+    description: '从时间线对象创建合成单元',
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before: beforeTree,
+      after: objectTree.snapshotTree(),
+      blobChanges: [{ key: result.guideBlobKey, before: null, after: result.guideBlob }],
+    },
+  })
+  objectTreeUi.selectById(result.unitId)
+  objectTreeUi.expandPath('L1', objectTree.index.parentById, result.unitId)
+  objectTreeUi.expandPath('L2', objectTree.index.parentById, result.unitId)
+  editorWorkspace.openSynthesisUnitTab(result.unitId, result.unit?.name ?? '合成单元')
+  objectTreeUi.flashNotice(result.warnings?.length ? `已创建；${result.warnings.join('；')}` : '已创建合成单元')
+}
+
 function findTextObjectAt(cx: number, cy: number): { trackObject: TrackObjectNode; source: TextObjectNode } | null {
   const t = xToTime(cx)
   const barTop = TEXT_BAR_TOP
@@ -541,6 +969,13 @@ function handleClick(e: MouseEvent) {
     }
     const t = xToTime(cx)
     if (t >= 0) (window as any).__playbackSeek?.(t)
+    return
+  }
+
+  const synthesisUnit = findSynthesisUnitAt(cx, cy)
+  if (synthesisUnit) {
+    selectTimelineSynthesisUnit(synthesisUnit)
+    draw()
     return
   }
 
@@ -1102,6 +1537,12 @@ function handleMousedown(e: MouseEvent) {
     }
   }
 
+  const synthesisUnit = findSynthesisUnitAt(cx, cy)
+  if (synthesisUnit) {
+    beginSynthesisUnitDrag(e, synthesisUnit)
+    return
+  }
+
   const seg = findSegmentAt(cx, cy)
   if (!seg) return
 
@@ -1145,6 +1586,11 @@ function handleMousemove(e: MouseEvent) {
     }
   }
 
+  if (findSynthesisUnitAt(cx, cy)) {
+    canvas.style.cursor = 'pointer'
+    return
+  }
+
   const seg = findSegmentAt(cx, cy)
   if (seg && (e.ctrlKey || e.metaKey)) {
     canvas.style.cursor = 'grab'
@@ -1154,10 +1600,15 @@ function handleMousemove(e: MouseEvent) {
 }
 
 function handleDblClick(e: MouseEvent) {
-  if (track.value?.trackType !== 'text') return
   const canvas = canvasRef.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
+  if (track.value?.trackType === 'audio') {
+    const unit = findSynthesisUnitAt(e.clientX - rect.left, e.clientY - rect.top)
+    if (unit) editorWorkspace.openSynthesisUnitTab(unit.id, unit.name)
+    return
+  }
+  if (track.value?.trackType !== 'text') return
   const hit = findTextSegmentAt(e.clientX - rect.left, e.clientY - rect.top)
   if (hit) startInlineEdit(hit)
 }
@@ -1247,6 +1698,9 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onTextSegmentEnd)
   document.removeEventListener('mousemove', onTextObjectBoundaryMove)
   document.removeEventListener('mouseup', onTextObjectBoundaryEnd)
+  window.removeEventListener('pointerdown', closeAudioObjectMenu)
+  document.removeEventListener('mousemove', onSynthesisUnitDragMove)
+  document.removeEventListener('mouseup', onSynthesisUnitDragEnd)
   if (playheadRaf) cancelAnimationFrame(playheadRaf)
 })
 </script>
@@ -1260,6 +1714,7 @@ onUnmounted(() => {
       @mousedown="handleMousedown"
       @mousemove="handleMousemove"
       @dblclick="handleDblClick"
+      @contextmenu="handleAudioObjectContextMenu"
     />
     <div
       v-if="inlineEditor"
@@ -1281,6 +1736,34 @@ onUnmounted(() => {
       class="playhead-canvas"
       style="pointer-events: none;"
     />
+    <Teleport to="body">
+      <div
+        v-if="audioObjectMenu.show"
+        class="timeline-object-menu"
+        :style="timelineObjectMenuStyle"
+        @pointerdown.stop
+        >
+        <button
+          v-if="audioObjectMenu.sourceAudioObjectId"
+          type="button"
+          :disabled="audioObjectMenu.creating"
+          @click="createSynthesisUnitFromTimelineObject"
+        >
+          {{ audioObjectMenu.creating ? '正在创建...' : '创建音轨合成单元' }}
+        </button>
+        <template v-if="audioObjectMenu.sourceAudioObjectId">
+          <button type="button" @click="deleteTimelineObject">删除本音频段</button>
+          <button type="button" @click="locateTimelineObject">定位到文件树</button>
+          <button type="button" @click="moveTimelineObjectToWorkspace">移动到 Workspace</button>
+        </template>
+        <template v-if="audioObjectMenu.synthesisUnitId">
+          <button type="button" @click="openSynthesisUnitFromTimelineMenu">进入详细编辑页面</button>
+          <button type="button" @click="locateTimelineObject">定位到文件树</button>
+          <button type="button" @click="moveTimelineObjectToWorkspace">移动到 Workspace</button>
+          <button type="button" class="danger" @click="deleteTimelineObject">删除本合成单元</button>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1303,6 +1786,30 @@ canvas {
   left: 0;
   z-index: 2;
 }
+.timeline-object-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--floating-menu-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--floating-menu-panel) var(--floating-menu-opacity), transparent);
+  backdrop-filter: var(--floating-menu-backdrop);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.timeline-object-menu button {
+  width: 100%;
+  border: 0;
+  padding: 7px 10px;
+  color: var(--floating-menu-text);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.timeline-object-menu button:hover:not(:disabled) { background: var(--floating-menu-hover); }
+.timeline-object-menu button:disabled { opacity: 0.55; cursor: wait; }
+.timeline-object-menu button.danger { color: #f85149; }
 .inline-text-editor {
   position: absolute;
   z-index: 3;

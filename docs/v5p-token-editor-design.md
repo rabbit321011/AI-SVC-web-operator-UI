@@ -420,6 +420,14 @@ embedding    = 257 x 128
 有效合成范围内每个 frame 都有一个 class，不存在与 H 的 `0` 相同意义的“空白 MIDI-P frame”。
 视觉空白应明确解释为 REST 或其他已知 class；PAD 是 batch/无效区域语义。
 
+编辑器另有一个不属于模型 vocabulary 的 `FLOW` token。它表示“继承本音符头 token 的音高”，项目内以
+显式 `flowFrames` 保存，发给 runtime 前则展开为逐 frame 的真实 pitch class。`FLOW` 绝不能占用新的
+MIDI-P class ID，也不能出现在 material snapshot、job manifest 或模型输入中。
+
+只有 `Guide -> GAME` 自动提取结果写入完整 MIDI-P 轨时，才把连续相同 pitch class 的首帧保存为普通
+头 token、后续帧保存为 `FLOW`。完成这次物化以后，编辑器不得再根据相邻 class 相等动态推断 FLOW：
+相邻两个同音高普通 token 仍是两个音符，只有 `flowFrames` 中的帧才属于前一个头 token。
+
 仍需由 direct-control fixture 最终冻结：
 
 - SynthesisUnit 的 B-local `frameCount` 与 VAE encode shape；
@@ -437,6 +445,7 @@ MIDI-P token 支持：
 - 每个垂直 class 步进为 0.5 半音；
 - 绘制连续 pitch；
 - 写入 REST；
+- 显式写入 FLOW；
 - 右键任意 frame 强制替换 class；
 - 恢复 GAME 自动结果；
 - 选区复制、平移和重采样；
@@ -463,8 +472,13 @@ MIDI-P 没有 H 那样的空 frame，因此不能“删除 source cell”；写 
 - REST/PAD 不发音；
 - 连续快速拖动只在 class 实际变化时重触发，并做最小节流，避免同一 class 疯狂叠音。
 
-低缩放时连续相同 class 可以合并成 run；高缩放时必须展开为逐 frame cell。Piano-roll/note overlay
-可以作为 MIDI-P 的派生编辑视图，但不能在没有明确规则时反写原始 MidiObject。
+普通头 token 与其后连续的显式 FLOW 组成一个编辑器音符。上下拖动头 token 时，整条 FLOW 链同步改变
+显示高度和展开后的 pitch class；FLOW 使用不同颜色并在悬浮说明里指向 head frame。FLOW 本身不允许
+独立拖动音高，用户应拖头 token；右键可把某帧显式改为普通 token、FLOW 或 REST。
+
+同 pitch class 不是合并依据。低缩放时只允许把“头 token + 显式 FLOW 链”合并成 run，不能把两个相邻
+同音高普通 token 合并。Piano-roll/note overlay 可以作为 MIDI-P 的派生编辑视图，但不能在没有明确规则时
+反写原始 MidiObject。
 
 ### 8.3 Audio 右键菜单
 
@@ -879,6 +893,7 @@ Owned Guide WAV
   -> canonicalize_game_cache
   -> game_cache_to_model_tracks(num_samples, target_len=frameCount)
   -> dense B-local class[frameCount]
+  -> 编辑器一次性物化 head token + flowFrames
 ```
 
 服务端锁定 GAME commit `4ad815c...`、model SHA `e990415...` 以及 runtime/cache/P adapter SHA；
@@ -891,10 +906,12 @@ pitch class 范围 `119..150`。正式 seed `2577097735` 来自训练侧相同�
 正式 MIDI-P lane 当前提供：
 
 - 根据当前 pitch 范围绘制逐 frame 音高轮廓，REST 单独落在底部；
+- GAME 写轨时一次性生成显式 FLOW；普通头 token 与 FLOW 分色显示；
+- 头 token 纵向变调时只带动其显式 FLOW 链，相邻同 class 的普通 token 不会被误合并；
 - 右键任意 cell 打开 class/音名替换浮窗；
 - `+/-` 每次改变一个 class，即 0.5 半音，并即时播放短钢琴音；
 - 上下拖动每 6px 改变一个 class，跨入新 class 时试听；
-- REST 显式写为 255；
+- FLOW/REST 都可显式写入；FLOW 只在前端存储，REST 展开为 255；
 - Guide/MIDI-P 试听源切换，空格播放当前源；MIDI-P 按连续同 class run 触发音符；
 - `manualFrames` 保存逐 frame 手工来源，重跑 GAME 前显示完整覆盖范围与手工 frame 数；
 - 每次替换/拖动只提升 MIDI-P revision，undo 可逐操作恢复。

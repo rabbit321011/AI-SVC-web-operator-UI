@@ -8,6 +8,7 @@ import type {
   SynthesisSegmentTrack,
   SynthesisUnitObjectNode,
 } from './types'
+import type { TrackId } from '@/types'
 
 export const V5P_SAMPLE_RATE = 44100 as const
 export const V5P_HOP_SAMPLES = 2048 as const
@@ -17,6 +18,7 @@ export interface CreateSynthesisUnitOptions {
   id?: NodeId
   name: string
   guide: OwnedGuideAudio
+  timelineTrackId?: TrackId | null
   defaultTimelineStart: number | null
   now?: string
 }
@@ -66,6 +68,7 @@ export function createEmptySynthesisUnit(options: CreateSynthesisUnitOptions): S
       unitRevision: 0,
       takes: [],
       activeTakeId: null,
+      timelineTrackId: options.timelineTrackId ?? null,
       defaultTimelineStart: options.defaultTimelineStart,
       createdAt: now,
       updatedAt: now,
@@ -107,6 +110,16 @@ export function validateSynthesisUnit(unit: SynthesisUnitObjectNode): string[] {
     if (midiPTokenTrack.classes.some(value => !Number.isInteger(value) || value < 0 || value > 256)) {
       errors.push('MIDI-P track contains an invalid class')
     }
+    const flowFrames = midiPTokenTrack.flowFrames ?? []
+    if (new Set(flowFrames).size !== flowFrames.length || flowFrames.some(frame => (
+      !Number.isInteger(frame)
+      || frame <= 0
+      || frame >= frameContract.frameCount
+      || midiPTokenTrack.classes[frame] >= 255
+      || midiPTokenTrack.classes[frame - 1] !== midiPTokenTrack.classes[frame]
+    ))) {
+      errors.push('MIDI-P track contains an invalid FLOW marker')
+    }
   }
   return errors
 }
@@ -124,5 +137,5 @@ function emptyHTokenTrack(): SynthesisHTokenTrack {
 }
 
 function emptyMidiPTokenTrack(): SynthesisMidiPTokenTrack {
-  return { status: 'empty', revision: 0, origin: 'empty', classes: [], manualFrames: [], revisions: [] }
+  return { status: 'empty', revision: 0, origin: 'empty', classes: [], flowFrames: [], manualFrames: [], revisions: [] }
 }

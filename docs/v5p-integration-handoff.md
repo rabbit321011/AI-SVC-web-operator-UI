@@ -640,6 +640,27 @@ material snapshot、direct-control runner、Take 管理和正式音轨导出均�
 
 Git 尚未提交。`exports/` 已加入 `.gitignore`，用户明确要求不要提交或上传。
 
+### 11.4 MIDI-P FLOW 编辑语义（2026-08-11）
+
+MIDI-P 轨新增前端专用 `FLOW`：它不占模型 class ID，项目中用显式 `flowFrames` 与普通音高 token 区分，
+material snapshot、job manifest 和模型输入仍只消费展开后的 `classes`。只有 GAME 自动提取完整写轨时，才把
+连续同 pitch class 的首帧物化为普通 head、后续帧物化为 FLOW；之后绝不再因两个普通 token 相邻且同音高
+而动态合并。普通 head 纵向拖动时，其后连续 FLOW 同步变调和改变显示高度；FLOW 分色显示、不能独立拖音高，
+但可通过右键与普通 class/REST 相互强制替换。
+
+对应代码集中在 `types.ts`、`synthesisTrackTransactions.ts`、`SynthesisUnitEditor.vue`；键位教学和
+`v5p-token-editor-design.md` 已同步。定向 MIDI-P 事务测试 11/11 通过；`vue-tsc` 仍只报告既有的两个缺失
+project fixture。
+
+### 11.5 SynthesisUnit 时间线编辑句柄（2026-08-11）
+
+用户实践时纠正了“单元只在资源树”的旧裁决。现在从时间线 AudioObject 右键创建单元后，单元会保存来源
+`timelineTrackId` 与 `defaultTimelineStart`；source 存在内部 `trackSources/Synthesis Units`，并创建独立合成单元轨上的 source 指向 SynthesisUnit 的 audio
+`TrackObject`，显示为绿色 `SU`。它可拖动改变 Take 导出时间戳，也可从时间线移到静态资源；双击或右键可打开
+单元编辑器。旧单元缺少 TrackObject 时会从 Owned Guide 的 source provenance 回查并迁移。TrackObject 不进入
+混音、不等同于 Take；Take 仍只有显式导出后才成为普通可播放 AudioObject/TrackObject。音频对象和合成单元菜单
+已分别提供创建、删除、复制、定位和移动动作，菜单透明度跟随全局侧栏设置。
+
 ## 12. 下一步讨论/实现顺序
 
 V5-P 成熟接入主链已闭合。下一优先级转为增强与回归：

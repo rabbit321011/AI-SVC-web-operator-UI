@@ -1,12 +1,66 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { TOP_LEVEL_IDS, createEmptyProjectObjectTree } from '@/object-workbench'
+import { TOP_LEVEL_IDS, createEmptyProjectObjectTree, createEmptySynthesisUnit } from '@/object-workbench'
 import type { AudioObjectNode, FolderNode } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 import { useTracksStore } from './tracks'
 import { float32ToWavBlob } from '@/api/wav'
 
 describe('AudioObject drag into timeline', () => {
+  it('creates a dedicated TrackObject when dragging a workspace SynthesisUnit', async () => {
+    setActivePinia(createPinia())
+    const objectTree = useObjectTreeStore()
+    const tracks = useTracksStore()
+    const tree = createEmptyProjectObjectTree()
+    const unit = createEmptySynthesisUnit({
+      id: 'node:synthesisUnit:workspace',
+      name: 'Verse SYN',
+      defaultTimelineStart: null,
+      guide: {
+        assetId: 'asset:guide',
+        audioSHA256: 'a'.repeat(64),
+        sampleRate: 44100,
+        channels: 1,
+        sampleCount: 88200,
+        duration: 2,
+        source: {
+          sourceAudioObjectId: 'node:audio:guide',
+          sourceAssetId: 'asset:audio:guide',
+          effectiveStartSample: 0,
+          effectiveEndSampleExclusive: 88200,
+          sourceTimelineStart: null,
+          resolverManifest: 'fixture',
+        },
+      },
+    })
+    workspace(tree).children.push(unit)
+    objectTree.loadObjectTree(tree)
+
+    const result = await objectTree.dropAudioObjectToTimeline(unit.id, 4)
+
+    expect(result.ok).toBe(true)
+    expect(tracks.trackOrder).toEqual([result.trackId])
+    expect(tracks.tracks[result.trackId!].segments).toEqual([])
+    expect(unit.synthesisUnit.timelineTrackId).toBe(result.trackId)
+    expect(unit.synthesisUnit.defaultTimelineStart).toBe(4)
+    const trackObjects = Object.values(objectTree.index.nodes).filter(node => node.kind === 'trackObject')
+    expect(trackObjects).toHaveLength(1)
+    expect(trackObjects[0]).toMatchObject({
+      trackObject: {
+        sourceObjectId: unit.id,
+        timelineStart: 4,
+        timelineEnd: 6,
+      },
+    })
+
+    expect(objectTree.deleteNode(trackObjects[0]!.id)).toEqual({ ok: true })
+    const retainedUnit = objectTree.node(unit.id)
+    expect(retainedUnit?.kind).toBe('synthesisUnit')
+    expect(retainedUnit?.kind === 'synthesisUnit' ? retainedUnit.synthesisUnit.timelineTrackId : undefined).toBeNull()
+    expect(retainedUnit?.kind === 'synthesisUnit' ? retainedUnit.synthesisUnit.defaultTimelineStart : undefined).toBeNull()
+    expect(Object.values(objectTree.index.nodes).some(node => node.kind === 'trackObject')).toBe(false)
+  })
+
   it('copies workspace AudioObject to trackSources and creates legacy Track/Segment plus TrackObject', async () => {
     setActivePinia(createPinia())
     mockAudioContext()

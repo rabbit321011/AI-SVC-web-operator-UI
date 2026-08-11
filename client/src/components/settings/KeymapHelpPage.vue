@@ -76,8 +76,8 @@
         <div class="control-row"><strong>Kana</strong><span>右键</span><p>只重新生成该 Kana control range 的 H Token。</p></div>
         <div class="control-row"><strong>H Token</strong><span>悬浮 / 左拖</span><p>查看中文说明；将单帧 token 移到另一个离散 frame。</p></div>
         <div class="control-row"><strong>H Token</strong><span>右键 / 双击</span><p>在任意 frame 打开 token 选择器，强制替换或清空。</p></div>
-        <div class="control-row"><strong>MIDI-P</strong><span>左拖</span><p>横向移动时间，纵向每级改变 0.5 半音；拖动时播放目标钢琴音。</p></div>
-        <div class="control-row"><strong>MIDI-P</strong><span>右键</span><p>精确输入 class、逐级升降音高，或写入 REST。</p></div>
+        <div class="control-row"><strong>MIDI-P 头 token</strong><span>左拖</span><p>横向移动时间，纵向每级改变 0.5 半音；纵向拖动时，其连续 FLOW 一起跟随并播放目标钢琴音。</p></div>
+        <div class="control-row"><strong>MIDI-P / FLOW</strong><span>右键</span><p>精确输入 class，或显式写入 FLOW、REST。相邻同音高的普通 token 不会自动变成 FLOW。</p></div>
         <div class="control-row"><strong>A 区参考</strong><span>拖入 / 选择</span><p>绑定另一个合成单元的完整 Guide 和最新 Text/H。</p></div>
         <div class="control-row"><strong>Takes</strong><span>点击 / 播放 / 下载</span><p>选择历史结果、切换 Take 试听，或复制到正式 AudioObject/TrackObject。</p></div>
       </div>
@@ -102,7 +102,7 @@
       <section class="keyboard" aria-label="Keyboard shortcuts">
         <div class="key wide">Space<span>当前来源播放 / 暂停</span></div>
         <div class="key wide">Ctrl Z<span>撤销最近一次编辑</span></div>
-        <div class="key wide">Ctrl Y<span>重做编辑</span></div>
+        <div class="key wide">Ctrl Shift Z<span>重做编辑</span></div>
         <div class="key">N<span>TrackObject</span></div>
         <div class="key">L<span>AudioObject</span></div>
         <div class="key">M<span>MidiObject</span></div>
@@ -119,7 +119,7 @@
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></div><strong>撤销</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></div><strong>重做</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd></div><strong>重做</strong></div>
-          <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>C</kbd></div><strong>复制选中片段</strong></div>
+          <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>C</kbd></div><strong>复制选中的音频片段或合成单元</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>V</kbd></div><strong>粘贴到新音轨</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>B</kbd></div><strong>合并选中片段</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Delete</kbd></div><strong>删除选中的对象或文本句</strong></div>
@@ -132,7 +132,7 @@
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>Wheel</kbd></div><strong>上下浏览音轨</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>↑</kbd></div><strong>片段上移一条音轨</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Ctrl</kbd><span>+</span><kbd>↓</kbd></div><strong>片段下移一条音轨</strong></div>
-          <div class="shortcut"><div class="key-combo"><kbd>Alt</kbd><span>+</span><kbd>N</kbd></div><strong>定位 TrackObject</strong></div>
+          <div class="shortcut"><div class="key-combo"><kbd>Alt</kbd><span>+</span><kbd>N</kbd></div><strong>定位 TrackObject / 合成单元</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Alt</kbd><span>+</span><kbd>L</kbd></div><strong>定位 AudioObject</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Alt</kbd><span>+</span><kbd>M</kbd></div><strong>定位关联 MidiObject</strong></div>
           <div class="shortcut"><div class="key-combo"><kbd>Alt</kbd><span>+</span><kbd>K</kbd></div><strong>定位关联 TextObject</strong></div>

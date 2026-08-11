@@ -40,6 +40,13 @@ async function syncProject() {
   await normalizeSegmentTimingFromSamples()
   let maxEnd = 0
   for (const s of tracks.getAllSegments()) { if (s.timelineEnd > maxEnd) maxEnd = s.timelineEnd }
+  for (const node of Object.values(objectTree.index.nodes)) {
+    if (node.kind !== 'trackObject' || node.trackObject.contentType !== 'audio') continue
+    const source = objectTree.node(node.trackObject.sourceObjectId)
+    if (source?.kind === 'synthesisUnit' && node.trackObject.timelineEnd > maxEnd) {
+      maxEnd = node.trackObject.timelineEnd
+    }
+  }
   pb.setTotalDuration(maxEnd || 10)
   project.bumpLoad()
   // Reconcile F0 for tracks with missing data (background)

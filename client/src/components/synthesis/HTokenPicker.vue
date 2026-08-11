@@ -15,6 +15,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:show': [value: boolean]
   select: [entry: V5PHTokenCatalogEntry | null]
+  'pul-fill': []
+  'pul-clear': []
 }>()
 
 const search = ref('')
@@ -61,6 +63,12 @@ function choose(entry: V5PHTokenCatalogEntry | null) {
   emit('select', entry)
   emit('update:show', false)
 }
+
+function runPulseCommand(command: 'pul-fill' | 'pul-clear') {
+  if (command === 'pul-fill') emit('pul-fill')
+  else emit('pul-clear')
+  emit('update:show', false)
+}
 </script>
 
 <template>
@@ -78,7 +86,11 @@ function choose(entry: V5PHTokenCatalogEntry | null) {
         <NRadioButton value="all">全部 367</NRadioButton>
       </NRadioGroup>
       <NInput v-model:value="search" size="small" clearable placeholder="中文、symbol 或 ID" />
-      <NButton size="small" secondary @click="choose(null)">清除事件</NButton>
+      <div class="picker-actions">
+        <NButton size="small" secondary @click="runPulseCommand('pul-fill')">PUL 刷</NButton>
+        <NButton size="small" secondary @click="runPulseCommand('pul-clear')">清后续 PUL</NButton>
+        <NButton size="small" secondary @click="choose(null)">清除事件</NButton>
+      </div>
     </div>
 
     <div class="picker-body">
@@ -129,6 +141,7 @@ function choose(entry: V5PHTokenCatalogEntry | null) {
 }
 .h-picker-modal .n-card__content { min-height: 0; display: flex; flex-direction: column; }
 .picker-toolbar { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; gap: 10px; align-items: center; padding-bottom: 12px; border-bottom: 1px solid #303844; }
+.picker-actions { display: flex; align-items: center; gap: 6px; }
 .picker-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 250px; }
 .token-grid { min-height: 0; overflow: auto; padding: 12px 12px 12px 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); align-content: start; gap: 6px; }
 .token-option { min-width: 0; height: 58px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 28px 18px; gap: 0 6px; padding: 5px 7px; border: 1px solid #38424d; border-radius: 4px; background: #11161b; color: #d8dee7; text-align: left; cursor: pointer; }

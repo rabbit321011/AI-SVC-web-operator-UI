@@ -23,6 +23,8 @@ export interface ResolvedOwnedGuideSource {
   effectiveStartSample: number
   effectiveEndSampleExclusive: number
   defaultTimelineStart: number | null
+  timelineTrackId: string | null
+  timelineTrackObjectId: string | null
   resolverManifest: string
 }
 
@@ -72,6 +74,8 @@ export async function resolveOwnedGuideSource(options: ResolveOwnedGuideSourceOp
     effectiveStartSample: segment.startSample,
     effectiveEndSampleExclusive: segment.endSample,
     defaultTimelineStart: trackObject ? resolved.sourceStart : null,
+    timelineTrackId: trackObject?.legacy?.trackId ?? source.legacy?.trackId ?? null,
+    timelineTrackObjectId: trackObject?.id ?? null,
     resolverManifest: JSON.stringify(manifest),
   }
 }

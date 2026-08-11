@@ -47,7 +47,7 @@ export const useGlobalResourcesStore = defineStore('globalResources', () => {
     const objectTree = useObjectTreeStore()
     const tracks = useTracksStore()
     const node = objectTree.node(nodeId)
-    if (!node || !canPublish(node)) throw new Error('第一版只支持发布 Resource 中的音频或纯音频文件夹')
+    if (!node || !canPublish(node)) throw new Error('只支持发布 Resource 中的 AudioObject、SynthesisUnit 或由它们组成的文件夹')
     const assets: Record<string, AudioAsset> = {}
     const blobs = new Map<string, Blob>()
     const ancestors = collectResourceAncestors(node.id, objectTree)
@@ -98,7 +98,9 @@ export const useGlobalResourcesStore = defineStore('globalResources', () => {
 })
 
 function canPublishTreeNode(node: TreeNode): boolean {
-  return node.kind === 'audio' || (node.kind === 'folder' && node.children.every(canPublishTreeNode))
+  return node.kind === 'audio'
+    || node.kind === 'synthesisUnit'
+    || (node.kind === 'folder' && node.children.every(canPublishTreeNode))
 }
 
 function collectResourceAncestors(nodeId: NodeId, objectTree: ReturnType<typeof useObjectTreeStore>) {
@@ -131,19 +133,55 @@ function collectResourcePayload(
   blobs: Map<string, Blob>,
 ) {
   if (node.kind === 'audio') {
-    const asset = projectAssets[node.audio.assetId]
-    if (!asset) throw new Error(`Resource asset 不存在: ${node.audio.assetId}`)
-    if (!asset.blobKey) throw new Error(`Resource 没有 blob: ${node.name}`)
-    const blob = sourceBlobs.get(asset.blobKey)
-    if (!blob) throw new Error(`Resource blob 不存在: ${node.name}`)
-    const globalBlobKey = `global-resource:${resourceId}:${asset.id}:${asset.blobKey}`
-    assets[asset.id] = { ...cloneSerializable(asset), storage: 'projectBlob', blobKey: globalBlobKey }
-    blobs.set(globalBlobKey, blob)
+    collectAudioAsset(node.audio.assetId, node.name, resourceId, projectAssets, sourceBlobs, assets, blobs)
+    return
+  }
+  if (node.kind === 'synthesisUnit') {
+    collectAudioAsset(
+      node.synthesisUnit.guide.assetId,
+      `${node.name} / Owned Guide`,
+      resourceId,
+      projectAssets,
+      sourceBlobs,
+      assets,
+      blobs,
+    )
+    for (const take of node.synthesisUnit.takes) {
+      if (!take.outputAssetId) continue
+      collectAudioAsset(
+        take.outputAssetId,
+        `${node.name} / ${take.name}`,
+        resourceId,
+        projectAssets,
+        sourceBlobs,
+        assets,
+        blobs,
+      )
+    }
     return
   }
   if (node.kind === 'folder') {
     for (const child of node.children) collectResourcePayload(child, resourceId, projectAssets, sourceBlobs, assets, blobs)
   }
+}
+
+function collectAudioAsset(
+  assetId: string,
+  label: string,
+  resourceId: NodeId,
+  projectAssets: Record<string, AudioAsset>,
+  sourceBlobs: Map<string, Blob>,
+  assets: Record<string, AudioAsset>,
+  blobs: Map<string, Blob>,
+) {
+  const asset = projectAssets[assetId]
+  if (!asset) throw new Error(`Resource asset 不存在：${label} (${assetId})`)
+  if (!asset.blobKey) throw new Error(`Resource asset 没有 Blob：${label} (${assetId})`)
+  const blob = sourceBlobs.get(asset.blobKey)
+  if (!blob) throw new Error(`Resource Blob 不存在：${label} (${asset.blobKey})`)
+  const globalBlobKey = `global-resource:${resourceId}:${asset.id}:${asset.blobKey}`
+  assets[asset.id] = { ...cloneSerializable(asset), storage: 'projectBlob', blobKey: globalBlobKey }
+  blobs.set(globalBlobKey, blob)
 }
 
 async function readError(response: Response): Promise<string> {

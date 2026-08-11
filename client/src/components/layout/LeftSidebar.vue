@@ -7,6 +7,8 @@ import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import { useGlobalResourcesStore } from '@/stores/globalResources'
 import { useHistoryStore } from '@/stores/history'
+import { useTracksStore } from '@/stores/tracks'
+import { getProjectArea } from '@/object-workbench'
 import type { NodeId, TreeNode } from '@/object-workbench'
 import ObjectTreeRows from './ObjectTreeRows.vue'
 
@@ -17,6 +19,7 @@ const uiSettings = useUiSettingsStore()
 const editorWorkspace = useEditorWorkspaceStore()
 const globalResources = useGlobalResourcesStore()
 const history = useHistoryStore()
+const tracks = useTracksStore()
 const menu = ref<{ visible: boolean; x: number; y: number; node: TreeNode | null }>({ visible: false, x: 0, y: 0, node: null })
 
 const rootChildren = computed(() => objectTree.tree.root.children)
@@ -30,6 +33,19 @@ const sidebarStyle = computed(() => {
   }
 })
 const paneDividerStyle = computed(() => ({ left: `${uiSettings.settings.l1Width}px` }))
+const treeMenuStyle = computed(() => {
+  const palette = floatingMenuPalette(uiSettings.settings.theme)
+  return {
+    left: `${menu.value.x}px`,
+    top: `${menu.value.y}px`,
+    '--floating-menu-panel': palette.panel,
+    '--floating-menu-border': palette.border,
+    '--floating-menu-text': palette.text,
+    '--floating-menu-hover': palette.hover,
+    '--floating-menu-opacity': `${Math.round(uiSettings.settings.sideOpacity * 100)}%`,
+    '--floating-menu-backdrop': uiSettings.settings.sidebarGlassEnabled ? 'blur(14px) saturate(1.15)' : 'none',
+  }
+})
 
 let stopResize: (() => void) | null = null
 
@@ -93,6 +109,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
+function floatingMenuPalette(theme: string) {
+  if (theme === 'light') return { panel: '#ffffff', border: '#d7dde4', text: '#1f2328', hover: '#e7edf3' }
+  if (theme === 'cream') return { panel: '#fff8dc', border: '#d7c58f', text: '#2f2517', hover: '#efe1b8' }
+  return { panel: '#161b22', border: '#21262d', text: '#c9d1d9', hover: '#21262d' }
+}
+
 onBeforeUnmount(() => stopResize?.())
 
 function hasChildren(node: TreeNode): node is Extract<TreeNode, { children: TreeNode[] }> {
@@ -130,6 +152,31 @@ async function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEv
   }
   const sourceId = event.dataTransfer?.getData('application/x-aisvc-node-id') || event.dataTransfer?.getData('text/plain')
   if (!sourceId) return
+  const source = objectTree.node(sourceId)
+  const targetArea = getProjectArea(objectTree.index, target.id)
+  if (source?.kind === 'trackObject' && (targetArea === 'workspace' || targetArea === 'resource')) {
+    const before = objectTree.snapshotTree()
+    const result = objectTree.copyTrackObjectSourceToFolder(sourceId, target.id)
+    if (result.ok) {
+      history.push({
+        description: '复制时间线对象来源',
+        patches: [],
+        inversePatches: [],
+        objectTree: {
+          kind: 'snapshot',
+          before,
+          after: objectTree.snapshotTree(),
+          blobChanges: result.blobChanges,
+        },
+      })
+      if (target.kind === 'folder') ui.expanded[pane].add(target.id)
+      flash('已复制到目标文件夹')
+      await persistTreePathChange(result.newId ?? sourceId)
+    } else {
+      flash(result.reason ?? '无法复制')
+    }
+    return
+  }
   const result = objectTree.moveNode(sourceId, target.id)
   if (result.ok) {
     if (target.kind === 'folder' || target.kind === 'trackFolder') ui.expanded[pane].add(target.id)
@@ -217,15 +264,95 @@ function openTextEditor() {
 function openSynthesisUnitEditor() {
   const node = menu.value.node
   closeMenu()
-  if (node?.kind === 'synthesisUnit') editorWorkspace.openSynthesisUnitTab(node.id, node.name)
+  const source = node?.kind === 'trackObject' ? objectTree.node(node.trackObject.sourceObjectId) : node
+  if (source?.kind === 'synthesisUnit') editorWorkspace.openSynthesisUnitTab(source.id, source.name)
+}
+
+function contextSource(node: TreeNode | null): TreeNode | null {
+  if (!node) return null
+  if (node.kind === 'trackObject') return objectTree.node(node.trackObject.sourceObjectId) ?? null
+  return node
+}
+
+function isAudioContext(node: TreeNode | null): boolean {
+  return contextSource(node)?.kind === 'audio'
+}
+
+function isSynthesisContext(node: TreeNode | null): boolean {
+  return contextSource(node)?.kind === 'synthesisUnit'
+}
+
+function copyContextObject() {
+  const source = contextSource(menu.value.node)
+  closeMenu()
+  if (!source || (source.kind !== 'audio' && source.kind !== 'synthesisUnit')) return
+  const before = objectTree.snapshotTree()
+  const result = objectTree.copyNodeToStaticResources(source.id)
+  if (!result.ok) {
+    flash(result.reason ?? '复制失败')
+    return
+  }
+  history.push({ description: '复制对象到静态资源', patches: [], inversePatches: [], objectTree: { kind: 'snapshot', before, after: objectTree.snapshotTree() } })
+  flash('已复制到静态资源')
+}
+
+function locateContextObject() {
+  const source = contextSource(menu.value.node)
+  closeMenu()
+  if (!source) return
+  ui.selectById(source.id)
+  ui.expandPath('L1', objectTree.index.parentById, source.id)
+  ui.expandPath('L2', objectTree.index.parentById, source.id)
+  flash('已定位到文件树')
+}
+
+function moveContextToWorkspace() {
+  const node = menu.value.node
+  const source = contextSource(node)
+  closeMenu()
+  if (!node || !source) return
+  const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
+  const result = node.kind === 'trackObject'
+    ? objectTree.moveTrackObjectToWorkspace(node.id)
+    : source.kind === 'audio'
+      ? objectTree.moveAudioObjectToWorkspace(source.id)
+      : objectTree.moveNodeToWorkspace(source.id)
+  if (!result.ok) {
+    flash(result.reason ?? '移动失败')
+    return
+  }
+  history.push({ description: '移动到 Workspace', patches: [], inversePatches: [], objectTree: { kind: 'snapshot', before, after: objectTree.snapshotTree(), tracksBefore, tracksAfter: tracks.snapshotState() } })
+  flash('已移动到 Workspace')
+}
+
+function deleteContextObject() {
+  const node = menu.value.node
+  const source = contextSource(node)
+  closeMenu()
+  if (!node || !source) return
+  if (!window.confirm(`删除 "${source.name}"？`)) return
+  const before = objectTree.snapshotTree()
+  const result = objectTree.deleteNode(node.kind === 'trackObject' ? node.id : source.id)
+  if (!result.ok) {
+    flash(result.reason ?? '无法删除')
+    return
+  }
+  history.push({ description: '删除对象', patches: [], inversePatches: [], objectTree: { kind: 'snapshot', before, after: objectTree.snapshotTree() } })
+  flash('已删除')
 }
 
 async function createSynthesisUnit() {
   const node = menu.value.node
   closeMenu()
-  if (node?.kind !== 'audio') return
+  const source = node?.kind === 'audio'
+    ? node
+    : node?.kind === 'trackObject'
+      ? objectTree.node(node.trackObject.sourceObjectId)
+      : null
+  if (!source || source.kind !== 'audio') return
   const beforeTree = objectTree.snapshotTree()
-  const result = await objectTree.createSynthesisUnitFromAudioObject(node.id)
+  const result = await objectTree.createSynthesisUnitFromAudioObject(source.id)
   if (!result.ok || !result.unitId || !result.guideBlobKey || !result.guideBlob) {
     flash(result.reason ?? '创建合成单元失败')
     return
@@ -357,17 +484,29 @@ function cssSafeId(id: NodeId) {
       <div
         v-if="menu.visible"
         :class="['tree-context-menu', uiSettings.rootClass]"
-        :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
+        :style="treeMenuStyle"
         @click.stop
       >
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item" @click="createFolderHere">新建文件夹</div>
         <div v-if="menu.node && !menu.node.id.startsWith('project:/')" class="tree-menu-item" @click="renameNode">重命名</div>
         <div v-if="menu.node?.kind === 'text'" class="tree-menu-item" @click="openTextEditor">打开文本编辑器</div>
-        <div v-if="menu.node?.kind === 'audio'" class="tree-menu-item" @click="createSynthesisUnit">创建合成单元</div>
-        <div v-if="menu.node?.kind === 'synthesisUnit'" class="tree-menu-item" @click="openSynthesisUnitEditor">打开合成单元编辑器</div>
+        <div v-if="isAudioContext(menu.node)" class="tree-menu-item" @click="createSynthesisUnit">创建音轨合成单元</div>
+        <template v-if="isAudioContext(menu.node)">
+          <div class="tree-menu-item danger" @click="deleteContextObject">删除本音频段</div>
+          <div class="tree-menu-item" @click="copyContextObject">复制</div>
+          <div class="tree-menu-item" @click="locateContextObject">定位到文件树</div>
+          <div class="tree-menu-item" @click="moveContextToWorkspace">移动到 Workspace</div>
+        </template>
+        <template v-if="isSynthesisContext(menu.node)">
+          <div class="tree-menu-item" @click="openSynthesisUnitEditor">进入详细编辑页面</div>
+          <div class="tree-menu-item" @click="copyContextObject">复制</div>
+          <div class="tree-menu-item" @click="locateContextObject">定位到文件树</div>
+          <div class="tree-menu-item" @click="moveContextToWorkspace">移动到 Workspace</div>
+          <div class="tree-menu-item danger" @click="deleteContextObject">删除本合成单元</div>
+        </template>
         <div v-if="menu.node && (globalResources.isGlobal(menu.node.id) || globalResources.canPublish(menu.node))" class="tree-menu-item" @click="toggleGlobalResource">{{ globalResources.isGlobal(menu.node.id) ? '移出全局 Resource' : '加入全局 Resource' }}</div>
         <div v-if="menu.node?.kind === 'folder' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除文件夹</div>
-        <div v-if="menu.node?.kind === 'audio' || menu.node?.kind === 'synthesisUnit' || menu.node?.kind === 'group' || menu.node?.kind === 'trackObject' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
+        <div v-if="menu.node?.kind === 'group' || menu.node?.kind === 'trackFolder'" class="tree-menu-item danger" @click="deleteFolder">删除</div>
       </div>
     </Teleport>
   </div>
@@ -557,38 +696,23 @@ function cssSafeId(id: NodeId) {
   color: var(--app-text);
 }
 .tree-context-menu {
-  --menu-bg: #161b22;
-  --menu-border: #30363d;
-  --menu-text: #c9d1d9;
-  --menu-hover: #21262d;
   position: fixed;
   z-index: 10000;
   min-width: 130px;
   padding: 4px 0;
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
+  background: color-mix(in srgb, var(--floating-menu-panel) var(--floating-menu-opacity), transparent);
+  border: 1px solid var(--floating-menu-border);
+  backdrop-filter: var(--floating-menu-backdrop);
   border-radius: 4px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-}
-.tree-context-menu.theme-light {
-  --menu-bg: #ffffff;
-  --menu-border: #d7dde4;
-  --menu-text: #1f2328;
-  --menu-hover: #e7edf3;
-}
-.tree-context-menu.theme-cream {
-  --menu-bg: #fff8dc;
-  --menu-border: #d7c58f;
-  --menu-text: #2f2517;
-  --menu-hover: #efe1b8;
 }
 .tree-menu-item {
   padding: 6px 12px;
   font-size: 12px;
-  color: var(--menu-text);
+  color: var(--floating-menu-text);
   cursor: pointer;
 }
-.tree-menu-item:hover { background: var(--menu-hover); }
+.tree-menu-item:hover { background: var(--floating-menu-hover); }
 .tree-menu-item.danger { color: #f85149; }
 body.resizing-sidebar {
   cursor: col-resize;

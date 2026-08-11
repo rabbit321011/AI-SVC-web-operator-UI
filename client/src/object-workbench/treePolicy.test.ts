@@ -57,16 +57,13 @@ describe('object tree boundary policy', () => {
     expect(canTransferTreeNode(index, index.nodes['node:trackObject:audio'], index.nodes['node:trackFolder:text'], 'move')).toMatchObject({ ok: false })
   })
 
-  it('only allows workspace/resource/renders ordinary media into the timeline', () => {
+  it('allows ordinary media plus workspace/resource synthesis units into the timeline', () => {
     const tree = fixtureTree()
     const index = buildNodeIndex(tree.root)
 
     expect(canDragIntoTimeline(index.nodes['node:workspace:audio'], index).ok).toBe(true)
     expect(canDragIntoTimeline(index.nodes['node:trackObject:audio'], index)).toMatchObject({ ok: false })
-    expect(canDragIntoTimeline(index.nodes['node:synthesisUnit:a'], index)).toMatchObject({
-      ok: false,
-      reason: '合成单元需要先把 Take 导出为正式音频',
-    })
+    expect(canDragIntoTimeline(index.nodes['node:synthesisUnit:a'], index).ok).toBe(true)
     expect(canDropIntoRenderSlot(index.nodes['node:workspace:audio'])).toMatchObject({ ok: false })
   })
 })

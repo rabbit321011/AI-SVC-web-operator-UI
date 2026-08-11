@@ -155,6 +155,8 @@ export interface Command {
           before: Blob | null
           after: Blob | null
         }>
+        tracksBefore?: unknown
+        tracksAfter?: unknown
       }
 }
 

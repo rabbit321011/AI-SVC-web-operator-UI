@@ -108,6 +108,7 @@ function readyUnit(id: string, sampleCount: number): SynthesisUnitObjectNode {
     revision: 3,
     origin: 'game',
     classes: Array(frameCount).fill(255),
+    flowFrames: [],
     manualFrames: [],
     revisions: [],
   }

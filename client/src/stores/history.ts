@@ -129,6 +129,7 @@ export const useHistoryStore = defineStore('history', () => {
   function applyObjectTreeUndo(command: Command) {
     if (command.objectTree?.kind === 'snapshot') {
       useObjectTreeStore().restoreTree(command.objectTree.before as ProjectObjectTree)
+      if (command.objectTree.tracksBefore) useTracksStore().restoreState(command.objectTree.tracksBefore as TracksStateSnapshot)
       applyBlobChanges(command.objectTree.blobChanges, 'before')
       return
     }
@@ -139,6 +140,7 @@ export const useHistoryStore = defineStore('history', () => {
   function applyObjectTreeRedo(command: Command) {
     if (command.objectTree?.kind === 'snapshot') {
       useObjectTreeStore().restoreTree(command.objectTree.after as ProjectObjectTree)
+      if (command.objectTree.tracksAfter) useTracksStore().restoreState(command.objectTree.tracksAfter as TracksStateSnapshot)
       applyBlobChanges(command.objectTree.blobChanges, 'after')
       return
     }
@@ -168,7 +170,7 @@ export const useHistoryStore = defineStore('history', () => {
   return { stack, pointer, canUndo, canRedo, push, undo, redo, clear }
 })
 
-import { useTracksStore } from './tracks'
+import { useTracksStore, type TracksStateSnapshot } from './tracks'
 import { useSelectionStore } from './selection'
 import { useCompGroupsStore } from './compGroups'
 import { useObjectTreeStore } from './objectTree'

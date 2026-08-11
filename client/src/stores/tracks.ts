@@ -3,6 +3,12 @@ import { reactive, ref } from 'vue'
 import type { Track, TrackId, SegmentId, AudioSegment } from '@/types'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 
+export interface TracksStateSnapshot {
+  tracks: Record<TrackId, Track>
+  trackOrder: TrackId[]
+  segmentsMap: Record<SegmentId, AudioSegment>
+}
+
 const TRACK_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ffa28b', '#a5d6ff', '#ffcc66', '#56d4dd',
@@ -77,7 +83,7 @@ export const useTracksStore = defineStore('tracks', () => {
     return id
   }
 
-  function addObjectTrack(trackType: 'midi' | 'text', name?: string): TrackId {
+  function addObjectTrack(trackType: 'audio' | 'midi' | 'text', name?: string): TrackId {
     const id = makeTrackId()
     const color = trackType === 'text' ? '#56d4dd' : nextColor()
     const trkNum = trackOrder.value.length + 1
@@ -176,6 +182,18 @@ export const useTracksStore = defineStore('tracks', () => {
     const track = tracks[trackId]
     if (!track) return []
     return track.segments.map(sid => segmentsMap[sid]).filter(Boolean) as AudioSegment[]
+  }
+
+  function snapshotState(): TracksStateSnapshot {
+    return JSON.parse(JSON.stringify({ tracks, trackOrder: trackOrder.value, segmentsMap })) as TracksStateSnapshot
+  }
+
+  function restoreState(snapshot: TracksStateSnapshot) {
+    for (const key of Object.keys(tracks)) delete tracks[key]
+    for (const key of Object.keys(segmentsMap)) delete segmentsMap[key]
+    Object.assign(tracks, JSON.parse(JSON.stringify(snapshot.tracks)))
+    Object.assign(segmentsMap, JSON.parse(JSON.stringify(snapshot.segmentsMap)))
+    trackOrder.value = [...snapshot.trackOrder]
   }
 
   // F0 reconciliation — called after track segments change (import/paste/merge/load/SVC)
@@ -283,7 +301,7 @@ export const useTracksStore = defineStore('tracks', () => {
     tracks, trackOrder, segmentsMap, sourceBlobs,
     addTrack, addObjectTrack, removeTrack, renameTrack, setTrackColor, reorderTracks,
     getSegment, updateSegment, replaceSegments, insertSegment,
-    getAllSegments, getTrackSegments,
+    getAllSegments, getTrackSegments, snapshotState, restoreState,
     reconcileF0ForTrack, forceReconcileF0ForTrack,
     makeSegmentId, makeTrackId, nextColor,
   }

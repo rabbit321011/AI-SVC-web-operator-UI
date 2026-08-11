@@ -55,6 +55,7 @@ export interface MoveHTokenEventRequest {
 export interface ReplaceMidiPFrameRequest {
   frame: number
   midiClass: number
+  asFlow?: boolean
   operation?: string
   now?: string
   revisionId?: string
@@ -89,6 +90,15 @@ export interface UpdateKanaUnitRequest {
 export interface MoveKanaSharedBoundaryRequest {
   leftUnitId: string
   rightUnitId: string
+  targetFrame: number
+  operation?: string
+  now?: string
+  revisionId?: string
+}
+
+export interface MoveKanaBoundaryRequest {
+  unitId: string
+  edge: 'start' | 'end'
   targetFrame: number
   operation?: string
   now?: string
@@ -190,6 +200,7 @@ export function replaceMidiPTrack(unit: SynthesisUnitObjectNode, request: Replac
   const track = unit.synthesisUnit.midiPTokenTrack
   const revision = nextRevision(unit, 'midi-p', request, 0, frameCount)
   track.classes = [...request.classes]
+  track.flowFrames = request.origin === 'game' ? deriveMidiPFlowFrames(request.classes) : []
   track.manualFrames = []
   track.status = 'ready'
   track.origin = request.origin
@@ -244,15 +255,42 @@ export function replaceMidiPFrame(unit: SynthesisUnitObjectNode, request: Replac
   if (!Number.isInteger(request.midiClass) || request.midiClass < 0 || request.midiClass > 256) {
     throw new Error('MIDI-P class must be an integer in 0..256')
   }
-  if (track.classes[request.frame] === request.midiClass) return
-  track.classes[request.frame] = request.midiClass
-  track.manualFrames = [...new Set([...(track.manualFrames ?? []), request.frame])].sort((a, b) => a - b)
+  const flowFrames = new Set(track.flowFrames ?? [])
+  const wasFlow = flowFrames.has(request.frame)
+  let nextClass = request.midiClass
+  if (request.asFlow) {
+    if (request.frame === 0 || track.classes[request.frame - 1] >= 255) {
+      throw new Error('FLOW 前必须有一个有音高的 MIDI-P token')
+    }
+    nextClass = track.classes[request.frame - 1]
+  }
+  if (track.classes[request.frame] === nextClass && wasFlow === Boolean(request.asFlow)) return
+
+  track.classes[request.frame] = nextClass
+  request.asFlow ? flowFrames.add(request.frame) : flowFrames.delete(request.frame)
+  let affectedEndFrameExclusive = request.frame + 1
+  if (nextClass < 255) {
+    let frame = request.frame + 1
+    while (frame < frameCount && flowFrames.has(frame)) {
+      track.classes[frame] = nextClass
+      frame++
+    }
+    affectedEndFrameExclusive = frame
+  } else if (flowFrames.delete(request.frame + 1)) {
+    // A FLOW cannot inherit REST/PAD. Promote the first continuation to a new head.
+    affectedEndFrameExclusive = request.frame + 2
+  }
+  track.flowFrames = [...flowFrames].sort((left, right) => left - right)
+  track.manualFrames = [...new Set([
+    ...(track.manualFrames ?? []),
+    ...frameRange(request.frame, affectedEndFrameExclusive),
+  ])].sort((a, b) => a - b)
   const revision = nextRevision(unit, 'midi-p', {
     operation: request.operation ?? 'replace MIDI-P frame',
     sourceRefs: [],
     now: request.now,
     revisionId: request.revisionId,
-  }, request.frame, request.frame + 1)
+  }, request.frame, affectedEndFrameExclusive)
   track.revision = revision.revision
   track.origin = 'user'
   track.revisions.push(revision)
@@ -277,6 +315,10 @@ export function moveMidiPFrame(unit: SynthesisUnitObjectNode, request: MoveMidiP
   if (track.classes[request.sourceFrame] >= 255) {
     throw new Error('只有有音高的 MIDI-P frame 可以拖动')
   }
+  const flowFrames = new Set(track.flowFrames ?? [])
+  if (flowFrames.has(request.sourceFrame)) {
+    throw new Error('FLOW 的音高由头 token 控制；请拖动该音符的头 token')
+  }
   if (request.sourceFrame === request.targetFrame) {
     replaceMidiPFrame(unit, {
       frame: request.sourceFrame,
@@ -295,13 +337,24 @@ export function moveMidiPFrame(unit: SynthesisUnitObjectNode, request: MoveMidiP
   }
 
   const startFrame = Math.min(request.sourceFrame, request.targetFrame)
-  const endFrameExclusive = Math.max(request.sourceFrame, request.targetFrame) + 1
+  let endFrameExclusive = Math.max(request.sourceFrame, request.targetFrame) + 1
   track.classes[request.sourceFrame] = 255
+  flowFrames.delete(request.sourceFrame)
+  if (flowFrames.delete(request.sourceFrame + 1)) {
+    endFrameExclusive = Math.max(endFrameExclusive, request.sourceFrame + 2)
+  }
   track.classes[request.targetFrame] = request.targetClass
+  flowFrames.delete(request.targetFrame)
+  let targetFollower = request.targetFrame + 1
+  while (targetFollower < frameCount && flowFrames.has(targetFollower)) {
+    track.classes[targetFollower] = request.targetClass
+    targetFollower++
+  }
+  endFrameExclusive = Math.max(endFrameExclusive, targetFollower)
+  track.flowFrames = [...flowFrames].sort((left, right) => left - right)
   track.manualFrames = [...new Set([
     ...(track.manualFrames ?? []),
-    request.sourceFrame,
-    request.targetFrame,
+    ...frameRange(startFrame, endFrameExclusive),
   ])].sort((left, right) => left - right)
   const revision = nextRevision(unit, 'midi-p', {
     operation: request.operation ?? 'move MIDI-P token',
@@ -313,6 +366,16 @@ export function moveMidiPFrame(unit: SynthesisUnitObjectNode, request: MoveMidiP
   track.origin = 'user'
   track.revisions.push(revision)
   touchUnit(unit, request.now)
+}
+
+export function deriveMidiPFlowFrames(classes: number[]): number[] {
+  return classes.flatMap((value, frame) => (
+    frame > 0 && value < 255 && classes[frame - 1] === value ? [frame] : []
+  ))
+}
+
+function frameRange(startFrame: number, endFrameExclusive: number): number[] {
+  return Array.from({ length: Math.max(0, endFrameExclusive - startFrame) }, (_, index) => startFrame + index)
 }
 
 export function updateSegmentObject(unit: SynthesisUnitObjectNode, request: UpdateSegmentObjectRequest) {
@@ -337,6 +400,21 @@ export function updateSegmentObject(unit: SynthesisUnitObjectNode, request: Upda
   touchUnit(unit, request.now)
 }
 
+export function deleteSegmentObject(unit: SynthesisUnitObjectNode, segmentId: string) {
+  const track = unit.synthesisUnit.segmentTrack
+  const existing = track.items.find(item => item.id === segmentId)
+  if (!existing) throw new Error('Segment does not exist')
+  const revision = nextRevision(unit, 'segment', {
+    operation: 'delete Segment',
+    sourceRefs: [],
+  }, existing.startFrame, existing.speechEndFrameExclusive)
+  track.items = track.items.filter(item => item.id !== segmentId)
+  track.revision = revision.revision
+  track.origin = 'user'
+  track.revisions.push(revision)
+  touchUnit(unit)
+}
+
 export function updateKanaUnit(unit: SynthesisUnitObjectNode, request: UpdateKanaUnitRequest) {
   const track = unit.synthesisUnit.kanaTrack
   const index = track.units.findIndex(item => item.id === request.unitId)
@@ -357,6 +435,21 @@ export function updateKanaUnit(unit: SynthesisUnitObjectNode, request: UpdateKan
   touchUnit(unit, request.now)
 }
 
+export function deleteKanaUnit(unit: SynthesisUnitObjectNode, unitId: string) {
+  const track = unit.synthesisUnit.kanaTrack
+  const existing = track.units.find(item => item.id === unitId)
+  if (!existing) throw new Error('KanaUnit does not exist')
+  const revision = nextRevision(unit, 'kana', {
+    operation: 'delete Kana',
+    sourceRefs: [],
+  }, existing.startFrame, existing.endFrameExclusive)
+  track.units = track.units.filter(item => item.id !== unitId)
+  track.revision = revision.revision
+  track.origin = 'user'
+  track.revisions.push(revision)
+  touchUnit(unit)
+}
+
 export function moveKanaSharedBoundary(
   unit: SynthesisUnitObjectNode,
   request: MoveKanaSharedBoundaryRequest,
@@ -369,9 +462,6 @@ export function moveKanaSharedBoundary(
   const left = sorted[leftIndex]
   const right = sorted[rightIndex]
   if (left.endFrameExclusive !== right.startFrame) throw new Error('Kana units do not share a boundary')
-  if (track.boundaries.some(boundary => boundary.frame === left.endFrameExclusive)) {
-    throw new Error('Kana SEG 两侧不能使用普通共享边界拖动')
-  }
   if (!Number.isInteger(request.targetFrame)
     || request.targetFrame <= left.startFrame
     || request.targetFrame >= right.endFrameExclusive) {
@@ -380,14 +470,68 @@ export function moveKanaSharedBoundary(
   if (request.targetFrame === left.endFrameExclusive) return
   const oldFrame = left.endFrameExclusive
   const nextUnits = clone(track.units)
+  const nextBoundaries = clone(track.boundaries)
   const nextLeft = nextUnits.find(item => item.id === left.id)!
   const nextRight = nextUnits.find(item => item.id === right.id)!
   nextLeft.endFrameExclusive = request.targetFrame
   nextRight.startFrame = request.targetFrame
   nextLeft.origin = 'user'
   nextRight.origin = 'user'
+  const movedBoundary = nextBoundaries.find(boundary => boundary.frame === oldFrame)
+  if (movedBoundary) {
+    if (nextBoundaries.some(boundary => boundary !== movedBoundary && boundary.frame === request.targetFrame)) {
+      throw new Error('目标 frame 已有另一个 SEG 边界')
+    }
+    movedBoundary.frame = request.targetFrame
+    movedBoundary.origin = 'user'
+  }
   const revision = nextRevision(unit, 'kana', {
     operation: request.operation ?? 'move Kana shared boundary',
+    sourceRefs: [],
+    now: request.now,
+    revisionId: request.revisionId,
+  }, Math.min(oldFrame, request.targetFrame), Math.max(oldFrame, request.targetFrame) + 1)
+  track.units = nextUnits.sort((a, b) => a.startFrame - b.startFrame)
+  track.boundaries = nextBoundaries.sort((a, b) => a.frame - b.frame)
+  track.revision = revision.revision
+  track.origin = 'user'
+  track.revisions.push(revision)
+  touchUnit(unit, request.now)
+}
+
+export function moveKanaBoundary(
+  unit: SynthesisUnitObjectNode,
+  request: MoveKanaBoundaryRequest,
+) {
+  const track = unit.synthesisUnit.kanaTrack
+  const sorted = [...track.units].sort((left, right) => left.startFrame - right.startFrame)
+  const index = sorted.findIndex(item => item.id === request.unitId)
+  if (index < 0) throw new Error('KanaUnit does not exist')
+  const current = sorted[index]
+  const nextUnits = clone(track.units)
+  const currentClone = nextUnits.find(item => item.id === current.id)!
+
+  const oldFrame = request.edge === 'start' ? current.startFrame : current.endFrameExclusive
+
+  if (request.edge === 'start') {
+    if (!Number.isInteger(request.targetFrame)) throw new Error('Kana boundary target must be an integer')
+    if (request.targetFrame < 0 || request.targetFrame >= current.endFrameExclusive) {
+      throw new Error('Kana boundary target is outside current unit')
+    }
+    currentClone.startFrame = request.targetFrame
+    currentClone.origin = 'user'
+  } else {
+    if (!Number.isInteger(request.targetFrame)) throw new Error('Kana boundary target must be an integer')
+    if (request.targetFrame <= current.startFrame || request.targetFrame > unit.synthesisUnit.frameContract.frameCount) {
+      throw new Error('Kana boundary target is outside current unit')
+    }
+    currentClone.endFrameExclusive = request.targetFrame
+    currentClone.origin = 'user'
+  }
+
+  if (request.targetFrame === oldFrame) return
+  const revision = nextRevision(unit, 'kana', {
+    operation: request.operation ?? `move Kana ${request.edge} boundary`,
     sourceRefs: [],
     now: request.now,
     revisionId: request.revisionId,
