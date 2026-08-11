@@ -86,6 +86,67 @@ flowchart LR
 创建 SynthesisUnit 不删除、不替换、不静音来源 AudioObject。删除或修改来源 AudioObject 也不能改变已创建
 SynthesisUnit 的 Guide。
 
+### 3.3 待实施：Tracks 与 trackSources 的强所有权约束
+
+当前实现仍允许部分时间线 `TrackObject` 直接引用 `Workspace/Resource` 中的源对象。后续应统一为以下不变量：
+
+```text
+Tracks TrackObject
+  -> 只能引用 project:/trackSources 下的源对象
+```
+
+因此，从 `Workspace` 或 `Resource` 拖入时间线时，系统必须先创建一个时间线专属的
+`trackSources` 副本，再创建指向该副本的 `TrackObject`。原始 Workspace/Resource 对象继续独立存在，
+删除或修改它不影响已经进入时间线的对象。
+
+反向操作的语义固定如下：
+
+- `Tracks TrackObject -> Workspace/Resource`：复制其 `trackSources` 来源，时间线对象保持不变；
+- 右键“移动到 Workspace”：显式移除时间线句柄，并把来源对象移出到 Workspace；
+- 删除 `Tracks TrackObject`：删除 TrackObject，并清理其专属 `trackSources` 来源；
+- 删除 `TrackFolder`：对其中每个 TrackObject 执行同样的级联清理；
+- 若一个 `trackSources` 来源仍被其他 TrackObject 引用，则只能减少引用，不能删除来源或资产。
+
+这条约束的目的，是让 `Tracks` 成为真正的编排层，让 `trackSources` 成为时间线工作副本层，
+避免时间线删除操作误删用户资源，也避免一个时间线对象的状态被 Resource/Workspace 中的对象共享污染。
+
+该约束是后续实现任务，不代表当前版本已经完成迁移。迁移时需要同时处理旧项目加载、复制、删除、撤销/重做、
+全局 Resource 同步和已有 SYN TrackObject 的来源重定位。
+
+### 3.1 Kana 与 SEG 的所有权模型
+
+SEG 不应继续作为一组与 KanaUnit 平行、但没有明确归属的独立 frame 标记。它应当被建模为
+**某个 KanaUnit 的显式分句属性**：
+
+```ts
+interface SynthesisKanaUnit {
+  id: string
+  kana: string
+  romaji: string
+  startFrame: number
+  endFrameExclusive: number
+  origin: 'segment-align' | 'imported' | 'user'
+
+  // true 表示该 Kana 是一个 Segment/phrase 的最后一个 Kana，
+  // 其 endFrameExclusive 同时就是该句的 SEG 分界。
+  endsSegment: boolean
+}
+```
+
+实现上可以暂时保留 `kanaTrack.boundaries` 作为兼容字段，但它必须由 KanaUnit 的
+`endsSegment` 和 `endFrameExclusive` 派生，不能再成为第二套独立事实来源。
+
+该模型的行为约束如下：
+
+- 一个 Kana 最多拥有一个 SEG，SEG 位于该 Kana 的 `endFrameExclusive`；
+- Kana 的起点/终点拖动时，所属 SEG 自动跟随；
+- 删除带 SEG 的 Kana 时，SEG 随 Kana 删除；若产品选择把 SEG 转移给前一个 Kana，也必须由事务显式完成；
+- 相邻 Kana 的范围不得重叠，且不能留下没有 Kana 所属的 SEG；
+- Kana → H 的 phrase 构建只读取 Kana 的显式分句属性；
+- Segment → Kana 的自动生成负责设置每个句末 Kana 的 `endsSegment=true`；
+- 普通 Kana 编辑只改变 KanaTrack，不自动修改 Segment、H 或 MIDI-P；
+- 修改 Kana 边界后，已有 H placement 只视为可能过期，必须在 UI 中显示并在合成前重新确认或标记为 user。
+
 ## 4. SynthesisUnit 数据合同
 
 以下 schema 是产品合同草案，字段名可随现有对象树风格调整，但所有权与行为不能改变：
