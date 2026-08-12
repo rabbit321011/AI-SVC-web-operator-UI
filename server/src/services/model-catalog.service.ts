@@ -75,6 +75,9 @@ export function getModelCatalog(): ModelCatalogEntry[] {
     { id: 'GAME-1.0-medium', family: 'analysis', engine: 'game', runtimeState: 'configured', capabilities: ['midi-p'], vramProfile: readVramProfile('GAME-1.0-medium') },
     { id: 'Whisper large-v3', family: 'analysis', engine: 'whisper', runtimeState: 'configured', capabilities: ['segment'], vramProfile: readVramProfile('Whisper large-v3') },
     { id: 'SOFA Japanese', family: 'analysis', engine: 'sofa', runtimeState: 'configured', capabilities: ['kana', 'h-token'], vramProfile: readVramProfile('SOFA Japanese') },
+    { id: 'MSST_duality', family: 'analysis', engine: 'msst', runtimeState: 'configured', capabilities: ['vocals', 'instrumental'], vramProfile: readVramProfile('MSST_duality') },
+    { id: 'MSST_dereverb', family: 'analysis', engine: 'msst', runtimeState: 'configured', capabilities: ['dry', 'other'], vramProfile: readVramProfile('MSST_dereverb') },
+    { id: 'MSST_denoise', family: 'analysis', engine: 'msst', runtimeState: 'configured', capabilities: ['dry', 'other'], vramProfile: readVramProfile('MSST_denoise') },
   )
   return entries
 }

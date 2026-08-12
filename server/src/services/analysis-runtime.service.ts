@@ -15,6 +15,8 @@ const RUNTIME_DIR = path.join(PROJECT_ROOT, 'data', 'analysis-runtime')
 const WHISPER_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'whisper_resident_worker.py')
 const SOFA_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'sofa_resident_worker.py')
 const GAME_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'game_resident_worker.py')
+const MSST_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'msst_resident_worker.py')
+const MSST_PYTHON = 'E:/MyProject/cyanAI/nodeServer/src/utility/MSST/msst_webui/venv/Scripts/python.exe'
 
 const ANALYSIS_PRESETS = {
   'Whisper large-v3': {
@@ -44,6 +46,24 @@ const ANALYSIS_PRESETS = {
       '--singer-repo', 'E:/MyProject/ToLinuxServer/YingMusic-Singer-Plus-src',
       '--device', device,
     ],
+  },
+  MSST_duality: {
+    python: MSST_PYTHON,
+    worker: MSST_WORKER,
+    requestType: 'separate',
+    args: (device: string) => ['--model', 'duality', '--device', device],
+  },
+  MSST_dereverb: {
+    python: MSST_PYTHON,
+    worker: MSST_WORKER,
+    requestType: 'separate',
+    args: (device: string) => ['--model', 'dereverb', '--device', device],
+  },
+  MSST_denoise: {
+    python: MSST_PYTHON,
+    worker: MSST_WORKER,
+    requestType: 'separate',
+    args: (device: string) => ['--model', 'denoise', '--device', device],
   },
 } as const
 
@@ -233,7 +253,8 @@ function handleWorkerLine(record: AnalysisRuntimeRecord, line: string): void {
     }
     return
   }
-  if (event.type === 'transcribe_done' || event.type === 'align_done' || event.type === 'extract_done') {
+  if (event.type === 'transcribe_done' || event.type === 'align_done'
+    || event.type === 'extract_done' || event.type === 'separate_done') {
     const pending = record.pendingInfer
     record.pendingInfer = undefined
     record.state = 'ready'

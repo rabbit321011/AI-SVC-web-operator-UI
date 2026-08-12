@@ -203,6 +203,14 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           <span>{{ engineLabel(model.engine) }}</span>
           <n-tag size="small" :bordered="false" type="success">已注册</n-tag>
           <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
+          <n-button
+            size="tiny"
+            type="primary"
+            ghost
+            :loading="runtimes.some(item => item.id === model.id && item.state === 'loading')"
+            :disabled="runtimes.some(item => item.id === model.id && item.state !== 'unloaded' && item.state !== 'error')"
+            @click="loadRuntime(model.id)"
+          >加载模型</n-button>
         </div>
       </div>
     </section>

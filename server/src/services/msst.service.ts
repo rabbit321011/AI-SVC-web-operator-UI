@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
 import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
+import { isAnalysisRuntimeReady, runAnalysisInfer } from './analysis-runtime.service.js'
 
 const MSST_ROOT = 'E:/MyProject/cyanAI/nodeServer/src/utility/MSST/msst_webui'
 const PYTHON = path.join(MSST_ROOT, 'venv', 'Scripts', 'python.exe')
@@ -37,6 +38,23 @@ export function verifyMsstResources(): void {
 export function runMsst(req: MsstRequest, ws: WebSocket): void {
   verifyMsstResources()
   fs.mkdirSync(req.outputDir, { recursive: true })
+  if (isAnalysisRuntimeReady(`MSST_${req.model}`)) {
+    let outputs: Record<string, string> | null = null
+    void runAnalysisInfer(`MSST_${req.model}`, {
+      input: req.inputWav,
+      outputDir: req.outputDir,
+    }, event => {
+      if (event.type === 'result') outputs = event.outputs as Record<string, string>
+      send(ws, event)
+    }).then(
+      () => {
+        if (outputs) send(ws, { type: 'done', outputs: Object.keys(outputs) })
+        else send(ws, { type: 'error', message: 'MSST resident did not return outputs' })
+      },
+      error => send(ws, { type: 'error', message: error?.message || String(error) }),
+    )
+    return
+  }
   const args = [RUNNER, '--model', req.model, '--input', req.inputWav, '--output-dir', req.outputDir, '--device', req.device || 'cuda']
   const child = spawn(PYTHON, args, { cwd: MSST_ROOT, env: { ...process.env, PYTHONUNBUFFERED: '1' } })
   registerGpuProcess(child, {
