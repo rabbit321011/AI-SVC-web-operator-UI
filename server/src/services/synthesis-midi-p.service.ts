@@ -53,6 +53,7 @@ export async function runSynthesisMidiP(req: SynthesisMidiPRequest, ws?: WebSock
     const outputDir = path.resolve(PROJECT_ROOT, 'data', `render_${req.jobId}_v5p_midi_p`)
     const outputFile = path.join(outputDir, 'midi-p.json')
     fs.mkdirSync(outputDir, { recursive: true })
+    fs.rmSync(outputFile, { force: true })
     send(ws, { type: 'progress', progress: 5, message: '校验 GAME medium K=4 运行时' })
     let summary: ProcessEvent = {}
     await runJsonProcess(GAME_PYTHON, [

@@ -105,10 +105,16 @@ export function useSvcPipeline() {
       const jobId = crypto.randomUUID().slice(0, 8)
       currentJob.value = { groupId, jobId }
 
-      const wsReady = new Promise<void>((resolve) => {
+      const wsReady = new Promise<void>((resolve, reject) => {
+        let opened = false
         ws!.onopen = () => {
+          opened = true
           ws!.send(JSON.stringify({ type: 'register', jobId }))
           resolve()
+        }
+        ws!.onerror = () => reject(new Error('SVC WebSocket 连接失败'))
+        ws!.onclose = () => {
+          if (!opened) reject(new Error('SVC WebSocket 在连接完成前关闭'))
         }
       })
 
@@ -128,6 +134,22 @@ export function useSvcPipeline() {
           })
           isRunning.value = false
         }
+      }
+      ws.onerror = () => {
+        if (!isRunning.value) return
+        compGroups.updateSvcResult(groupId, {
+          ...compGroups.compGroups[groupId]?.svcResult!,
+          status: 'failed',
+        })
+        isRunning.value = false
+      }
+      ws.onclose = () => {
+        if (!isRunning.value) return
+        compGroups.updateSvcResult(groupId, {
+          ...compGroups.compGroups[groupId]?.svcResult!,
+          status: 'failed',
+        })
+        isRunning.value = false
       }
 
       // Step 4: Start SVC (pass jobId so server matches the WS)
@@ -155,6 +177,7 @@ export function useSvcPipeline() {
         status: 'failed',
       })
       isRunning.value = false
+      if (ws) { ws.close(); ws = null }
     }
   }
 

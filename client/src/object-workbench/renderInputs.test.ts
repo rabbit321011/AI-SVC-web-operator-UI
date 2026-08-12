@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from '@/types'
 import type { AudioObjectNode, MidiObjectNode, ProjectObjectTree, TextObjectNode, TrackFolderNode, TrackObjectContentType, TrackObjectNode } from './types'
-import { buildNodeIndex, createEmptyProjectObjectTree, createGroupObject, legacyProjectToObjectTree, makeRenderInputRef, TOP_LEVEL_IDS, validateRenderSlot } from './index'
+import { buildNodeIndex, createEmptyProjectObjectTree, createEmptySynthesisUnit, createGroupObject, legacyProjectToObjectTree, makeRenderInputRef, TOP_LEVEL_IDS, validateRenderSlot } from './index'
 
 describe('render input slot validation', () => {
   it('accepts audio TrackObject for SVC audio slots', () => {
@@ -39,6 +39,7 @@ describe('render input slot validation', () => {
     const audioTrackObject = makeRenderInputRef(tree, 'trackObject', 'node:trackObject:audio')
     const midiTrackObject = makeRenderInputRef(tree, 'trackObject', 'node:trackObject:midi')
     const textTrackObject = makeRenderInputRef(tree, 'trackObject', 'node:trackObject:text')
+    const synthesisTrackObject = makeRenderInputRef(tree, 'trackObject', 'node:trackObject:synthesis')
 
     const audioGroup = createGroupObject(tree, {
       id: 'node:group:audio',
@@ -68,6 +69,7 @@ describe('render input slot validation', () => {
     expect(validateRenderSlot(tree, 'svs.refText', textTrackObject)).toMatchObject({ ok: true, mediaType: 'text' })
     expect(validateRenderSlot(tree, 'svs.targetText', textTrackObject)).toMatchObject({ ok: true, mediaType: 'text' })
     expect(validateRenderSlot(tree, 'svs.targetText', audioTrackObject)).toMatchObject({ ok: false, mediaType: 'audio' })
+    expect(validateRenderSlot(tree, 'msst.audio', synthesisTrackObject)).toMatchObject({ ok: false, reason: expect.stringContaining('不接受合成单元') })
     expect(validateRenderSlot(tree, 'svs.timbreAudio', makeRenderInputRef(tree, 'group', audioGroup.id))).toMatchObject({ ok: true, mediaType: 'audio' })
     expect(validateRenderSlot(tree, 'svs.melody', makeRenderInputRef(tree, 'group', midiGroup.id))).toMatchObject({ ok: true, mediaType: 'midi' })
     expect(validateRenderSlot(tree, 'svs.refText', makeRenderInputRef(tree, 'group', textGroup.id))).toMatchObject({ ok: true, mediaType: 'text' })
@@ -138,11 +140,24 @@ function makeSvsTree(): ProjectObjectTree {
     audioObject('node:audio'),
     midiObject('node:midi'),
     textObject('node:text'),
+    createEmptySynthesisUnit({
+      id: 'node:synthesis', name: 'Synthesis', defaultTimelineStart: null,
+      guide: {
+        assetId: 'asset:synthesis', audioSHA256: 'a'.repeat(64), sampleRate: 44100, channels: 1,
+        sampleCount: 44100, duration: 1,
+        source: {
+          sourceAudioObjectId: 'node:audio', sourceAssetId: 'asset:audio',
+          effectiveStartSample: 0, effectiveEndSampleExclusive: 44100,
+          sourceTimelineStart: null, resolverManifest: '{}',
+        },
+      },
+    }),
   )
   tracksRoot.children.push(
     trackFolder('node:trackFolder:audio', 'audio', trackObject('node:trackObject:audio', 'audio', 'node:audio')),
     trackFolder('node:trackFolder:midi', 'midi', trackObject('node:trackObject:midi', 'midi', 'node:midi')),
     trackFolder('node:trackFolder:text', 'text', trackObject('node:trackObject:text', 'text', 'node:text')),
+    trackFolder('node:trackFolder:synthesis', 'audio', trackObject('node:trackObject:synthesis', 'audio', 'node:synthesis')),
   )
   return tree
 }

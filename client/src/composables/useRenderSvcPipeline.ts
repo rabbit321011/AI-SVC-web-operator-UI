@@ -23,6 +23,7 @@ export function useRenderSvcPipeline() {
     }
 
     const jobId = crypto.randomUUID().slice(0, 8)
+    const outputName = renderPanel.svc.outputName || defaultSvcOutputName()
     if (!renderPanel.setSvcRunning(jobId, '解析输入')) return
     let ws: WebSocket | null = null
 
@@ -54,7 +55,7 @@ export function useRenderSvcPipeline() {
 
       renderPanel.updateSvcProgress(25, '连接 SVC')
       ws = await openSvcWebSocket(jobId)
-      const done = waitForSvcDone(ws, jobId, source.sourceStart)
+      const done = waitForSvcDone(ws, jobId, source.sourceStart, outputName)
 
       renderPanel.updateSvcProgress(30, '启动 SVC')
       const runResp = await fetch('/api/svc/run', {
@@ -88,9 +89,11 @@ export function useRenderSvcPipeline() {
     }
   }
 
-  function waitForSvcDone(ws: WebSocket, jobId: string, timelineStart: number): Promise<void> {
+  function waitForSvcDone(ws: WebSocket, jobId: string, timelineStart: number, outputName: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false
       ws.onmessage = async (event) => {
+        if (settled) return
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'progress') {
@@ -102,7 +105,7 @@ export function useRenderSvcPipeline() {
             return
           }
           if (msg.type === 'error') {
-            reject(new Error(msg.message || 'SVC 执行失败'))
+            fail(new Error(msg.message || 'SVC 执行失败'))
             return
           }
           if (msg.type === 'done') {
@@ -114,25 +117,32 @@ export function useRenderSvcPipeline() {
             const resp = await fetch(`/api/svc/result/${jobId}.wav`)
             if (!resp.ok) throw new Error(await readError(resp) || '下载 SVC 结果失败')
             const blob = await resp.blob()
+            if (settled || renderPanel.svcStatus !== 'running') return
             renderPanel.updateSvcProgress(96, '写入对象树')
             const result = await objectTree.addRenderedAudioToTimeline({
               blob,
-              outputFileName: renderPanel.svc.outputName || defaultSvcOutputName(),
+              outputFileName: outputName,
               renderKind: 'svc',
               timelineStart,
             })
             if (!result.ok) throw new Error(result.reason || 'SVC 结果回填失败')
             project.bumpRedraw()
             renderPanel.setSvcDone(`SVC 完成: ${result.outputFileName}`)
+            settled = true
             resolve()
           }
         } catch (error: any) {
-          reject(error)
+          fail(error)
         }
       }
-      ws.onerror = () => reject(new Error('SVC WebSocket 连接失败'))
+      ws.onerror = () => fail(new Error('SVC WebSocket 连接失败'))
       ws.onclose = () => {
-        if (renderPanel.svcStatus === 'running') reject(new Error('SVC WebSocket 已断开'))
+        if (renderPanel.svcStatus === 'running') fail(new Error('SVC WebSocket 已断开'))
+      }
+      function fail(error: Error) {
+        if (settled) return
+        settled = true
+        reject(error)
       }
     })
   }

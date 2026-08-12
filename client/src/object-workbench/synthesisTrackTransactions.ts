@@ -155,16 +155,16 @@ export function replaceHTokenTrackRange(unit: SynthesisUnitObjectNode, request: 
   ].sort((left, right) => left.frame - right.frame)
   if (request.placementRanges !== undefined) {
     validateHPlacementRanges(request.placementRanges, range.start, range.end)
-    track.placementRanges = [
-      ...(track.placementRanges ?? []).filter(item => !rangesOverlap(
-        item.startFrame,
-        item.endFrameExclusive,
-        range.start,
-        range.end,
-      )),
-      ...clone(request.placementRanges),
-    ].sort((left, right) => left.startFrame - right.startFrame)
   }
+  track.placementRanges = [
+    ...(track.placementRanges ?? []).filter(item => !rangesOverlap(
+      item.startFrame,
+      item.endFrameExclusive,
+      range.start,
+      range.end,
+    )),
+    ...clone(request.placementRanges ?? []),
+  ].sort((left, right) => left.startFrame - right.startFrame)
   track.status = 'ready'
   track.origin = request.origin
   track.revision = revision.revision
@@ -194,8 +194,8 @@ export function replaceMidiPTrack(unit: SynthesisUnitObjectNode, request: Replac
   if (request.classes.length !== frameCount) {
     throw new Error(`MIDI-P requires ${frameCount} dense classes`)
   }
-  if (request.classes.some(value => !Number.isInteger(value) || value < 0 || value > 256)) {
-    throw new Error('MIDI-P class must be an integer in 0..256')
+  if (request.classes.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
+    throw new Error('MIDI-P class must be an integer in 0..255; PAD=256 is not valid control data')
   }
   const track = unit.synthesisUnit.midiPTokenTrack
   const revision = nextRevision(unit, 'midi-p', request, 0, frameCount)
@@ -231,12 +231,20 @@ export function moveHTokenEvent(unit: SynthesisUnitObjectNode, request: MoveHTok
   moving.frame = request.targetFrame
   moving.origin = 'user'
   track.events.sort((left, right) => left.frame - right.frame)
+  const affectedStartFrame = Math.min(sourceFrame, request.targetFrame)
+  const affectedEndFrameExclusive = Math.max(sourceFrame, request.targetFrame) + 1
+  track.placementRanges = (track.placementRanges ?? []).filter(item => !rangesOverlap(
+    item.startFrame,
+    item.endFrameExclusive,
+    affectedStartFrame,
+    affectedEndFrameExclusive,
+  ))
   const revision = nextRevision(unit, 'h', {
     operation: request.operation ?? 'move H token',
     sourceRefs: [],
     now: request.now,
     revisionId: request.revisionId,
-  }, Math.min(sourceFrame, request.targetFrame), Math.max(sourceFrame, request.targetFrame) + 1)
+  }, affectedStartFrame, affectedEndFrameExclusive)
   track.revision = revision.revision
   track.origin = 'user'
   track.revisions.push(revision)
@@ -252,8 +260,8 @@ export function replaceMidiPFrame(unit: SynthesisUnitObjectNode, request: Replac
   if (!Number.isInteger(request.frame) || request.frame < 0 || request.frame >= frameCount) {
     throw new Error('MIDI-P frame is outside the frame contract')
   }
-  if (!Number.isInteger(request.midiClass) || request.midiClass < 0 || request.midiClass > 256) {
-    throw new Error('MIDI-P class must be an integer in 0..256')
+  if (!Number.isInteger(request.midiClass) || request.midiClass < 0 || request.midiClass > 255) {
+    throw new Error('MIDI-P class must be an integer in 0..255; PAD=256 is not valid control data')
   }
   const flowFrames = new Set(track.flowFrames ?? [])
   const wasFlow = flowFrames.has(request.frame)

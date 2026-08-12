@@ -5,7 +5,7 @@ import { useKeyboard } from '@/composables/useKeyboard'
 import { usePlayback } from '@/composables/usePlayback'
 import { useSvcPipeline } from '@/composables/useSvcPipeline'
 import { useTracksStore } from '@/stores/tracks'
-import { useProjectStore } from '@/stores/project'
+import { assertValidProject, useProjectStore } from '@/stores/project'
 import { usePlaybackStore } from '@/stores/playback'
 import { useUiSettingsStore } from '@/stores/uiSettings'
 import { useObjectTreeStore } from '@/stores/objectTree'
@@ -33,7 +33,7 @@ const uiSettings = useUiSettingsStore()
 const objectTree = useObjectTreeStore()
 const globalResources = useGlobalResourcesStore()
 const saveStatus = useSaveStatusStore()
-const persistedBlobKeys = new Set<string>()
+const persistedBlobs = new Map<string, Blob>()
 let saveInProgress = false
 
 async function syncProject() {
@@ -108,13 +108,13 @@ async function normalizeSegmentTimingFromSamples() {
     const projectData = project.toJSON()
     const referencedBlobKeys = collectReferencedBlobKeys(projectData)
     const pendingBlobs = [...tracks.sourceBlobs]
-      .filter(([sourceFile]) => referencedBlobKeys.has(sourceFile) && !persistedBlobKeys.has(sourceFile))
+      .filter(([sourceFile, blob]) => referencedBlobKeys.has(sourceFile) && persistedBlobs.get(sourceFile) !== blob)
     saveStatus.begin(pendingBlobs.length)
     for (let index = 0; index < pendingBlobs.length; index++) {
       const [sourceFile, blob] = pendingBlobs[index]
       saveStatus.setBlobProgress(index + 1, pendingBlobs.length)
       await uploadProjectBlob(project.name, sourceFile, blob)
-      persistedBlobKeys.add(sourceFile)
+      persistedBlobs.set(sourceFile, blob)
     }
 
     saveStatus.setMetadata()
@@ -181,17 +181,31 @@ async function uploadProjectBlob(projectName: string, sourceFile: string, blob: 
   input.type = 'file'; input.accept = '.asvcproj,application/json'
   input.onchange = async () => {
     const f = input.files?.[0]; if (!f) return
-    const { _sourceBlobsBase64, ...data } = JSON.parse(await f.text())
-    persistedBlobKeys.clear()
-    project.load(data)
-    if (_sourceBlobsBase64) {
-      for (const [k, b64] of Object.entries(_sourceBlobsBase64) as [string, string][]) {
-        const bin = atob(b64); const arr = new Uint8Array(bin.length)
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
-        tracks.sourceBlobs.set(k, new Blob([arr], { type: 'audio/wav' }))
+    try {
+      const { _sourceBlobsBase64, ...data } = JSON.parse(await f.text())
+      assertValidProject(data)
+      const importedBlobs = new Map<string, Blob>()
+      if (_sourceBlobsBase64 !== undefined) {
+        if (!_sourceBlobsBase64 || typeof _sourceBlobsBase64 !== 'object' || Array.isArray(_sourceBlobsBase64)) {
+          throw new Error('项目内嵌音频表无效')
+        }
+        for (const [key, encoded] of Object.entries(_sourceBlobsBase64)) {
+          if (typeof encoded !== 'string' || !isCanonicalBase64(encoded)) throw new Error(`音频 Base64 无效: ${key}`)
+          const bin = atob(encoded)
+          const arr = new Uint8Array(bin.length)
+          for (let index = 0; index < bin.length; index++) arr[index] = bin.charCodeAt(index)
+          const blob = new Blob([arr], { type: 'audio/wav' })
+          await getAudioBlobMeta(blob)
+          importedBlobs.set(key, blob)
+        }
       }
+      persistedBlobs.clear()
+      project.load(data)
+      for (const [key, blob] of importedBlobs) tracks.sourceBlobs.set(key, blob)
+      await syncProject()
+    } catch (error: any) {
+      alert(`项目导入失败: ${error?.message || '文件无效'}`)
     }
-    await syncProject()
   }
   input.click()
 }
@@ -204,7 +218,7 @@ onMounted(async () => {
   if (!projectName) { router.push('/'); return }
 
   try {
-    persistedBlobKeys.clear()
+    persistedBlobs.clear()
     await globalResources.syncProject(projectName)
     const resp = await fetch(`/api/projects/${encodeURIComponent(projectName)}`)
     if (!resp.ok) throw new Error(await readApiError(resp) || `加载项目失败 (${resp.status})`)
@@ -217,8 +231,9 @@ onMounted(async () => {
         if (!referencedBlobKeys.has(k)) continue
         const bin = atob(b64); const arr = new Uint8Array(bin.length)
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
-        tracks.sourceBlobs.set(k, new Blob([arr], { type: 'audio/wav' }))
-        persistedBlobKeys.add(k)
+        const blob = new Blob([arr], { type: 'audio/wav' })
+        tracks.sourceBlobs.set(k, blob)
+        persistedBlobs.set(k, blob)
       }
     }
     if (Array.isArray(_sourceBlobKeys)) {
@@ -228,8 +243,9 @@ onMounted(async () => {
           headers: { 'x-blob-key': encodeURIComponent(key) },
         })
         if (!blobResp.ok) throw new Error(await readApiError(blobResp) || `音频加载失败: ${key}`)
-        tracks.sourceBlobs.set(key, await blobResp.blob())
-        persistedBlobKeys.add(key)
+        const blob = await blobResp.blob()
+        tracks.sourceBlobs.set(key, blob)
+        persistedBlobs.set(key, blob)
       }
     }
     await syncProject()
@@ -257,6 +273,15 @@ function collectReferencedBlobKeys(data: any): Set<string> {
     if (segment.sourceFile) keys.add(segment.sourceFile)
   }
   return keys
+}
+
+function isCanonicalBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return false
+  try {
+    return btoa(atob(value)).replace(/=+$/, '') === value.replace(/=+$/, '')
+  } catch {
+    return false
+  }
 }
 </script>
 

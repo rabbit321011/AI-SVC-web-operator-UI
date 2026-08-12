@@ -132,9 +132,19 @@ export class GlobalResourceRepository {
         treeChanged = true
       }
       if (existing) {
-        if (mergeFolderTree(existing, entry.node)) treeChanged = true
+        if (existing.kind === 'folder' || entry.node.kind === 'folder') {
+          if (existing.kind !== entry.node.kind) {
+            throw new Error(`Global Resource kind conflicts with project node: ${entry.id}`)
+          }
+          if (mergeFolderTree(existing, entry.node)) treeChanged = true
+        } else if (replaceLeafNode(existing, entry.node)) {
+          treeChanged = true
+        }
         const assetsPresent = Object.keys(entry.assets).every(assetId => tree.assets?.[assetId])
-        if (!treeChanged && assetsPresent) continue
+        const blobsPresent = Object.values(entry.assets).every(asset => (
+          typeof asset.blobKey !== 'string' || projectHasBlob(projectDir, asset.blobKey)
+        ))
+        if (!treeChanged && assetsPresent && blobsPresent) continue
       } else {
         destination.children.push(structuredClone(entry.node))
         treeChanged = true
@@ -259,6 +269,13 @@ function mergeFolderTree(existing: any, incoming: Record<string, unknown>): bool
   return changed
 }
 
+function replaceLeafNode(existing: any, incoming: Record<string, unknown>): boolean {
+  if (JSON.stringify(existing) === JSON.stringify(incoming)) return false
+  for (const key of Object.keys(existing)) delete existing[key]
+  Object.assign(existing, structuredClone(incoming))
+  return true
+}
+
 function findNode(node: any, id: string): any | null {
   if (!node || typeof node !== 'object') return null
   if (node.id === id) return node
@@ -288,6 +305,13 @@ function copyProjectBlob(projectDir: string, key: string, sourcePath: string): v
   fs.copyFileSync(sourcePath, path.join(bDir, fileName))
   manifest[fileName] = key
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+}
+
+function projectHasBlob(projectDir: string, key: string): boolean {
+  const blobsDir = path.join(projectDir, 'blobs')
+  const manifest = readManifest(path.join(blobsDir, 'manifest.json'))
+  const fileName = Object.entries(manifest).find(([, originalKey]) => originalKey === key)?.[0]
+  return Boolean(fileName && fs.existsSync(path.join(blobsDir, fileName)))
 }
 
 function readManifest(manifestPath: string): BlobManifest {

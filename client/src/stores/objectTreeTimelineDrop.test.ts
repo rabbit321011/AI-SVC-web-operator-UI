@@ -33,21 +33,34 @@ describe('AudioObject drag into timeline', () => {
         },
       },
     })
+    tree.assets['asset:guide'] = {
+      id: 'asset:guide',
+      storage: 'projectBlob',
+      blobKey: 'guide.wav',
+      sampleRate: 44100,
+      duration: 2,
+      channels: 1,
+      sampleCount: 88200,
+    }
     workspace(tree).children.push(unit)
     objectTree.loadObjectTree(tree)
+    tracks.sourceBlobs.set('guide.wav', new Blob(['guide']))
 
     const result = await objectTree.dropAudioObjectToTimeline(unit.id, 4)
 
     expect(result.ok).toBe(true)
     expect(tracks.trackOrder).toEqual([result.trackId])
     expect(tracks.tracks[result.trackId!].segments).toEqual([])
-    expect(unit.synthesisUnit.timelineTrackId).toBe(result.trackId)
-    expect(unit.synthesisUnit.defaultTimelineStart).toBe(4)
+    expect(unit.synthesisUnit.timelineTrackId).toBeNull()
+    expect(unit.synthesisUnit.defaultTimelineStart).toBeNull()
     const trackObjects = Object.values(objectTree.index.nodes).filter(node => node.kind === 'trackObject')
     expect(trackObjects).toHaveLength(1)
+    const sourceId = trackObjects[0]?.kind === 'trackObject' ? trackObjects[0].trackObject.sourceObjectId : null
+    expect(sourceId).not.toBe(unit.id)
+    expect(objectTree.parent(sourceId!)?.id).toContain('trackSources')
     expect(trackObjects[0]).toMatchObject({
       trackObject: {
-        sourceObjectId: unit.id,
+        sourceObjectId: sourceId,
         timelineStart: 4,
         timelineEnd: 6,
       },
@@ -56,8 +69,7 @@ describe('AudioObject drag into timeline', () => {
     expect(objectTree.deleteNode(trackObjects[0]!.id)).toEqual({ ok: true })
     const retainedUnit = objectTree.node(unit.id)
     expect(retainedUnit?.kind).toBe('synthesisUnit')
-    expect(retainedUnit?.kind === 'synthesisUnit' ? retainedUnit.synthesisUnit.timelineTrackId : undefined).toBeNull()
-    expect(retainedUnit?.kind === 'synthesisUnit' ? retainedUnit.synthesisUnit.defaultTimelineStart : undefined).toBeNull()
+    expect(objectTree.node(sourceId!)?.kind).toBeUndefined()
     expect(Object.values(objectTree.index.nodes).some(node => node.kind === 'trackObject')).toBe(false)
   })
 
@@ -148,7 +160,7 @@ describe('AudioObject drag into timeline', () => {
     expect(objectTree.node(result.trackObjectId!)?.kind).toBe('trackObject')
   })
 
-  it('reads rendered WAV metadata without decoding the full file and stores one shared blob', async () => {
+  it('reads rendered WAV metadata without decoding and isolates render and track-source blob keys', async () => {
     setActivePinia(createPinia())
     const decodeAudioData = vi.fn(() => { throw new Error('WAV metadata should not require AudioContext') })
     vi.stubGlobal('AudioContext', class {
@@ -169,11 +181,15 @@ describe('AudioObject drag into timeline', () => {
 
       expect(result.ok).toBe(true)
       expect(decodeAudioData).not.toHaveBeenCalled()
-      expect(tracks.sourceBlobs.size).toBe(1)
+      expect(tracks.sourceBlobs.size).toBe(2)
       expect(tracks.getSegment(result.segmentId!)?.timelineEnd).toBe(2)
       const render = objectTree.node(result.renderObjectId!) as AudioObjectNode
       const trackSource = objectTree.node(result.trackSourceObjectId!) as AudioObjectNode
-      expect(objectTree.tree.assets[render.audio.assetId].blobKey).toBe(objectTree.tree.assets[trackSource.audio.assetId].blobKey)
+      const renderKey = objectTree.tree.assets[render.audio.assetId].blobKey!
+      const trackSourceKey = objectTree.tree.assets[trackSource.audio.assetId].blobKey!
+      expect(renderKey).not.toBe(trackSourceKey)
+      expect(tracks.sourceBlobs.get(renderKey)).toBe(blob)
+      expect(tracks.sourceBlobs.get(trackSourceKey)).toBe(blob)
     } finally {
       vi.unstubAllGlobals()
     }

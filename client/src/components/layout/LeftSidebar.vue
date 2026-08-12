@@ -177,8 +177,25 @@ async function handleNodeDrop(pane: 'L1' | 'L2', target: TreeNode, event: DragEv
     }
     return
   }
+  const recordsTrackMove = source?.kind === 'trackObject' && target.kind === 'trackFolder'
+  const before = recordsTrackMove ? objectTree.snapshotTree() : null
+  const tracksBefore = recordsTrackMove ? tracks.snapshotState() : null
   const result = objectTree.moveNode(sourceId, target.id)
   if (result.ok) {
+    if (before && tracksBefore) {
+      history.push({
+        description: '跨轨移动时间线对象',
+        patches: [],
+        inversePatches: [],
+        objectTree: {
+          kind: 'snapshot',
+          before,
+          after: objectTree.snapshotTree(),
+          tracksBefore,
+          tracksAfter: tracks.snapshotState(),
+        },
+      })
+    }
     if (target.kind === 'folder' || target.kind === 'trackFolder') ui.expanded[pane].add(target.id)
     flash('已移动')
     await persistTreePathChange(sourceId)
@@ -232,9 +249,21 @@ async function renameNode() {
   if (!node) return
   const name = window.prompt('重命名', node.name)
   if (name == null) return
+  const before = objectTree.snapshotTree()
+  const oldName = node.name
   const result = objectTree.renameNode(node.id, name)
   flash(result.ok ? '已重命名' : result.reason ?? '无法重命名')
-  if (result.ok) await persistTreePathChange(node.id)
+  if (result.ok) {
+    if (node.kind !== 'trackFolder' && node.kind !== 'group' && node.name !== oldName) {
+      history.push({
+        description: '重命名对象',
+        patches: [],
+        inversePatches: [],
+        objectTree: { kind: 'snapshot', before, after: objectTree.snapshotTree() },
+      })
+    }
+    await persistTreePathChange(node.id)
+  }
 }
 
 async function persistTreePathChange(nodeId: NodeId) {
@@ -292,7 +321,17 @@ function copyContextObject() {
     flash(result.reason ?? '复制失败')
     return
   }
-  history.push({ description: '复制对象到静态资源', patches: [], inversePatches: [], objectTree: { kind: 'snapshot', before, after: objectTree.snapshotTree() } })
+  history.push({
+    description: '复制对象到静态资源',
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before,
+      after: objectTree.snapshotTree(),
+      blobChanges: result.blobChanges,
+    },
+  })
   flash('已复制到静态资源')
 }
 
@@ -352,6 +391,7 @@ async function createSynthesisUnit() {
       : null
   if (!source || source.kind !== 'audio') return
   const beforeTree = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
   const result = await objectTree.createSynthesisUnitFromAudioObject(source.id)
   if (!result.ok || !result.unitId || !result.guideBlobKey || !result.guideBlob) {
     flash(result.reason ?? '创建合成单元失败')
@@ -365,6 +405,8 @@ async function createSynthesisUnit() {
       kind: 'snapshot',
       before: beforeTree,
       after: objectTree.snapshotTree(),
+      tracksBefore,
+      tracksAfter: tracks.snapshotState(),
       blobChanges: [{ key: result.guideBlobKey, before: null, after: result.guideBlob }],
     },
   })

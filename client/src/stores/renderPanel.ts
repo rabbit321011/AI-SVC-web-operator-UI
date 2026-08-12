@@ -141,6 +141,23 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     if (slotId === 'msst.audio') msst.audio = null
   }
 
+  function pruneMissingInputs() {
+    const objectTree = useObjectTreeStore()
+    const slots: Array<[RenderSlotId, RenderInputRef | null]> = [
+      ['svc.condAudio', svc.condAudio],
+      ['svc.sourceAudio', svc.sourceAudio],
+      ['svs.timbreAudio', svs.timbreAudio],
+      ['svs.melody', svs.melody],
+      ['svs.refText', svs.refText],
+      ['svs.targetText', svs.targetText],
+      ['whisper.audio', whisper.audio],
+      ['msst.audio', msst.audio],
+    ]
+    for (const [slotId, input] of slots) {
+      if (input && !objectTree.node(input.id)) clearSlot(slotId)
+    }
+  }
+
   function beginLocalProcessing(tool: LocalProcessingTool): boolean {
     if (localProcessingTool.value && localProcessingTool.value !== tool) return false
     localProcessingTool.value = tool
@@ -149,6 +166,32 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
 
   function endLocalProcessing(tool: LocalProcessingTool) {
     if (localProcessingTool.value === tool) localProcessingTool.value = null
+  }
+
+  function resetForProject() {
+    svc.condAudio = null
+    svc.sourceAudio = null
+    svs.timbreAudio = null
+    svs.melody = null
+    svs.refText = null
+    svs.targetText = null
+    whisper.audio = null
+    msst.audio = null
+    svcStatus.value = 'idle'
+    svcProgress.value = 0
+    svcMessage.value = ''
+    currentJobId.value = null
+    svsStatus.value = 'idle'
+    svsProgress.value = 0
+    svsMessage.value = ''
+    currentSvsJobId.value = null
+    whisperStatus.value = 'idle'
+    whisperProgress.value = 0
+    whisperMessage.value = ''
+    msstStatus.value = 'idle'
+    msstProgress.value = 0
+    msstMessage.value = ''
+    localProcessingTool.value = null
   }
 
   function setSvcRunning(jobId: string, message = '准备 SVC') {
@@ -287,6 +330,8 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     setSlot,
     setSlotFromNode,
     clearSlot,
+    pruneMissingInputs,
+    resetForProject,
     setSvcRunning,
     updateSvcProgress,
     setSvcDone,

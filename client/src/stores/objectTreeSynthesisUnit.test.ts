@@ -47,6 +47,9 @@ describe('SynthesisUnit object-tree integration', () => {
     expect(unit.synthesisUnit.segmentTrack.status).toBe('empty')
     expect(unit.synthesisUnit.midiPTokenTrack.status).toBe('empty')
     expect(tracks.sourceBlobs.get(result.guideBlobKey ?? '')).toBe(output)
+    expect(objectTree.parent(unit.id)?.id).toBe(TOP_LEVEL_IDS.workspace)
+    expect(tracks.trackOrder).toEqual([])
+    expect(Object.values(objectTree.index.nodes).some(node => node.kind === 'trackObject')).toBe(false)
 
     expect(objectTree.deleteNode('node:audio:guide')).toEqual({ ok: true })
     expect(objectTree.node(unit.id)?.kind).toBe('synthesisUnit')

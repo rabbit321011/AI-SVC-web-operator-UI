@@ -242,8 +242,9 @@ export const useTracksStore = defineStore('tracks', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ wavBase64: b64, sourceFile: seg.sourceFile, startSec, endSec }),
         })
+        if (!resp.ok) throw new Error(`F0 extraction failed (${resp.status})`)
         const json = await resp.json()
-        if (json.data?.length) {
+        if (Array.isArray(json.data) && json.data.length > 0) {
           seg.f0Data = json.data
             .map((frame: { t: number; freq: number; prob: number }) => ({
               ...frame,
@@ -252,10 +253,12 @@ export const useTracksStore = defineStore('tracks', () => {
             .filter((frame: { t: number }) => frame.t <= segmentDuration + 0.05)
           seg.f0Extracted = true
         } else {
-          seg.f0Extracted = true
+          seg.f0Data = null
+          seg.f0Extracted = false
         }
       } catch {
-        seg.f0Extracted = true
+        seg.f0Data = null
+        seg.f0Extracted = false
       } finally {
         if (tracks[trackId]) {
           track.f0Pending = Math.max(0, track.f0Pending - 1)

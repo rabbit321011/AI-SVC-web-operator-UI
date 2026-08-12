@@ -27,6 +27,7 @@ export function usePlayback() {
   let raf: number | null = null
   let playSelectedOnly = false
   let isScheduling = false
+  let schedulingGeneration = 0
   const decodedByKey = new Map<string, { blob: Blob; buffer: AudioBuffer; sampleRate: number }>()
 
   function ctx() {
@@ -61,13 +62,17 @@ export function usePlayback() {
   async function play() {
     if (pb.isPlaying) { pause(); return }
     if (isScheduling) return
+    const generation = ++schedulingGeneration
     isScheduling = true
     const ac = ctx()
     killAll()
 
     const list = collectSegments()
     const synthesisMidi = collectSynthesisMidi()
-    if (list.length === 0 && synthesisMidi.length === 0) { isScheduling = false; return }
+    if (list.length === 0 && synthesisMidi.length === 0) {
+      if (generation === schedulingGeneration) isScheduling = false
+      return
+    }
     const synthesisEnd = Math.max(0, ...synthesisMidi.map(item => item.trackObject.trackObject.timelineEnd))
     if (synthesisEnd > pb.totalDuration) pb.setTotalDuration(synthesisEnd)
 
@@ -97,6 +102,7 @@ export function usePlayback() {
         decodedByKey.set(k, { blob, buffer: await ac.decodeAudioData(ab), sampleRate: meta.sampleRate })
       } catch {}
     }))
+    if (generation !== schedulingGeneration) return
 
     // ---------- schedule ----------
     scheduleBaseWall = ac.currentTime + 0.035
@@ -149,6 +155,8 @@ export function usePlayback() {
   }
 
   function pause() {
+    schedulingGeneration++
+    isScheduling = false
     killAll()
     pb.setPlaying(false)
     if (raf) { cancelAnimationFrame(raf); raf = null }
@@ -223,6 +231,7 @@ export function usePlayback() {
       const clipEnd = trackObject.trackObject.timelineEnd
       const frameRate = unit.synthesisUnit.frameContract.frameRate
       const classes = unit.synthesisUnit.midiPTokenTrack.classes
+      const flowFrames = new Set(unit.synthesisUnit.midiPTokenTrack.flowFrames ?? [])
       if (!Number.isFinite(frameRate) || frameRate <= 0 || clipEnd <= scheduleBaseTimeline) continue
 
       const firstFrame = Math.max(0, Math.floor((Math.max(scheduleBaseTimeline, clipStart) - clipStart) * frameRate))
@@ -230,7 +239,9 @@ export function usePlayback() {
       for (let frame = firstFrame; frame < lastFrameExclusive;) {
         const midiClass = classes[frame]
         let runEnd = frame + 1
-        while (runEnd < lastFrameExclusive && classes[runEnd] === midiClass) runEnd++
+        while (runEnd < lastFrameExclusive
+          && classes[runEnd] === midiClass
+          && (midiClass >= 255 || flowFrames.has(runEnd))) runEnd++
 
         if (midiClass >= 0 && midiClass < 255) {
           const timelineStart = Math.max(scheduleBaseTimeline, clipStart + frame / frameRate)

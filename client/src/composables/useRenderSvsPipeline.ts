@@ -81,6 +81,7 @@ export function useRenderSvsPipeline() {
     }
 
     const jobId = crypto.randomUUID().slice(0, 8)
+    const outputName = renderPanel.svs.outputName || defaultSvsOutputName()
     if (!renderPanel.setSvsRunning(jobId, '解析 SVS 输入')) return
     let ws: WebSocket | null = null
 
@@ -89,7 +90,7 @@ export function useRenderSvsPipeline() {
       const isV4h = svsConfig.selectedModel?.engine === 'v4h_phone_pul'
       renderPanel.updateSvsProgress(isV4h ? 66 : 70, isV4h ? '连接 V4H' : '连接 SVS')
       ws = await openRenderWebSocket(jobId)
-      const done = waitForSvsDone(ws, jobId, prepared.timelineStart)
+      const done = waitForSvsDone(ws, jobId, prepared.timelineStart, outputName)
 
       renderPanel.updateSvsProgress(isV4h ? 66 : 75, isV4h ? '启动 V4H' : '启动 SVS')
       const runResp = await fetch('/api/svs/run', {
@@ -293,9 +294,11 @@ export function useRenderSvsPipeline() {
     }
   }
 
-  function waitForSvsDone(ws: WebSocket, jobId: string, timelineStart: number): Promise<void> {
+  function waitForSvsDone(ws: WebSocket, jobId: string, timelineStart: number, outputName: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false
       ws.onmessage = async (event) => {
+        if (settled) return
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'progress') {
@@ -308,7 +311,7 @@ export function useRenderSvsPipeline() {
             return
           }
           if (msg.type === 'error') {
-            reject(new Error(msg.message || 'SVS 执行失败'))
+            fail(new Error(msg.message || 'SVS 执行失败'))
             return
           }
           if (msg.type === 'done') {
@@ -320,10 +323,11 @@ export function useRenderSvsPipeline() {
             const resp = await fetch(`/api/svs/result/${jobId}.wav`)
             if (!resp.ok) throw new Error(await readError(resp) || '下载 SVS 结果失败')
             const blob = await resp.blob()
+            if (settled || renderPanel.svsStatus !== 'running') return
             renderPanel.updateSvsProgress(96, '写入对象树')
             const result = await objectTree.addRenderedAudioToTimeline({
               blob,
-              outputFileName: renderPanel.svs.outputName || defaultSvsOutputName(),
+              outputFileName: outputName,
               renderKind: 'svs',
               timelineStart,
             })
@@ -333,15 +337,21 @@ export function useRenderSvsPipeline() {
               ? ` (phone ${msg.phonePhraseCount} / PUL ${msg.pulPhraseCount ?? 0})`
               : ''
             renderPanel.setSvsDone(`SVS 完成: ${result.outputFileName}${detail}`)
+            settled = true
             resolve()
           }
         } catch (error: any) {
-          reject(error)
+          fail(error)
         }
       }
-      ws.onerror = () => reject(new Error('SVS WebSocket 连接失败'))
+      ws.onerror = () => fail(new Error('SVS WebSocket 连接失败'))
       ws.onclose = () => {
-        if (renderPanel.svsStatus === 'running') reject(new Error('SVS WebSocket 已断开'))
+        if (renderPanel.svsStatus === 'running') fail(new Error('SVS WebSocket 已断开'))
+      }
+      function fail(error: Error) {
+        if (settled) return
+        settled = true
+        reject(error)
       }
     })
   }
@@ -443,11 +453,16 @@ async function pitchShiftTempWav(inputPath: string, semitones: number): Promise<
 async function openRenderWebSocket(jobId: string): Promise<WebSocket> {
   const ws = new WebSocket(`ws://${window.location.hostname}:8101/ws/svc`)
   await new Promise<void>((resolve, reject) => {
+    let opened = false
     ws.onopen = () => {
+      opened = true
       ws.send(JSON.stringify({ type: 'register', jobId }))
       resolve()
     }
     ws.onerror = () => reject(new Error('SVS WebSocket 连接失败'))
+    ws.onclose = () => {
+      if (!opened) reject(new Error('SVS WebSocket 在连接完成前关闭'))
+    }
   })
   return ws
 }

@@ -392,6 +392,8 @@ export function useKeyboard() {
           tracks.removeTrack(group.svcResult.trackId)
         }
         compGroups.remove(id)
+      } else if (id.startsWith('node:trackObject:')) {
+        objectTree.deleteNode(id)
       }
     }
     selection.clear()
@@ -685,7 +687,7 @@ export function useKeyboard() {
     const tracks = useTracksStore()
     const blob = tracks.sourceBlobs.get(merged.sourceFile)
     if (!blob) {
-      merged.f0Extracted = true
+      merged.f0Extracted = false
       tracks.tracks[trackId] && tracks.reconcileF0ForTrack(trackId)
       return
     }
@@ -705,12 +707,19 @@ export function useKeyboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      if (!resp.ok) throw new Error(`F0 extraction failed (${resp.status})`)
       const json = await resp.json()
-      if (json.data?.length) {
+      if (Array.isArray(json.data) && json.data.length > 0) {
         merged.f0Data = json.data
+        merged.f0Extracted = true
+      } else {
+        merged.f0Data = null
+        merged.f0Extracted = false
       }
-    } catch {} finally {
-      merged.f0Extracted = true
+    } catch {
+      merged.f0Data = null
+      merged.f0Extracted = false
+    } finally {
       if (tracks.tracks[trackId]) {
         const t = tracks.tracks[trackId]
         t.f0Pending = Math.max(0, (t.f0Pending || 0) - 1)

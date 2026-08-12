@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
@@ -24,6 +24,11 @@ const renderSvsPipeline = useRenderSvsPipeline()
 const renderWhisperPipeline = useRenderWhisperPipeline()
 const renderMsstPipeline = useRenderMsstPipeline()
 const notice = ref('')
+
+watch(
+  () => Object.keys(objectTree.index.nodes).sort().join('\0'),
+  () => renderPanel.pruneMissingInputs(),
+)
 
 const selectedObjectNodeId = computed(() => {
   if (objectTreeUi.selectedIds.length === 1) return objectTreeUi.selectedIds[0]

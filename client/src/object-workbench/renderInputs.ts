@@ -52,6 +52,9 @@ export function validateRenderSlot(tree: ProjectObjectTree, slotId: RenderSlotId
   const index = buildNodeIndex(tree.root)
   const mediaType = getRenderInputMediaType(index, input)
   if (!mediaType) return { ok: false, reason: '原对象不存在' }
+  if (mediaType === 'audio' && !hasConcreteAudioSources(index, input)) {
+    return { ok: false, mediaType, reason: '旧渲染槽不接受合成单元 TrackObject；请先导出 Take 为正式音频' }
+  }
 
   if (slotId === 'svc.condAudio') {
     return mediaType === 'audio'
@@ -107,4 +110,20 @@ export function getRenderInputMediaType(index: RuntimeTreeIndex, input: RenderIn
   if (input.kind === 'group' && node.kind === 'group') return node.group.mediaType
   if (input.kind === 'audioObject' && node.kind === 'audio') return 'audio'
   return null
+}
+
+function hasConcreteAudioSources(index: RuntimeTreeIndex, input: RenderInputRef): boolean {
+  if (input.kind === 'audioObject') return index.nodes[input.id]?.kind === 'audio'
+  if (input.kind === 'trackObject') {
+    const trackObject = index.nodes[input.id]
+    return trackObject?.kind === 'trackObject'
+      && index.nodes[trackObject.trackObject.sourceObjectId]?.kind === 'audio'
+  }
+  const group = index.nodes[input.id]
+  if (group?.kind !== 'group') return false
+  return group.group.trackObjectIds.length > 0 && group.group.trackObjectIds.every(id => {
+    const trackObject = index.nodes[id]
+    return trackObject?.kind === 'trackObject'
+      && index.nodes[trackObject.trackObject.sourceObjectId]?.kind === 'audio'
+  })
 }

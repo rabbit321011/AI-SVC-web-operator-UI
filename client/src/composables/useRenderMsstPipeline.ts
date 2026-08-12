@@ -21,6 +21,12 @@ export function useRenderMsstPipeline() {
       return
     }
     const jobId = crypto.randomUUID().slice(0, 8)
+    const task = {
+      model: renderPanel.msst.model,
+      outputMode: renderPanel.msst.outputMode,
+      backfillAll: renderPanel.msst.backfillAll,
+      outputName: renderPanel.msst.outputName || defaultOutputName(),
+    }
     if (!renderPanel.setMsstRunning('解析 MSST 输入')) return
     let ws: WebSocket | null = null
     try {
@@ -33,10 +39,10 @@ export function useRenderMsstPipeline() {
       const upload = await uploadTempWav(`render_${jobId}_msst_input`, blob, resolved.sampleRate)
       renderPanel.updateMsstProgress(15, '连接 MSST')
       ws = await openRenderWebSocket(jobId)
-      const done = waitForDone(ws, jobId, resolved.sourceStart)
+      const done = waitForDone(ws, jobId, resolved.sourceStart, task)
       const response = await fetch('/api/msst/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, inputWav: upload.path, model: renderPanel.msst.model, device: 'cuda' }),
+        body: JSON.stringify({ jobId, inputWav: upload.path, model: task.model, device: 'cuda' }),
       })
       if (!response.ok) throw new Error(await readError(response) || 'MSST 启动失败')
       await done
@@ -47,10 +53,17 @@ export function useRenderMsstPipeline() {
     }
   }
 
-  function waitForDone(ws: WebSocket, jobId: string, timelineStart: number): Promise<void> {
+  function waitForDone(
+    ws: WebSocket,
+    jobId: string,
+    timelineStart: number,
+    task: { model: string; outputMode: string; backfillAll: boolean; outputName: string },
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       let available = new Set<MsstOutputId>()
+      let settled = false
       ws.onmessage = async event => {
+        if (settled) return
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'progress') {
@@ -63,22 +76,24 @@ export function useRenderMsstPipeline() {
             return
           }
           if (msg.type === 'error') {
-            reject(new Error(msg.message || 'MSST 执行失败'))
+            fail(new Error(msg.message || 'MSST 执行失败'))
             return
           }
           if (msg.type !== 'done') return
-          const selected = selectedOutputs(renderPanel.msst.model, renderPanel.msst.outputMode).filter(id => available.has(id))
+          const selected = selectedOutputs(task.model, task.outputMode).filter(id => available.has(id))
           if (selected.length === 0) throw new Error('MSST 未返回所选输出')
-          const outputs = renderPanel.msst.backfillAll ? selected : selected.slice(0, 1)
+          const outputs = task.backfillAll ? selected : selected.slice(0, 1)
           const names: string[] = []
           for (const outputId of outputs) {
-            const outputLabel = labelOutput(renderPanel.msst.model, outputId)
+            const outputLabel = labelOutput(task.model, outputId)
             renderPanel.updateMsstProgress(92, `回填 ${outputLabel}`)
             const response = await fetch(`/api/msst/result/${jobId}/${outputId}.wav`)
             if (!response.ok) throw new Error(await readError(response) || `下载 ${outputId} 失败`)
+            const blob = await response.blob()
+            if (settled || renderPanel.msstStatus !== 'running') return
             const result = await objectTree.addRenderedAudioToTimeline({
-              blob: await response.blob(),
-              outputFileName: `${renderPanel.msst.outputName || defaultOutputName()}_${outputLabel}`,
+              blob,
+              outputFileName: `${task.outputName}_${outputLabel}`,
               renderKind: 'msst', timelineStart,
             })
             if (!result.ok) throw new Error(result.reason || `${outputId} 回填失败`)
@@ -86,12 +101,18 @@ export function useRenderMsstPipeline() {
           }
           project.bumpRedraw()
           renderPanel.setMsstDone(`MSST 完成: ${names.join(', ')}`)
+          settled = true
           resolve()
-        } catch (error: any) { reject(error) }
+        } catch (error: any) { fail(error) }
       }
-      ws.onerror = () => reject(new Error('MSST WebSocket 连接失败'))
+      ws.onerror = () => fail(new Error('MSST WebSocket 连接失败'))
       ws.onclose = () => {
-        if (renderPanel.msstStatus === 'running') reject(new Error('MSST WebSocket 已断开'))
+        if (renderPanel.msstStatus === 'running') fail(new Error('MSST WebSocket 已断开'))
+      }
+      function fail(error: Error) {
+        if (settled) return
+        settled = true
+        reject(error)
       }
     })
   }
@@ -128,8 +149,12 @@ async function uploadTempWav(groupId: string, blob: Blob, sampleRate: number) {
 async function openRenderWebSocket(jobId: string) {
   const ws = new WebSocket(`ws://${window.location.hostname}:8101/ws/svc`)
   await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => { ws.send(JSON.stringify({ type: 'register', jobId })); resolve() }
+    let opened = false
+    ws.onopen = () => { opened = true; ws.send(JSON.stringify({ type: 'register', jobId })); resolve() }
     ws.onerror = () => reject(new Error('MSST WebSocket 连接失败'))
+    ws.onclose = () => {
+      if (!opened) reject(new Error('MSST WebSocket 在连接完成前关闭'))
+    }
   })
   return ws
 }

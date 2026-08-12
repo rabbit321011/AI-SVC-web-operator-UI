@@ -31,6 +31,17 @@ describe('project object tree persistence', () => {
     expect(store.legacyMaps).toBeNull()
     expect(project.toJSON().objectTree?.root.children.some(child => child.id === 'project:/custom')).toBe(true)
   })
+
+  it('rejects malformed project data before replacing the current project', () => {
+    setActivePinia(createPinia())
+    const project = useProjectStore()
+    project.load(makeLegacyProject())
+
+    expect(() => project.load({ ...makeLegacyProject(), name: 'Broken', tracks: null } as unknown as Project))
+      .toThrow('项目字段 tracks 无效')
+    expect(project.name).toBe('Fixture')
+    expect(useObjectTreeStore().node(TOP_LEVEL_IDS.tracks)?.kind).toBe('folder')
+  })
 })
 
 function makeLegacyProject(): Project {

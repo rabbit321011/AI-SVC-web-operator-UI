@@ -57,9 +57,23 @@ function handleDblClick() {
 
 function finishRename() {
   const name = editName.value.trim()
-  if (name && track.value) {
+  if (name && track.value && name !== track.value.name) {
+    const before = objectTree.snapshotTree()
+    const tracksBefore = tracks.snapshotState()
     tracks.renameTrack(props.trackId, name)
     objectTree.syncTrackFolderName(props.trackId, name)
+    history.push({
+      description: '重命名音轨',
+      patches: [],
+      inversePatches: [],
+      objectTree: {
+        kind: 'snapshot',
+        before,
+        after: objectTree.snapshotTree(),
+        tracksBefore,
+        tracksAfter: tracks.snapshotState(),
+      },
+    })
   }
   editing.value = false
 }
@@ -91,8 +105,22 @@ function moveTrack(delta: -1 | 1) {
   const from = tracks.trackOrder.indexOf(props.trackId)
   const to = from + delta
   if (from < 0 || to < 0 || to >= tracks.trackOrder.length) return
+  const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
   tracks.reorderTracks(from, to)
   objectTree.syncTrackFolderOrder([...tracks.trackOrder])
+  history.push({
+    description: '移动音轨顺序',
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before,
+      after: objectTree.snapshotTree(),
+      tracksBefore,
+      tracksAfter: tracks.snapshotState(),
+    },
+  })
 }
 
 function setTrackColor(color: string) {
@@ -113,8 +141,46 @@ function closeMenu() { showMenu.value = false }
 
 function deleteTrack() {
   showMenu.value = false
-  objectTree.syncDeletedTrack(props.trackId)
+  const trackFolder = objectTree.node(`node:trackFolder:${props.trackId}`)
+  const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
+  const assetIds = new Set<string>()
+  if (trackFolder?.kind === 'trackFolder') {
+    for (const trackObject of trackFolder.children) {
+      const source = objectTree.node(trackObject.trackObject.sourceObjectId)
+      if (source?.kind === 'audio') assetIds.add(source.audio.assetId)
+      if (source?.kind === 'synthesisUnit') {
+        assetIds.add(source.synthesisUnit.guide.assetId)
+        for (const take of source.synthesisUnit.takes) {
+          if (take.outputAssetId) assetIds.add(take.outputAssetId)
+        }
+      }
+    }
+  }
+  const blobChanges = [...assetIds].flatMap(assetId => {
+    const blobKey = objectTree.tree.assets[assetId]?.blobKey
+    const blob = blobKey ? tracks.sourceBlobs.get(blobKey) : undefined
+    return blobKey && blob ? [{ key: blobKey, before: blob, after: null }] : []
+  })
+  const result = objectTree.syncDeletedTrack(props.trackId)
+  if (!result.ok) {
+    objectTreeUi.flashNotice(result.reason ?? '删除音轨失败')
+    return
+  }
   tracks.removeTrack(props.trackId)
+  history.push({
+    description: '删除音轨',
+    patches: [],
+    inversePatches: [],
+    objectTree: {
+      kind: 'snapshot',
+      before,
+      after: objectTree.snapshotTree(),
+      tracksBefore,
+      tracksAfter: tracks.snapshotState(),
+      blobChanges,
+    },
+  })
 }
 
 function startRename() {

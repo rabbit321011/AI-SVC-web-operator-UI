@@ -6,6 +6,7 @@ import { useTracksStore } from '@/stores/tracks'
 const playingNodeId = ref<string | null>(null)
 let audioCtx: AudioContext | null = null
 let currentSource: AudioBufferSourceNode | null = null
+let previewGeneration = 0
 
 export function useObjectAudioPreview() {
   const objectTree = useObjectTreeStore()
@@ -32,8 +33,10 @@ export function useObjectAudioPreview() {
     }
 
     const ctx = getAudioContext()
+    const generation = ++previewGeneration
     try {
       const buffer = await ctx.decodeAudioData(await blob.arrayBuffer())
+      if (generation !== previewGeneration) return
       const source = ctx.createBufferSource()
       source.buffer = buffer
       source.connect(ctx.destination)
@@ -53,6 +56,7 @@ export function useObjectAudioPreview() {
   }
 
   function stop() {
+    previewGeneration++
     if (currentSource) {
       try { currentSource.stop() } catch {}
       currentSource = null

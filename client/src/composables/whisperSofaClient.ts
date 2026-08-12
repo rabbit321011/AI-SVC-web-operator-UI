@@ -107,11 +107,20 @@ async function openRenderWebSocket(jobId: string): Promise<WebSocket> {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${protocol}://${window.location.hostname}:8101/ws/svc`)
   await new Promise<void>((resolve, reject) => {
+    let settled = false
     ws.onopen = () => {
+      settled = true
       ws.send(JSON.stringify({ type: 'register', jobId }))
       resolve()
     }
-    ws.onerror = () => reject(new Error('Whisper WebSocket 连接失败'))
+    ws.onerror = () => fail(new Error('Whisper WebSocket 连接失败'))
+    ws.onclose = () => fail(new Error('Whisper WebSocket 在连接完成前关闭'))
+    function fail(error: Error) {
+      if (settled) return
+      settled = true
+      try { ws.close() } catch {}
+      reject(error)
+    }
   })
   return ws
 }

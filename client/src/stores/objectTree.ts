@@ -150,6 +150,8 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       const source = index.value.nodes[removed.trackObject.sourceObjectId]
       if (source?.kind === 'synthesisUnit') {
         source.synthesisUnit.timelineTrackId = null
+        source.synthesisUnit.defaultTimelineStart = null
+        source.synthesisUnit.updatedAt = new Date().toISOString()
         delete removed.legacy
         removeNode(tree.value.root, removed.id)
         const sourceRemoved = removeNode(tree.value.root, source.id)
@@ -249,11 +251,28 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     const sourceId = trackObject.trackObject.sourceObjectId
     const source = index.value.nodes[sourceId]
     if (source?.kind === 'synthesisUnit') {
-      source.synthesisUnit.timelineTrackId = null
-      source.synthesisUnit.defaultTimelineStart = null
-      source.synthesisUnit.updatedAt = new Date().toISOString()
+      const sourceArea = getProjectArea(index.value, source.id)
+      const remainingRefs = collectTrackObjects().filter(item => (
+        item.id !== trackObject.id && item.trackObject.sourceObjectId === source.id
+      ))
       removeNode(tree.value.root, trackObject.id)
       removeTrackObjectFromGroups(trackObject.id)
+      if (sourceArea === 'trackSources' && remainingRefs.length === 0) {
+        deleteAssetAndBlob(source.synthesisUnit.guide.assetId)
+        for (const take of source.synthesisUnit.takes) {
+          if (take.outputAssetId) deleteAssetAndBlob(take.outputAssetId)
+        }
+        removeNode(tree.value.root, source.id)
+      } else if (remainingRefs.length === 0) {
+        source.synthesisUnit.timelineTrackId = null
+        source.synthesisUnit.defaultTimelineStart = null
+        source.synthesisUnit.updatedAt = new Date().toISOString()
+      } else {
+        const remaining = remainingRefs[0]
+        source.synthesisUnit.timelineTrackId = remaining.legacy?.trackId ?? findParentTrackId(remaining.id)
+        source.synthesisUnit.defaultTimelineStart = remaining.trackObject.timelineStart
+        source.synthesisUnit.updatedAt = new Date().toISOString()
+      }
       return { ok: true }
     }
     if (source?.kind === 'audio') deleteAudioAssetAndBlob(source)
@@ -315,6 +334,13 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (referencing.length > 0) {
       return { ok: false, reason: `该合成单元仍被 ${referencing.length} 个 A 区参考绑定` }
     }
+    const timelineRefs = collectTrackObjects().filter(trackObject => (
+      trackObject.trackObject.sourceObjectId === unit.id
+    ))
+    for (const trackObject of timelineRefs) {
+      removeNode(tree.value.root, trackObject.id)
+      removeTrackObjectFromGroups(trackObject.id)
+    }
     deleteAssetAndBlob(unit.synthesisUnit.guide.assetId)
     for (const take of unit.synthesisUnit.takes) {
       if (take.outputAssetId) deleteAssetAndBlob(take.outputAssetId)
@@ -323,25 +349,100 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
-  function copyNodeToStaticResources(nodeId: NodeId): { ok: boolean; reason?: string; newId?: NodeId } {
+  function cloneSynthesisUnitWithAssets(source: SynthesisUnitObjectNode, name: string) {
+    const tracksStore = useTracksStore()
+    const copy = clonePlain(source)
+    const suffix = crypto.randomUUID()
+    copy.id = `node:synthesisUnit:${suffix}`
+    copy.name = name
+
+    const assetIds = new Set([
+      copy.synthesisUnit.guide.assetId,
+      ...copy.synthesisUnit.takes.map(take => take.outputAssetId).filter((id): id is string => Boolean(id)),
+    ])
+    const assets = [...assetIds].map(assetId => tree.value.assets[assetId])
+    if (assets.some(asset => !asset)) return { ok: false as const, reason: '合成单元的资产不完整' }
+    for (const asset of assets) {
+      if (asset?.blobKey && !tracksStore.sourceBlobs.get(asset.blobKey)) {
+        return { ok: false as const, reason: `合成单元缺少 Blob：${asset.blobKey}` }
+      }
+    }
+
+    const assetIdMap = new Map<string, string>()
+    const blobChanges: Array<{ key: string; before: Blob | null; after: Blob | null }> = []
+    for (const asset of assets) {
+      if (!asset) continue
+      const assetSuffix = crypto.randomUUID()
+      const assetId = `asset:synthesisCopy:${assetSuffix}`
+      const blob = asset.blobKey ? tracksStore.sourceBlobs.get(asset.blobKey) : undefined
+      const blobKey = blob ? `synthesis-copy_${assetSuffix}` : asset.blobKey
+      assetIdMap.set(asset.id, assetId)
+      tree.value.assets[assetId] = { ...clonePlain(asset), id: assetId, storage: 'projectBlob', blobKey }
+      if (blob && blobKey) {
+        tracksStore.sourceBlobs.set(blobKey, blob)
+        blobChanges.push({ key: blobKey, before: null, after: blob })
+      }
+    }
+
+    const guideAssetId = assetIdMap.get(copy.synthesisUnit.guide.assetId)
+    if (!guideAssetId) return { ok: false as const, reason: '合成单元缺少 Owned Guide asset' }
+    copy.synthesisUnit.guide.assetId = guideAssetId
+
+    const takeIdMap = new Map<string, string>()
+    copy.synthesisUnit.takes = copy.synthesisUnit.takes.map(take => {
+      const takeId = `take:${crypto.randomUUID()}`
+      takeIdMap.set(take.id, takeId)
+      return { ...take, id: takeId, ...(take.outputAssetId ? { outputAssetId: assetIdMap.get(take.outputAssetId) } : {}) }
+    })
+    copy.synthesisUnit.activeTakeId = copy.synthesisUnit.activeTakeId
+      ? takeIdMap.get(copy.synthesisUnit.activeTakeId) ?? null
+      : null
+    copy.synthesisUnit.createdAt = new Date().toISOString()
+    copy.synthesisUnit.updatedAt = copy.synthesisUnit.createdAt
+    return { ok: true as const, copy, blobChanges }
+  }
+
+  function copyNodeToStaticResources(nodeId: NodeId): {
+    ok: boolean
+    reason?: string
+    newId?: NodeId
+    blobChanges?: Array<{ key: string; before: Blob | null; after: Blob | null }>
+  } {
     const source = index.value.nodes[nodeId]
     if (!source || (source.kind !== 'audio' && source.kind !== 'synthesisUnit')) {
       return { ok: false, reason: '只有 AudioObject 或合成单元可以复制到静态资源' }
     }
-    const copy = clonePlain(source)
-    copy.id = `${source.kind === 'audio' ? 'node:audio' : 'node:synthesisUnit'}:${crypto.randomUUID()}`
-    copy.name = `${source.name} (副本)`
-    if (copy.kind === 'audio') delete copy.legacy
-    if (copy.kind === 'synthesisUnit') {
-      copy.synthesisUnit.timelineTrackId = null
-      copy.synthesisUnit.defaultTimelineStart = null
+    if (source.kind === 'synthesisUnit') {
+      const result = cloneSynthesisUnitWithAssets(source, `${source.name} (副本)`)
+      if (!result.ok) return result
+      const folder = getOrCreateChildFolder(TOP_LEVEL_IDS.resource, 'Synthesis Units')
+      result.copy.synthesisUnit.timelineTrackId = null
+      result.copy.synthesisUnit.defaultTimelineStart = null
+      insertChild(folder, result.copy)
+      return { ok: true, newId: result.copy.id, blobChanges: result.blobChanges }
     }
-    const folder = getOrCreateChildFolder(
-      TOP_LEVEL_IDS.resource,
-      source.kind === 'audio' ? 'Audio' : 'Synthesis Units',
-    )
+
+    const asset = tree.value.assets[source.audio.assetId]
+    if (!asset) return { ok: false, reason: 'AudioObject 的资产不存在' }
+    const sourceBlob = asset.blobKey ? useTracksStore().sourceBlobs.get(asset.blobKey) : undefined
+    if (asset.blobKey && !sourceBlob) return { ok: false, reason: 'AudioObject 的音频 Blob 不存在' }
+    const suffix = crypto.randomUUID()
+    const copy = clonePlain(source)
+    copy.id = `node:audio:${suffix}`
+    copy.name = `${source.name} (副本)`
+    delete copy.legacy
+    const assetId = `asset:audioCopy:${suffix}`
+    const blobKey = sourceBlob ? `audio-copy_${suffix}` : asset.blobKey
+    tree.value.assets[assetId] = { ...clonePlain(asset), id: assetId, storage: 'projectBlob', blobKey }
+    copy.audio.assetId = assetId
+    const blobChanges: Array<{ key: string; before: Blob | null; after: Blob | null }> = []
+    if (sourceBlob && blobKey) {
+      useTracksStore().sourceBlobs.set(blobKey, sourceBlob)
+      blobChanges.push({ key: blobKey, before: null, after: sourceBlob })
+    }
+    const folder = getOrCreateChildFolder(TOP_LEVEL_IDS.resource, 'Audio')
     insertChild(folder, copy)
-    return { ok: true, newId: copy.id }
+    return { ok: true, newId: copy.id, blobChanges }
   }
 
   function copyTrackObjectSourceToFolder(trackObjectId: NodeId, targetParentId: NodeId): {
@@ -544,19 +645,29 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (!source || (source.kind !== 'audio' && source.kind !== 'synthesisUnit')) {
       return { ok: false, reason: '时间线对象来源不存在' }
     }
+    const beforeTree = snapshotTree()
     const trackId = trackObject.legacy?.trackId ?? findParentTrackId(trackObject.id)
     const removed = removeNode(tree.value.root, trackObjectId)
     if (!removed) return { ok: false, reason: '无法移出时间线对象' }
     if (source.kind === 'synthesisUnit') {
       source.synthesisUnit.timelineTrackId = null
+      source.synthesisUnit.defaultTimelineStart = null
+      source.synthesisUnit.updatedAt = new Date().toISOString()
       if (removed.kind === 'trackObject') delete removed.legacy
       const folder = requireFolder(buildNodeIndex(tree.value.root), TOP_LEVEL_IDS.workspace)
       const sourceRemoved = removeNode(tree.value.root, source.id)
-      if (sourceRemoved) insertChild(folder, sourceRemoved)
+      if (!sourceRemoved) {
+        restoreTree(beforeTree)
+        return { ok: false, reason: '无法移出合成单元来源' }
+      }
+      insertChild(folder, sourceRemoved)
       return { ok: true }
     }
     const sourceRemoved = removeNode(tree.value.root, source.id)
-    if (!sourceRemoved) return { ok: false, reason: '无法移出 AudioObject 来源' }
+    if (!sourceRemoved) {
+      restoreTree(beforeTree)
+      return { ok: false, reason: '无法移出 AudioObject 来源' }
+    }
     delete source.legacy
     const folder = requireFolder(buildNodeIndex(tree.value.root), TOP_LEVEL_IDS.workspace)
     insertChild(folder, sourceRemoved)
@@ -583,6 +694,13 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       return { ok: false, reason: '只有 AudioObject 或合成单元可以移动到 Workspace' }
     }
     if (nodeToMove.kind === 'audio') return moveAudioObjectToWorkspace(nodeId)
+    const timelineRefs = collectTrackObjects().filter(trackObject => (
+      trackObject.trackObject.sourceObjectId === nodeToMove.id
+    ))
+    if (timelineRefs.length > 1) {
+      return { ok: false, reason: '该合成单元被多个时间线对象引用，无法安全移动' }
+    }
+    if (timelineRefs.length === 1) return moveTrackObjectToWorkspace(timelineRefs[0].id)
     return moveNode(nodeId, TOP_LEVEL_IDS.workspace)
   }
 
@@ -756,17 +874,19 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     const tracksStore = useTracksStore()
     const ids: NodeId[] = []
     for (const file of files) {
-      const assetId = `asset:import:${crypto.randomUUID()}`
-      const nodeId = `node:audio:${crypto.randomUUID()}`
+      const suffix = crypto.randomUUID()
+      const assetId = `asset:import:${suffix}`
+      const nodeId = `node:audio:${suffix}`
+      const blobKey = `import:${suffix}:${file.name}`
       tree.value.assets[assetId] = {
         id: assetId,
         storage: 'projectBlob',
-        blobKey: file.name,
+        blobKey,
         sampleRate: 0,
         duration: 0,
         channels: 0,
       }
-      tracksStore.sourceBlobs.set(file.name, file)
+      tracksStore.sourceBlobs.set(blobKey, file)
       insertChild(targetParent, {
         id: nodeId,
         kind: 'audio',
@@ -812,7 +932,11 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       const guideAssetId = `asset:synthesisGuide:${idSuffix}`
       const guideBlobKey = `synthesis-guide_${idSuffix}.wav`
 
-      const folder = getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'Synthesis Units')
+      const sourceTimelineStart = source.defaultTimelineStart
+      const hasTimelinePosition = sourceTimelineStart != null
+      const folder = hasTimelinePosition
+        ? getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'Synthesis Units')
+        : requireFolder(index.value, TOP_LEVEL_IDS.workspace)
       const unitName = uniqueChildName(folder, synthesisUnitName(source.source.name))
       const unit = createEmptySynthesisUnit({
         id: `node:synthesisUnit:${idSuffix}`,
@@ -851,23 +975,24 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       }
       tracksStore.sourceBlobs.set(guideBlobKey, guideBlob)
       insertChild(folder, unit)
-      const synthesisTrackId = tracksStore.addObjectTrack('audio', `${unit.name} · 合成`)
-      const synthesisTrackFolder = createObjectTrackFolder('audio', `${unit.name} · 合成`, synthesisTrackId)
-      const timelineStart = source.defaultTimelineStart ?? 0
-      unit.synthesisUnit.timelineTrackId = synthesisTrackId
-      insertChild(synthesisTrackFolder, {
-        id: `node:trackObject:synthesis:${idSuffix}`,
-        kind: 'trackObject',
-        name: unit.name,
-        trackObject: {
-          contentType: 'audio',
-          sourceObjectId: unit.id,
-          timelineStart,
-          timelineEnd: timelineStart + source.resolved.duration,
-          ignored: false,
-        },
-        legacy: { trackId: synthesisTrackId },
-      })
+      if (sourceTimelineStart != null) {
+        const synthesisTrackId = tracksStore.addObjectTrack('audio', `${unit.name} · 合成`)
+        const synthesisTrackFolder = createObjectTrackFolder('audio', `${unit.name} · 合成`, synthesisTrackId)
+        unit.synthesisUnit.timelineTrackId = synthesisTrackId
+        insertChild(synthesisTrackFolder, {
+          id: `node:trackObject:synthesis:${idSuffix}`,
+          kind: 'trackObject',
+          name: unit.name,
+          trackObject: {
+            contentType: 'audio',
+            sourceObjectId: unit.id,
+            timelineStart: sourceTimelineStart,
+            timelineEnd: sourceTimelineStart + source.resolved.duration,
+            ignored: false,
+          },
+          legacy: { trackId: synthesisTrackId },
+        })
+      }
 
       return {
         ok: true,
@@ -891,28 +1016,28 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (!policy.ok) return policy
 
     if (sourceNode.kind === 'synthesisUnit') {
-      const existingTrackObject = Object.values(currentIndex.nodes).find((node): node is TrackObjectNode => (
-        node.kind === 'trackObject' && node.trackObject.sourceObjectId === sourceNode.id
-      ))
-      if (existingTrackObject) return { ok: false, reason: '该合成单元已在时间线上' }
-
       const tracksStore = useTracksStore()
-      const trackId = tracksStore.addObjectTrack('audio', `${sourceNode.name} · 合成`)
-      const trackFolder = createObjectTrackFolder('audio', `${sourceNode.name} · 合成`, trackId)
+      const sourceFolder = getOrCreateChildFolder(TOP_LEVEL_IDS.trackSources, 'Synthesis Units')
+      const cloned = cloneSynthesisUnitWithAssets(sourceNode, uniqueChildName(sourceFolder, sourceNode.name))
+      if (!cloned.ok) return cloned
+
       const start = Math.max(0, timelineStart)
-      sourceNode.synthesisUnit.timelineTrackId = trackId
-      sourceNode.synthesisUnit.defaultTimelineStart = start
-      sourceNode.synthesisUnit.unitRevision += 1
-      sourceNode.synthesisUnit.updatedAt = new Date().toISOString()
+      const trackId = tracksStore.addObjectTrack('audio', `${cloned.copy.name} · 合成`)
+      const trackFolder = createObjectTrackFolder('audio', `${cloned.copy.name} · 合成`, trackId)
+      cloned.copy.synthesisUnit.timelineTrackId = trackId
+      cloned.copy.synthesisUnit.defaultTimelineStart = start
+      cloned.copy.synthesisUnit.unitRevision += 1
+      cloned.copy.synthesisUnit.updatedAt = new Date().toISOString()
+      insertChild(sourceFolder, cloned.copy)
       insertChild(trackFolder, {
         id: `node:trackObject:synthesis:${crypto.randomUUID()}`,
         kind: 'trackObject',
-        name: sourceNode.name,
+        name: cloned.copy.name,
         trackObject: {
           contentType: 'audio',
-          sourceObjectId: sourceNode.id,
+          sourceObjectId: cloned.copy.id,
           timelineStart: start,
-          timelineEnd: start + sourceNode.synthesisUnit.guide.duration,
+          timelineEnd: start + cloned.copy.synthesisUnit.guide.duration,
           ignored: false,
         },
         legacy: { trackId },
@@ -1043,15 +1168,17 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
     const trackSourceAssetId = `asset:trackSource:${crypto.randomUUID()}`
     const trackSourceObjectId = `node:trackSource:audio:${crypto.randomUUID()}`
+    const trackSourceBlobKey = `${trackSourceObjectId}:${outputFileName}`
     tree.value.assets[trackSourceAssetId] = {
       id: trackSourceAssetId,
       storage: 'projectBlob',
-      blobKey: renderBlobKey,
+      blobKey: trackSourceBlobKey,
       sampleRate: meta.sampleRate,
       duration: meta.duration,
       channels: meta.channels,
     }
-    const trackId = tracksStore.addTrack(renderBlobKey, meta.sampleRate, meta.totalSamples, outputFileName, options.blob)
+    tracksStore.sourceBlobs.set(trackSourceBlobKey, options.blob)
+    const trackId = tracksStore.addTrack(trackSourceBlobKey, meta.sampleRate, meta.totalSamples, outputFileName, options.blob)
     const segment = tracksStore.getTrackSegments(trackId)[0]
     if (!segment) return { ok: false, reason: '创建时间线片段失败' }
     segment.timelineStart = timelineStart
@@ -1568,8 +1695,16 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     if (!source || source.kind !== 'text') return { ok: false, reason: 'TextObject 不存在' }
     const segment = source.text.segments.find(item => item.id === segmentId)
     if (!segment) return { ok: false, reason: '句子不存在' }
-    segment.start = Math.max(0, start)
-    segment.end = Math.max(segment.start + 0.1, end)
+    const nextStart = Math.max(0, start)
+    const nextEnd = Math.max(nextStart + 0.1, end)
+    const overlaps = source.text.segments.some(item => (
+      item.id !== segmentId
+      && nextStart < (item.end ?? item.start + 0.1)
+      && nextEnd > item.start
+    ))
+    if (overlaps) return { ok: false, reason: '句子时间范围不能与相邻句重叠' }
+    segment.start = nextStart
+    segment.end = nextEnd
     source.text.segments.sort((a, b) => a.start - b.start)
     markTextEdited(sourceObjectId)
     return { ok: true }

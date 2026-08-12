@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import type { WebSocket } from 'ws'
+import { WebSocket } from 'ws'
 
 const PYTHON = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const RUNNER_SCRIPT = 'E:/AIscene/AISVC-midi-web/server/scripts/svc_runner.py'
@@ -24,6 +24,7 @@ export interface SvcRequest {
 }
 
 export function runSvc(req: SvcRequest, ws: WebSocket): void {
+  const startedAt = Date.now()
   const args = [
     RUNNER_SCRIPT,
     '--source', req.sourceWav,
@@ -51,17 +52,28 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
 
   let stdoutBuf = ''
   let stderrBuf = ''
+  let processFinished = false
+
+  const handleSocketClose = () => {
+    if (!processFinished && child.exitCode == null) child.kill()
+  }
+  ws.once('close', handleSocketClose)
+
+  function send(message: Record<string, unknown>) {
+    if (ws.readyState !== WebSocket.OPEN) return
+    try { ws.send(JSON.stringify(message)) } catch {}
+  }
 
   function parseProgress(line: string) {
     // tqdm lines look like: " 30%|███       | 6/20 [00:00<00:01, 12.27it/s]"
     const pct = line.match(/(\d+)%/)?.[1]
     if (pct) {
-      ws.send(JSON.stringify({ type: 'progress', progress: Math.min(parseInt(pct), 100) }))
+      send({ type: 'progress', progress: Math.min(parseInt(pct), 100) })
       return true
     }
     // YingMusic "auto predicted pitch shift" or "automatic pitch shift" indicates model loaded
     if (line.includes('pitch shift') || line.includes('RTF:')) {
-      ws.send(JSON.stringify({ type: 'log', message: line.trim() }))
+      send({ type: 'log', message: line.trim() })
       return true
     }
     return false
@@ -96,27 +108,34 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
   })
 
   child.on('close', (code) => {
+    processFinished = true
+    ws.off('close', handleSocketClose)
     if (code === 0) {
-      // Find output file
       const outDir = path.join(OUTPUT_ROOT, req.expname)
       if (fs.existsSync(outDir)) {
-        const files = fs.readdirSync(outDir).filter(f => f.endsWith('.wav'))
-        const outFile = files.length > 0 ? path.join(outDir, files[0]) : null
-        ws.send(JSON.stringify({
+        const files = fs.readdirSync(outDir)
+          .filter(file => file.toLowerCase().endsWith('.wav'))
+          .map(file => ({ file, mtimeMs: fs.statSync(path.join(outDir, file)).mtimeMs }))
+          .filter(file => file.mtimeMs >= startedAt - 1000)
+          .sort((left, right) => right.mtimeMs - left.mtimeMs)
+        const outFile = files.length > 0 ? path.join(outDir, files[0].file) : null
+        send({
           type: 'done',
           outputFile: outFile,
           outputPath: outDir,
-        }))
+        })
       } else {
-        ws.send(JSON.stringify({ type: 'done', outputFile: null }))
+        send({ type: 'done', outputFile: null })
       }
     } else {
-      ws.send(JSON.stringify({ type: 'error', message: formatSvcError(code, stderrBuf || stdoutBuf) }))
+      send({ type: 'error', message: formatSvcError(code, stderrBuf || stdoutBuf) })
     }
   })
 
   child.on('error', (err) => {
-    ws.send(JSON.stringify({ type: 'error', message: err.message }))
+    processFinished = true
+    ws.off('close', handleSocketClose)
+    send({ type: 'error', message: err.message })
   })
 }
 

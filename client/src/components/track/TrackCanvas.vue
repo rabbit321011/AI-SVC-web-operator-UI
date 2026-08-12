@@ -763,6 +763,7 @@ function recordTimelineObjectChange(
   description: string,
   before: ReturnType<typeof objectTree.snapshotTree>,
   tracksBefore?: ReturnType<typeof tracks.snapshotState>,
+  blobChanges?: Array<{ key: string; before: Blob | null; after: Blob | null }>,
 ) {
   history.push({
     description,
@@ -773,6 +774,7 @@ function recordTimelineObjectChange(
       before,
       after: objectTree.snapshotTree(),
       ...(tracksBefore ? { tracksBefore, tracksAfter: tracks.snapshotState() } : {}),
+      ...(blobChanges?.length ? { blobChanges } : {}),
     },
   })
 }
@@ -787,7 +789,7 @@ function copyTimelineObjectToStatic() {
     objectTreeUi.flashNotice(result.reason ?? '复制失败')
     return
   }
-  recordTimelineObjectChange('复制到静态资源', before)
+  recordTimelineObjectChange('复制到静态资源', before, undefined, result.blobChanges)
   objectTreeUi.flashNotice('已复制到静态资源')
 }
 
@@ -796,12 +798,30 @@ function deleteTimelineObject() {
   closeAudioObjectMenu()
   if (!trackObjectId) return
   const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
+  const trackObject = objectTree.node(trackObjectId)
+  const source = trackObject?.kind === 'trackObject'
+    ? objectTree.node(trackObject.trackObject.sourceObjectId)
+    : null
+  const assetIds = source?.kind === 'audio'
+    ? [source.audio.assetId]
+    : source?.kind === 'synthesisUnit'
+      ? [
+          source.synthesisUnit.guide.assetId,
+          ...source.synthesisUnit.takes.map(take => take.outputAssetId).filter((id): id is string => Boolean(id)),
+        ]
+      : []
+  const blobChanges = assetIds.flatMap(assetId => {
+    const blobKey = objectTree.tree.assets[assetId]?.blobKey
+    const blob = blobKey ? tracks.sourceBlobs.get(blobKey) : undefined
+    return blobKey && blob ? [{ key: blobKey, before: blob, after: null }] : []
+  })
   const result = objectTree.deleteNode(trackObjectId)
   if (!result.ok) {
     objectTreeUi.flashNotice(result.reason ?? '删除失败')
     return
   }
-  recordTimelineObjectChange('删除时间线对象', before)
+  recordTimelineObjectChange('删除时间线对象', before, tracksBefore, blobChanges)
   objectTreeUi.flashNotice('已删除')
 }
 
@@ -831,6 +851,7 @@ async function createSynthesisUnitFromTimelineObject() {
   audioObjectMenu.value.creating = true
   window.removeEventListener('pointerdown', closeAudioObjectMenu)
   const beforeTree = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
   const result = await objectTree.createSynthesisUnitFromAudioObject(sourceAudioObjectId)
   closeAudioObjectMenu()
   if (!result.ok || !result.unitId || !result.guideBlobKey || !result.guideBlob) {
@@ -845,6 +866,8 @@ async function createSynthesisUnitFromTimelineObject() {
       kind: 'snapshot',
       before: beforeTree,
       after: objectTree.snapshotTree(),
+      tracksBefore,
+      tracksAfter: tracks.snapshotState(),
       blobChanges: [{ key: result.guideBlobKey, before: null, after: result.guideBlob }],
     },
   })

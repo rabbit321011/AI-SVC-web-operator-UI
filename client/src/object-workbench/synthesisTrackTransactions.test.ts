@@ -97,6 +97,13 @@ describe('SynthesisUnit track transactions', () => {
       origin: 'game',
       classes: [120],
     })).toThrow('MIDI-P requires 16 dense classes')
+    expect(() => replaceMidiPTrack(unit, {
+      operation: 'invalid PAD',
+      origin: 'user',
+      classes: [...Array(15).fill(120), 256],
+    })).toThrow('PAD=256')
+    replaceMidiPTrack(unit, { operation: 'valid MIDI-P', origin: 'user', classes: Array(16).fill(120) })
+    expect(() => replaceMidiPFrame(unit, { frame: 0, midiClass: 256 })).toThrow('PAD=256')
   })
 
   it('materializes FLOW only while writing an automatic GAME track', () => {
@@ -124,6 +131,29 @@ describe('SynthesisUnit track transactions', () => {
     expect(unit.synthesisUnit.hTokenTrack.events).toMatchObject([
       { id: 'h:a', frame: 5, tokenId: 319 },
     ])
+  })
+
+  it('clears stale H placement provenance after manual replacement or movement', () => {
+    const unit = fixtureUnit()
+    replaceHTokenTrackRange(unit, {
+      operation: 'aligned H', origin: 'alignment', startFrame: 0, endFrameExclusive: 16,
+      events: [{ id: 'h:a', frame: 2, tokenId: 319, origin: 'segment-align' }],
+      placementRanges: [{ phraseId: 'phrase:1', startFrame: 0, endFrameExclusive: 8, placementMode: 'phone', fallbackReason: null }],
+    })
+
+    replaceHTokenTrackRange(unit, {
+      operation: 'manual H', origin: 'user', startFrame: 2, endFrameExclusive: 3,
+      events: [{ id: 'h:b', frame: 2, tokenId: 325, origin: 'user' }],
+    })
+    expect(unit.synthesisUnit.hTokenTrack.placementRanges).toEqual([])
+
+    replaceHTokenTrackRange(unit, {
+      operation: 'aligned H again', origin: 'alignment', startFrame: 0, endFrameExclusive: 8,
+      events: [{ id: 'h:c', frame: 2, tokenId: 319, origin: 'segment-align' }],
+      placementRanges: [{ phraseId: 'phrase:2', startFrame: 0, endFrameExclusive: 8, placementMode: 'phone', fallbackReason: null }],
+    })
+    moveHTokenEvent(unit, { eventId: 'h:c', targetFrame: 4 })
+    expect(unit.synthesisUnit.hTokenTrack.placementRanges).toEqual([])
   })
 
   it('makes explicit FLOW followers track a changed head pitch', () => {

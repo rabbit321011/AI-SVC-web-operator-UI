@@ -4,6 +4,41 @@ import type { Project, ProjectId, F0Frame } from '@/types'
 
 const DEFAULT_F0 = { fmin: 65.4, fmax: 2093.0, algorithm: 'pyin' as const, hopMs: 16 }
 
+export function assertValidProject(value: unknown): asserts value is Project {
+  if (!value || typeof value !== 'object') throw new Error('项目文件不是对象')
+  const project = value as Record<string, any>
+  for (const key of ['id', 'name', 'version', 'createdAt', 'modifiedAt']) {
+    if (typeof project[key] !== 'string') throw new Error(`项目字段 ${key} 无效`)
+  }
+  for (const key of ['tracks', 'segments', 'compGroups']) {
+    if (!project[key] || typeof project[key] !== 'object' || Array.isArray(project[key])) {
+      throw new Error(`项目字段 ${key} 无效`)
+    }
+  }
+  for (const key of ['trackOrder', 'compGroupOrder']) {
+    if (!Array.isArray(project[key]) || project[key].some((item: unknown) => typeof item !== 'string')) {
+      throw new Error(`项目字段 ${key} 无效`)
+    }
+  }
+  if (!Number.isFinite(project.timelineOffset) || !Number.isFinite(project.pxPerSec) || project.pxPerSec <= 0) {
+    throw new Error('项目时间线参数无效')
+  }
+  if (!project.f0Settings || typeof project.f0Settings !== 'object'
+    || !Number.isFinite(project.f0Settings.fmin) || !Number.isFinite(project.f0Settings.fmax)
+    || !Number.isFinite(project.f0Settings.hopMs)) {
+    throw new Error('项目 F0 设置无效')
+  }
+  if (project.objectTree !== undefined) {
+    if (project.objectTree?.schemaVersion !== 'object-workbench.v1'
+      || project.objectTree?.root?.kind !== 'folder'
+      || !Array.isArray(project.objectTree.root.children)
+      || !project.objectTree.assets
+      || typeof project.objectTree.assets !== 'object') {
+      throw new Error('项目对象树结构无效')
+    }
+  }
+}
+
 export const useProjectStore = defineStore('project', () => {
   const id = ref<ProjectId>('')
   const name = ref('未命名项目')
@@ -52,6 +87,14 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   function load(project: Project) {
+    assertValidProject(project)
+    if (typeof window !== 'undefined') (window as any).__playbackStop?.()
+    usePlaybackStore().reset()
+    useEditorWorkspaceStore().resetToProjectTimeline()
+    useHistoryStore().clear()
+    useSelectionStore().clear()
+    useObjectTreeUiStore().clearSelection()
+    useRenderPanelStore().resetForProject()
     id.value = project.id
     name.value = project.name
     version.value = project.version
@@ -118,3 +161,9 @@ export const useProjectStore = defineStore('project', () => {
 import { useTracksStore } from './tracks'
 import { useCompGroupsStore } from './compGroups'
 import { useObjectTreeStore } from './objectTree'
+import { useEditorWorkspaceStore } from './editorWorkspace'
+import { useHistoryStore } from './history'
+import { useSelectionStore } from './selection'
+import { useObjectTreeUiStore } from './objectTreeUi'
+import { usePlaybackStore } from './playback'
+import { useRenderPanelStore } from './renderPanel'

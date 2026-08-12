@@ -131,6 +131,9 @@ let midiAudioContext: AudioContext | null = null
 let midiPlaybackStartTime = 0
 let midiPlaybackStartFrame = 0
 let scheduledMidiNodes: OscillatorNode[] = []
+let guideLoadGeneration = 0
+let midiPlaybackGeneration = 0
+let midiPlaybackStarting = false
 
 const unit = computed(() => {
   const node = objectTree.node(props.objectId)
@@ -310,6 +313,7 @@ onMounted(() => {
 })
 
 async function loadGuide(blob: Blob | null) {
+  const generation = ++guideLoadGeneration
   stopPlayback()
   waveform.value = null
   if (guideUrl.value) URL.revokeObjectURL(guideUrl.value)
@@ -318,6 +322,7 @@ async function loadGuide(blob: Blob | null) {
   const context = new AudioContext()
   try {
     const decoded = await context.decodeAudioData(await blob.arrayBuffer())
+    if (generation !== guideLoadGeneration) return
     const mono = new Float32Array(decoded.length)
     for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex++) {
       const channel = decoded.getChannelData(channelIndex)
@@ -509,6 +514,8 @@ async function togglePlayback() {
 }
 
 function stopPrimaryPlayback() {
+  midiPlaybackGeneration++
+  midiPlaybackStarting = false
   for (const audio of [audioElement.value, takeAudioElement.value]) {
     if (!audio) continue
     audio.pause()
@@ -535,37 +542,47 @@ function stopPlayback() {
 }
 
 async function toggleMidiPPlayback() {
-  if (!midiReady.value) return
-  const context = await ensureMidiAudioContext()
-  if (playing.value) {
-    const elapsed = Math.max(0, context.currentTime - midiPlaybackStartTime)
-    playheadFrame.value = Math.min(frameCount.value - 1, midiPlaybackStartFrame + Math.floor(elapsed * frameRate.value))
-    stopScheduledMidiNodes()
-    cancelAnimationFrame(animationFrame)
-    playing.value = false
-    return
-  }
-  const classes = synthesis.value?.midiPTokenTrack.classes ?? []
-  if (playheadFrame.value >= frameCount.value - 1) playheadFrame.value = 0
-  midiPlaybackStartFrame = playheadFrame.value
-  midiPlaybackStartTime = context.currentTime + 0.04
-  let runStart = midiPlaybackStartFrame
-  while (runStart < classes.length) {
-    const midiClass = classes[runStart]
-    let runEnd = runStart + 1
-    while (runEnd < classes.length && classes[runEnd] === midiClass) runEnd++
-    if (midiClass < 255) {
-      schedulePianoTone(
-        midiClass,
-        midiPlaybackStartTime + (runStart - midiPlaybackStartFrame) / frameRate.value / playbackRate.value,
-        (runEnd - runStart) / frameRate.value / playbackRate.value,
-        true,
-      )
+  if (!midiReady.value || midiPlaybackStarting) return
+  const generation = ++midiPlaybackGeneration
+  midiPlaybackStarting = true
+  try {
+    const context = await ensureMidiAudioContext()
+    if (generation !== midiPlaybackGeneration) return
+    if (playing.value) {
+      const elapsed = Math.max(0, context.currentTime - midiPlaybackStartTime)
+      playheadFrame.value = Math.min(frameCount.value - 1, midiPlaybackStartFrame + Math.floor(elapsed * frameRate.value))
+      stopScheduledMidiNodes()
+      cancelAnimationFrame(animationFrame)
+      playing.value = false
+      return
     }
-    runStart = runEnd
+    const classes = synthesis.value?.midiPTokenTrack.classes ?? []
+    const flowFrames = midiFlowFrameSet.value
+    if (playheadFrame.value >= frameCount.value - 1) playheadFrame.value = 0
+    midiPlaybackStartFrame = playheadFrame.value
+    midiPlaybackStartTime = context.currentTime + 0.04
+    let runStart = midiPlaybackStartFrame
+    while (runStart < classes.length) {
+      const midiClass = classes[runStart]
+      let runEnd = runStart + 1
+      while (runEnd < classes.length
+        && classes[runEnd] === midiClass
+        && (midiClass >= 255 || flowFrames.has(runEnd))) runEnd++
+      if (midiClass < 255) {
+        schedulePianoTone(
+          midiClass,
+          midiPlaybackStartTime + (runStart - midiPlaybackStartFrame) / frameRate.value / playbackRate.value,
+          (runEnd - runStart) / frameRate.value / playbackRate.value,
+          true,
+        )
+      }
+      runStart = runEnd
+    }
+    playing.value = true
+    tickMidiPlayback()
+  } finally {
+    if (generation === midiPlaybackGeneration) midiPlaybackStarting = false
   }
-  playing.value = true
-  tickMidiPlayback()
 }
 
 function restartMidiPlayback() {
@@ -765,12 +782,39 @@ async function exportActiveTake() {
     flashStatus('当前没有可导出的 Take')
     return
   }
+  const before = objectTree.snapshotTree()
+  const tracksBefore = tracks.snapshotState()
   const result = await objectTree.addRenderedAudioToTimeline({
     blob,
     outputFileName: `${unit.value?.name ?? 'V5-P'}_${take.name}.wav`,
     renderKind: 'v5p',
     timelineStart: synthesis.value?.defaultTimelineStart ?? 0,
   })
+  if (result.ok && result.renderObjectId) {
+    const renderObject = objectTree.node(result.renderObjectId)
+    const trackSourceObject = result.trackSourceObjectId ? objectTree.node(result.trackSourceObjectId) : null
+    const blobKeys = [
+      renderObject?.kind === 'audio'
+      ? objectTree.tree.assets[renderObject.audio.assetId]?.blobKey
+      : undefined,
+      trackSourceObject?.kind === 'audio'
+        ? objectTree.tree.assets[trackSourceObject.audio.assetId]?.blobKey
+        : undefined,
+    ].filter((key): key is string => Boolean(key))
+    history.push({
+      description: '导出 V5-P Take',
+      patches: [],
+      inversePatches: [],
+      objectTree: {
+        kind: 'snapshot',
+        before,
+        after: objectTree.snapshotTree(),
+        tracksBefore,
+        tracksAfter: tracks.snapshotState(),
+        blobChanges: blobKeys.map(key => ({ key, before: null, after: blob })),
+      },
+    })
+  }
   flashStatus(result.ok ? `${take.name} 已导出到正式音轨` : (result.reason ?? 'Take 导出失败'))
 }
 

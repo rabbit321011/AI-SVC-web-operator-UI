@@ -51,6 +51,45 @@ test('legacy projects without an object tree still open before migration', () =>
   }
 })
 
+test('sync refreshes an existing leaf and restores its missing project blob', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aisvc-global-resource-refresh-'))
+  try {
+    const project: any = projectFixture()
+    project.objectTree.root.children[0].children.push({
+      id: 'node:resource:a',
+      kind: 'audio',
+      name: 'Old Resource',
+      audio: { assetId: 'asset:resource:a', midiObjectId: null, textObjectId: null },
+    })
+    project.objectTree.assets['asset:resource:a'] = {
+      id: 'asset:resource:a', storage: 'projectBlob', blobKey: 'resource-a.wav',
+    }
+    const projectDir = path.join(root, 'projects', 'refresh')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify(project, null, 2))
+
+    const repo = new GlobalResourceRepository(root)
+    repo.writeStagedBlob('node:resource:a', 'resource-a.wav', Buffer.from('fresh-audio'))
+    repo.publish({
+      id: 'node:resource:a',
+      name: 'New Resource',
+      node: { id: 'node:resource:a', kind: 'audio', name: 'New Resource', audio: { assetId: 'asset:resource:a', midiObjectId: null, textObjectId: null } },
+      assets: { 'asset:resource:a': { id: 'asset:resource:a', storage: 'projectBlob', blobKey: 'resource-a.wav' } },
+      blobKeys: ['resource-a.wav'],
+    })
+
+    assert.deepEqual(repo.syncProject('refresh').added, ['node:resource:a'])
+    const synced = JSON.parse(fs.readFileSync(path.join(projectDir, 'project.json'), 'utf-8'))
+    assert.equal(synced.objectTree.root.children[0].children[0].name, 'New Resource')
+    const manifest = JSON.parse(fs.readFileSync(path.join(projectDir, 'blobs', 'manifest.json'), 'utf-8'))
+    const blobFile = Object.keys(manifest).find(file => manifest[file] === 'resource-a.wav')
+    assert.ok(blobFile)
+    assert.equal(fs.readFileSync(path.join(projectDir, 'blobs', blobFile), 'utf-8'), 'fresh-audio')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('nested global Resource folders keep their full directory tree when synced', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aisvc-global-resource-nested-'))
   try {

@@ -50,6 +50,19 @@ const textControlJobs = new Map<string, WebSocket>()
 const midiPJobs = new Map<string, WebSocket>()
 const v5pJobs = new Map<string, WebSocket>()
 const msstJobs = new Map<string, WebSocket>()
+const jobRegistries = [svcJobs, svsJobs, whisperJobs, textControlJobs, midiPJobs, v5pJobs, msstJobs]
+
+function removeJobRegistration(jobId: string, socket?: WebSocket) {
+  for (const registry of jobRegistries) {
+    if (!socket || registry.get(jobId) === socket) registry.delete(jobId)
+  }
+}
+
+function consumeJobSocket(registry: Map<string, WebSocket>, jobId: string): WebSocket | undefined {
+  const socket = registry.get(jobId)
+  if (socket) removeJobRegistration(jobId, socket)
+  return socket
+}
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WS] client connected')
@@ -68,6 +81,13 @@ wss.on('connection', (ws: WebSocket) => {
         console.log(`[WS] registered job ${msg.jobId}`)
       }
     } catch {}
+  })
+  ws.on('close', () => {
+    for (const registry of jobRegistries) {
+      for (const [jobId, socket] of registry) {
+        if (socket === ws) registry.delete(jobId)
+      }
+    }
   })
 })
 
@@ -204,8 +224,10 @@ app.get('/api/demo/f0', (_req, res) => {
 
 // Generic F0 extraction (used for SVC result tracks)
 app.get('/api/f0', (req, res) => {
-  const wavPath = req.query.path as string
-  if (!wavPath || !fs.existsSync(wavPath)) {
+  const wavPath = path.resolve(String(req.query.path || ''))
+  const dataRoot = path.resolve(PROJECT_ROOT, 'data')
+  const relative = path.relative(dataRoot, wavPath)
+  if (!wavPath.toLowerCase().endsWith('.wav') || relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(wavPath)) {
     res.status(400).json({ error: 'missing or invalid path' })
     return
   }
@@ -392,7 +414,7 @@ app.post('/api/svc/run', (req, res) => {
   // Frontend registers WS before sending this request, so jobId should be found.
   // If not found (race/edge case), schedule with the jobId as key and wait briefly.
   function tryRun() {
-    const ws = svcJobs.get(jobId)
+    const ws = consumeJobSocket(svcJobs, jobId)
     if (ws) {
       console.log(`[SVC] job ${jobId} started, WS found`)
       runSvc({
@@ -501,7 +523,7 @@ app.post('/api/svs/run', async (req, res) => {
   res.json({ ok: true, jobId, status: 'started', resources: verifiedResources })
 
   function tryRun() {
-    const ws = svsJobs.get(jobId)
+    const ws = consumeJobSocket(svsJobs, jobId)
     if (ws) {
       console.log(`[SVS] job ${jobId} started, WS found`)
       try {
@@ -543,7 +565,7 @@ app.post('/api/whisper/run', (req, res) => {
   res.json({ ok: true, jobId, status: 'started' })
 
   function tryRun() {
-    const ws = whisperJobs.get(jobId)
+    const ws = consumeJobSocket(whisperJobs, jobId)
     if (ws) {
       console.log(`[Whisper] job ${jobId} started, WS found`)
       runWhisper({
@@ -579,7 +601,7 @@ app.post('/api/synthesis/text-control/run', (req, res) => {
 
   res.json({ ok: true, jobId: request.jobId, status: 'started' })
   function tryRun() {
-    const ws = textControlJobs.get(request.jobId)
+    const ws = consumeJobSocket(textControlJobs, request.jobId)
     if (!ws) return false
     console.log(`[TextControl] job ${request.jobId} started, WS found`)
     void runSynthesisTextControl(request, ws)
@@ -604,7 +626,7 @@ app.post('/api/synthesis/midi-p/run', (req, res) => {
 
   res.json({ ok: true, jobId: request.jobId, status: 'started' })
   function tryRun() {
-    const ws = midiPJobs.get(request.jobId)
+    const ws = consumeJobSocket(midiPJobs, request.jobId)
     if (!ws) return false
     console.log(`[MidiP] job ${request.jobId} started, WS found`)
     void runSynthesisMidiP(request, ws)
@@ -631,7 +653,7 @@ app.post('/api/synthesis/v5p/run', (req, res) => {
   void verifySynthesisDirectControlResources(request).then(verified => {
     res.json({ ok: true, jobId: request.jobId, status: 'started', preflight: verified })
     function tryRun() {
-      const ws = v5pJobs.get(request.jobId)
+      const ws = consumeJobSocket(v5pJobs, request.jobId)
       if (!ws) return false
       console.log(`[V5P] job ${request.jobId} started, WS found`)
       void runSynthesisDirectControl(request, ws, verified)
@@ -684,7 +706,7 @@ app.post('/api/msst/run', (req, res) => {
   res.json({ ok: true, jobId, status: 'started' })
 
   function tryRun() {
-    const ws = msstJobs.get(jobId)
+    const ws = consumeJobSocket(msstJobs, jobId)
     if (!ws) return false
     runMsst({ model, inputWav, outputDir, device: device === 'cpu' ? 'cpu' : 'cuda' }, ws)
     return true

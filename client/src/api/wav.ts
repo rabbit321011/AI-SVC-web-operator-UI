@@ -51,21 +51,28 @@ export async function combineSegmentsToBlob(
     try {
       const buf = await seg.blob.arrayBuffer()
       const audioBuf = await audioCtx.decodeAudioData(buf)
-      const channel = audioBuf.getChannelData(0)
+      const channels = Array.from(
+        { length: audioBuf.numberOfChannels },
+        (_, channelIndex) => audioBuf.getChannelData(channelIndex),
+      )
       const actualSr = audioBuf.sampleRate
       const vol = seg.volume ?? 1
 
       const startActual = seg.startSample * (actualSr / seg.sampleRate)
       const srcLenActual = (seg.endSample - seg.startSample) * (actualSr / seg.sampleRate)
+      const endActualExclusive = startActual + srcLenActual
       const segDurationSec = srcLenActual / actualSr
       const segLenOut = Math.round(segDurationSec * outputSampleRate)
       const targetStart = Math.round((seg.timelineStart - minTimelineStart) * outputSampleRate)
 
       for (let i = 0; i < segLenOut && (targetStart + i) < totalSamples; i++) {
-        const t = i / Math.max(1, segLenOut - 1)
-        const srcIdx = Math.round(startActual + t * srcLenActual)
-        if (srcIdx >= 0 && srcIdx < channel.length) {
-          combined[targetStart + i] += channel[srcIdx] * vol
+        const targetIndex = targetStart + i
+        if (targetIndex < 0) continue
+        const srcIdx = Math.floor(startActual + i * actualSr / outputSampleRate)
+        if (srcIdx >= 0 && srcIdx < endActualExclusive && srcIdx < audioBuf.length) {
+          let sample = 0
+          for (const channel of channels) sample += channel[srcIdx] / channels.length
+          combined[targetIndex] += sample * vol
         }
       }
     } finally {

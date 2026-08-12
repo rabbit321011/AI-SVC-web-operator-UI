@@ -33,6 +33,17 @@ describe('TextObject editing', () => {
     expect(store.textEditRevision).toBe(2)
     expect(textSource(store).text.segments).toHaveLength(1)
   })
+
+  it('rejects a timing edit that crosses the next sentence', () => {
+    const store = textStore()
+    store.addTextSegment('node:text:a', { id: 'textseg:b', start: 2, end: 3, kana: 'あ', romaji: 'a' })
+
+    expect(store.updateTextSegmentTiming('node:text:a', 'textseg:a', 0, 2.5)).toEqual({
+      ok: false,
+      reason: '句子时间范围不能与相邻句重叠',
+    })
+    expect(textSource(store).text.segments[0]).toMatchObject({ start: 0, end: 1 })
+  })
 })
 
 function textStore() {
