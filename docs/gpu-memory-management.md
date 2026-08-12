@@ -15,13 +15,13 @@
 
 ## 模型范围
 
-显存系统不只管理 V5-P。当前 SVS 模型来自 `server/models/svs_models.json`，包括：
+显存系统当前只管理三个模型：
 
-- T1：`plus_ja_sft_v4c step24k`、`v4f_sofa_base30k step24k`、`V4fg_10k`、`V4vf_12k/24k/30k`、`V4vfg_6k/10k`；
-- PH/PUL：`V4H_24k`、`V4H_30k`、`V4Hg_10k`；
-- Direct Control：`V5P_40K_EMA`。
+- Direct Control：`V5P_40K_EMA`
+- PH/PUL：`V4Hg_10k`
+- T1：`V4fg_10k`
 
-模型目录只说明模型是否可由当前链路使用，不等于模型已加载。checkpoint 文件大小也不等于显存占用。
+旧 SVS 面板中的其他模型仍保留运行能力，但不进入显存管理页。checkpoint 文件大小不等于显存占用。
 
 ## 释放规则
 
@@ -55,9 +55,14 @@ python server/scripts/profile_vram.py `
 
 界面中的“峰值增量”按 `推理期间整卡已用峰值 - 启动前整卡已用基线` 计算；整卡峰值仍保留在原始 profile 中。2026-08-12 的 `V5P_40K_EMA` 3 秒、1-step 标定为：基线 1819 MiB、整卡峰值 5506 MiB、峰值增量 3687 MiB、结束后 1828 MiB。
 
-2026-08-12 常驻 Runtime 实测：显存页加载约 26 秒后进入 `ready`，torch reserved 约 2.3 GB；第一次 1-step 推理约 20 秒，第二次复用常驻模型约 3 秒；运行中释放后 GPU 回落至约 1.85 GB，无残留 Python 进程。
+2026-08-12 三个受管模型的 20 步实测：
 
-2026-08-12 `GAME-1.0-medium` 3 秒 MIDI-P 标定：基线 1846 MiB、整卡峰值 2304 MiB、峰值增量 458 MiB、结束后 1848 MiB。标定工具支持 `{input}`、`{seconds}` 和 `{sha256}` 占位符，后者由裁切后的样本实时计算，适合 GAME 这类要求 Guide SHA-256 的 runner。
+- `V5P_40K_EMA` 60 秒：基线 1216 MiB、整卡峰值 11585 MiB、峰值增量 10369 MiB、结束后 1055 MiB；12 GB 卡空余仅 272 MiB，接近容量上限。
+- `V4fg_10k` 3 秒：基线 1020 MiB、整卡峰值 5441 MiB、峰值增量 4421 MiB、结束后 1206 MiB。
+- `V4Hg_10k` 3 秒：基线 1328 MiB、整卡峰值 5344 MiB、峰值增量 4016 MiB、结束后 1293 MiB。
+- `GAME-1.0-medium` 3 秒 MIDI-P：峰值增量 458 MiB。
+
+常驻 Runtime 实测：显存页加载约 26 秒后进入 `ready`，torch reserved 约 2.3 GB；第一次 1-step 推理约 20 秒，第二次复用常驻模型约 3 秒；运行中释放后 GPU 回落至约 1.85 GB，无残留 Python 进程。标定工具支持 `{input}`、`{seconds}` 和 `{sha256}` 占位符。
 
 ## 后续常驻 Runtime
 

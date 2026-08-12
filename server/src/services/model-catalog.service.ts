@@ -6,9 +6,10 @@ const SINGER_ROOT = 'E:/AIscene/YingMusic_Singer_Plus'
 const SVS_MODELS_PATH = path.join(PROJECT_ROOT, 'server', 'models', 'svs_models.json')
 const VRAM_PROFILE_DIR = path.join(PROJECT_ROOT, 'data', 'vram-profile')
 const V5P_CHECKPOINT = 'E:/MyProject/重要模型保存/V5P_40K_EMA/step_040000_final.pt'
+const MANAGED_SVS_IDS = new Set(['V4Hg_10k', 'V4fg_10k'])
 
 export type CatalogFamily = 'svs' | 'analysis' | 'svc' | 'msst'
-export type CatalogEngine = 't1' | 'v4h_phone_pul' | 'v5p_direct' | 'game' | 'whisper' | 'sofa' | 'svc' | 'msst' | 'unregistered'
+export type CatalogEngine = 't1' | 'v4h_phone_pul' | 'v5p_direct' | 'game' | 'whisper' | 'sofa' | 'svc' | 'msst'
 
 export interface ModelCatalogEntry {
   id: string
@@ -16,10 +17,11 @@ export interface ModelCatalogEntry {
   engine: CatalogEngine
   checkpoint?: string
   vaeCheckpoint?: string
-  runtimeState: 'configured' | 'unavailable' | 'discovered'
+  runtimeState: 'configured' | 'unavailable'
   capabilities: string[]
   vramProfile?: {
     device?: string
+    steps?: number
     peakUsedMiB?: number
     peakDeltaMiB?: number
     sampleSeconds?: number
@@ -32,6 +34,7 @@ export function getModelCatalog(): ModelCatalogEntry[] {
   try {
     const raw = JSON.parse(fs.readFileSync(SVS_MODELS_PATH, 'utf8')) as Record<string, unknown>
     for (const [id, value] of Object.entries(raw)) {
+      if (!MANAGED_SVS_IDS.has(id)) continue
       const preset = typeof value === 'string' ? { checkpoint: value } : value as Record<string, unknown> | null
       if (!preset?.checkpoint) continue
       const engine = preset.engine === 'v4h_phone_pul' ? 'v4h_phone_pul' : 't1'
@@ -67,30 +70,6 @@ export function getModelCatalog(): ModelCatalogEntry[] {
     { id: 'Whisper large-v3', family: 'analysis', engine: 'whisper', runtimeState: 'configured', capabilities: ['segment'], vramProfile: readVramProfile('Whisper large-v3') },
     { id: 'SOFA Japanese', family: 'analysis', engine: 'sofa', runtimeState: 'configured', capabilities: ['kana', 'h-token'], vramProfile: readVramProfile('SOFA Japanese') },
   )
-  const configuredIds = new Set(entries.map(entry => entry.id))
-  const modelRoot = 'E:/MyProject/重要模型保存'
-  const discovered = ['V4PH', 'V4PH-30H', 'V4PH-30K-HIGHLR', 'V4iph_30k', 'v4ijph_30k', 'V4Sf_24k', 'V4Sf_30k']
-  for (const id of discovered) {
-    if (configuredIds.has(id)) continue
-    const directory = path.join(modelRoot, id)
-    if (!fs.existsSync(directory)) continue
-    let checkpoint: fs.Dirent | undefined
-    try {
-      checkpoint = fs.readdirSync(directory, { withFileTypes: true })
-        .find(item => item.isFile() && /\.(pt|pth|ckpt)$/i.test(item.name))
-    } catch {
-      continue
-    }
-    if (!checkpoint) continue
-    entries.push({
-      id,
-      family: 'svs',
-      engine: 'unregistered',
-      checkpoint: path.join(directory, checkpoint.name),
-      runtimeState: 'discovered',
-      capabilities: [],
-    })
-  }
   return entries
 }
 
@@ -110,6 +89,7 @@ function readVramProfile(modelId: string): ModelCatalogEntry['vramProfile'] {
     if (!Number.isFinite(peakUsedMiB)) return undefined
     return {
       device: String(payload.device || ''),
+      steps: Number.isInteger(Number(payload.steps)) ? Number(payload.steps) : undefined,
       peakUsedMiB,
       peakDeltaMiB: Number.isFinite(baselineUsedMiB) ? Math.max(0, peakUsedMiB - baselineUsedMiB) : undefined,
       sampleSeconds: Number(sample.seconds),

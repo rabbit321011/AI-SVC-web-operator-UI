@@ -73,7 +73,6 @@ function engineLabel(engine: string) {
   if (engine === 'v5p_direct') return 'V5-P Direct Control'
   if (engine === 'v4h_phone_pul') return 'PH / PUL'
   if (engine === 't1') return 'T1'
-  if (engine === 'unregistered') return '尚未注册适配器'
   return engine
 }
 
@@ -155,10 +154,10 @@ function runtimeLabel(state: string) {
         <div v-for="model in svsModels" :key="model.id" class="model-row">
           <div><strong>{{ model.id }}</strong><small>{{ model.checkpoint }}</small></div>
           <span>{{ engineLabel(model.engine) }}</span>
-          <n-tag size="small" :bordered="false" :type="model.runtimeState === 'configured' ? 'success' : model.runtimeState === 'discovered' ? 'warning' : 'error'">
-            {{ model.runtimeState === 'configured' ? '已配置' : model.runtimeState === 'discovered' ? '已发现' : '资源缺失' }}
+          <n-tag size="small" :bordered="false" :type="model.runtimeState === 'configured' ? 'success' : 'error'">
+            {{ model.runtimeState === 'configured' ? '已配置' : '资源缺失' }}
           </n-tag>
-          <span class="runtime-kind">{{ model.vramProfile?.peakDeltaMiB != null ? `峰值增量 ${(model.vramProfile.peakDeltaMiB / 1024).toFixed(1)} GB / ${model.vramProfile.sampleSeconds}s` : '尚未标定' }}</span>
+          <span class="runtime-kind">{{ model.vramProfile?.peakDeltaMiB != null ? `峰值增量 ${(model.vramProfile.peakDeltaMiB / 1024).toFixed(1)} GB / ${model.vramProfile.sampleSeconds}s / ${model.vramProfile.steps ?? 1}步` : '尚未标定' }}</span>
           <n-button
             v-if="model.id === 'V5P_40K_EMA'"
             size="tiny"
@@ -170,7 +169,7 @@ function runtimeLabel(state: string) {
           >加载模型</n-button>
         </div>
       </div>
-      <p class="section-note">“已配置”表示模型可被现有推理链路使用；“已发现”表示本机有 checkpoint，但还没有安全的 engine/VAE/adapter 注册，不能直接加载。V5-P 已支持常驻加载；其他模型仍使用任务型 Runtime，在每次运行时加载，并在结束后退出。</p>
+      <p class="section-note">显存管理当前只管理 V5-P、V4Hg_10k 和 V4fg_10k；旧 SVS 面板的其他模型仍可运行，但不进入本页管理。</p>
     </section>
 
     <section class="page-section">

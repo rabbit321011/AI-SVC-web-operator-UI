@@ -44,6 +44,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seconds", default="3,10,30")
+    parser.add_argument("--steps", type=int)
     parser.add_argument("--sample-command", nargs=argparse.REMAINDER, required=True,
                         help="Command after --sample-command; use {input} and {seconds} placeholders")
     args = parser.parse_args()
@@ -95,6 +96,7 @@ def main() -> None:
         "schema": "aisvc.gpu-vram-profile.v1",
         "modelId": args.model_id,
         "device": args.device,
+        "steps": args.steps,
         "source": str(args.input.resolve()),
         "measuredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "samples": rows,
