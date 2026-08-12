@@ -5,6 +5,7 @@ import { useGpuRuntimeStore, type ModelCatalogItem } from '@/stores/gpuRuntime'
 
 const gpuRuntime = useGpuRuntimeStore()
 const notice = ref('')
+const manualRefreshing = ref(false)
 let timer = 0
 
 const devices = computed(() => gpuRuntime.status?.gpus ?? [])
@@ -75,6 +76,15 @@ async function setMode(mode: 'manual' | 'auto') {
   }
 }
 
+async function manualRefresh() {
+  manualRefreshing.value = true
+  try {
+    await gpuRuntime.refresh()
+  } finally {
+    manualRefreshing.value = false
+  }
+}
+
 function memoryLabel(mib?: number) {
   return mib == null ? '等待 GPU 统计' : `${(mib / 1024).toFixed(2)} GB`
 }
@@ -120,7 +130,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           <button type="button" :class="{ active: gpuRuntime.runtimeMode === 'manual' }" @click="setMode('manual')">手动</button>
           <button type="button" :class="{ active: gpuRuntime.runtimeMode === 'auto' }" @click="setMode('auto')">自动</button>
         </div>
-        <n-button size="small" :loading="gpuRuntime.loading" @click="gpuRuntime.refresh">刷新</n-button>
+        <n-button size="small" :loading="manualRefreshing" @click="manualRefresh">刷新</n-button>
         <n-button size="small" type="error" ghost :disabled="processes.length === 0" @click="releaseAll">释放本应用全部显存</n-button>
       </div>
     </header>
@@ -222,11 +232,12 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; max-width: 1120px; }
 .page-head h1 { margin: 0 0 4px; font-size: 22px; }
 .page-head p, .section-note { margin: 0; color: var(--app-muted); font-size: 12px; }
-.head-actions { display: flex; align-items: center; gap: 8px; }
-.mode-toggle { display: inline-flex; border: 1px solid var(--app-border); border-radius: 4px; overflow: hidden; }
-.mode-toggle button { height: 24px; padding: 0 10px; border: 0; background: transparent; color: var(--app-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.head-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.head-actions :deep(.n-button) { min-width: 56px; }
+.mode-toggle { flex: 0 0 96px; display: inline-flex; border: 1px solid var(--app-border); border-radius: 4px; overflow: hidden; }
+.mode-toggle button { flex: 1; min-width: 0; height: 24px; padding: 0 6px; border: 0; background: transparent; color: var(--app-muted); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .mode-toggle button.active { background: var(--app-accent); color: #fff; }
-.notice { color: var(--app-accent); font-size: 12px; }
+.notice { flex: 0 1 150px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-accent); font-size: 12px; }
 .error-band { max-width: 1120px; margin-top: 18px; padding: 10px 12px; border: 1px solid #8f3f46; color: #f28b94; }
 .gpu-band { max-width: 1120px; margin-top: 20px; }
 .gpu-device { padding: 15px 0; border-top: 1px solid var(--app-border); }
