@@ -182,6 +182,9 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     const policy = await estimatePolicy(modelId, durationSeconds)
     const runtime = runtimes.value.find(item => item.modelId === modelId
       && (item.state === 'ready' || item.state === 'busy'))
+    if (runtime?.state === 'busy') {
+      return { ok: false as const, busy: true, reason: `${modelId} 正在运行其他任务` }
+    }
     const required = runtime ? policy.estimate.requiredIfLoadedMiB : policy.estimate.requiredIfUnloadedMiB
     if (policy.freeMiB >= required) {
       if (!runtime) await loadRuntime(modelId)
@@ -219,7 +222,14 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
   async function prepareTransientTask(modelId: string, durationSeconds: number) {
     await refresh()
     const policy = await estimatePolicy(modelId, durationSeconds)
-    const required = policy.estimate.peakDeltaMiB
+    const runtime = runtimes.value.find(item => item.modelId === modelId
+      && (item.state === 'ready' || item.state === 'busy'))
+    if (runtime?.state === 'busy') {
+      return { ok: false as const, busy: true, reason: `${modelId} 正在运行其他任务` }
+    }
+    const required = runtime
+      ? policy.estimate.requiredIfLoadedMiB
+      : policy.estimate.peakDeltaMiB
     if (policy.freeMiB >= required) {
       return { ok: true as const, policy, required }
     }

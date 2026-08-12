@@ -739,6 +739,10 @@ async function generateTake() {
   const durationSeconds = unit.value.synthesisUnit.guide.duration ?? 0
   const prepared = await gpuRuntime.prepareRuntime('V5P_40K_EMA', durationSeconds) as any
   if (!prepared.ok) {
+    if (prepared.busy) {
+      flashStatus(prepared.reason || '模型正在运行其他任务')
+      return
+    }
     if (prepared.action === 'confirm') {
       capacityRetry.value = 'v5p'
       capacityDialog.value = {
@@ -864,6 +868,10 @@ async function ensureAnalysisCapacity(
   for (const request of requests) {
     const prepared = await gpuRuntime.prepareTransientTask(request.modelId, durationSeconds) as any
     if (prepared.ok) continue
+    if (prepared.busy) {
+      flashStatus(prepared.reason || `${request.modelId} 正在运行其他任务`)
+      return false
+    }
     pendingAnalysis.value = { kind, ...context }
     capacityRetry.value = kind
     if (prepared.action === 'confirm') {
