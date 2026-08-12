@@ -22,6 +22,7 @@ export interface ModelCatalogEntry {
   vramProfile?: {
     device?: string
     steps?: number
+    residentMiB?: number
     peakUsedMiB?: number
     peakDeltaMiB?: number
     sampleSeconds?: number
@@ -104,9 +105,17 @@ function readVramProfile(modelId: string): ModelCatalogEntry['vramProfile'] {
         .filter((item: { seconds: number; peakUsedMiB: number; peakDeltaMiB?: number }) => Number.isFinite(item.peakUsedMiB))
         .sort((left: any, right: any) => left.seconds - right.seconds)
       : undefined
+    let residentMiB: number | undefined
+    const residentFile = path.join(VRAM_PROFILE_DIR, `${modelId}.resident.json`)
+    try {
+      residentMiB = Number(JSON.parse(fs.readFileSync(residentFile, 'utf8')).residentMiB)
+    } catch {
+      residentMiB = undefined
+    }
     return {
       device: String(payload.device || ''),
       steps: Number.isInteger(Number(payload.steps)) ? Number(payload.steps) : undefined,
+      residentMiB: Number.isFinite(residentMiB) ? residentMiB : undefined,
       peakUsedMiB,
       peakDeltaMiB: Number.isFinite(baselineUsedMiB) ? Math.max(0, peakUsedMiB - baselineUsedMiB) : undefined,
       sampleSeconds: Number(sample.seconds),

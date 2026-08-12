@@ -25,6 +25,7 @@ export interface ModelRuntimeStatus {
   residentMiB?: number
   activeJobId?: string
   startedAt?: string
+  lastUsedAt?: string
   lastError?: string
 }
 
@@ -100,6 +101,7 @@ export async function loadV5PRuntime(device = 'cuda:0'): Promise<ModelRuntimeSta
     presetFile,
     shuttingDown: false,
     startedAt: new Date().toISOString(),
+    lastUsedAt: new Date().toISOString(),
   }
   runtimes.set(V5P_RUNTIME_ID, record)
 
@@ -204,6 +206,7 @@ export async function runV5PResidentInfer(
   return await new Promise<string>((resolve, reject) => {
     record.state = 'busy'
     record.activeJobId = jobId
+    record.lastUsedAt = new Date().toISOString()
     record.pendingInfer = { jobId, resolve, reject, onEvent }
     record.child?.stdin.write(`${JSON.stringify({
       type: 'infer',
@@ -237,8 +240,10 @@ function handleWorkerLine(record: V5PRuntimeRecord, line: string): void {
   }
   if (event.type === 'runtime_ready') {
     record.residentMiB = Number(event.residentMiB) || undefined
+    if (record.residentMiB) persistResidentProfile(record.modelId, record.residentMiB)
     record.state = 'ready'
     record.lastError = undefined
+    record.lastUsedAt = new Date().toISOString()
     const pending = record.pendingLoad
     record.pendingLoad = undefined
     pending?.resolve(publicRuntime(record))
@@ -311,6 +316,7 @@ function publicRuntime(record: V5PRuntimeRecord): ModelRuntimeStatus {
     residentMiB: record.residentMiB,
     activeJobId: record.activeJobId,
     startedAt: record.startedAt,
+    lastUsedAt: record.lastUsedAt,
     lastError: record.lastError,
   }
 }
@@ -362,4 +368,19 @@ function sha256File(filePath: string): Promise<string> {
     stream.on('error', reject)
     stream.on('end', () => resolve(hash.digest('hex')))
   })
+}
+
+function persistResidentProfile(modelId: string, residentMiB: number): void {
+  try {
+    const file = path.join(RUNTIME_DIR, '..', 'vram-profile', `${modelId}.resident.json`)
+    fs.writeFileSync(file, `${JSON.stringify({
+      schema: 'aisvc.gpu-resident-profile.v1',
+      modelId,
+      device: 'cuda:0',
+      residentMiB,
+      measuredAt: new Date().toISOString(),
+    }, null, 2)}\n`, { encoding: 'utf-8' })
+  } catch {
+    // Resident calibration is best-effort; load/unload still works without it.
+  }
 }

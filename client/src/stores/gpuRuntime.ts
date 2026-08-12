@@ -32,6 +32,7 @@ export interface ModelCatalogItem {
   vramProfile?: {
     device?: string
     steps?: number
+    residentMiB?: number
     peakUsedMiB?: number
     peakDeltaMiB?: number
     sampleSeconds?: number
@@ -49,7 +50,19 @@ export interface ModelRuntimeStatus {
   residentMiB?: number
   activeJobId?: string
   startedAt?: string
+  lastUsedAt?: string
   lastError?: string
+}
+
+export interface GpuPolicyEstimate {
+  modelId: string
+  durationSeconds: number
+  sampleSeconds: number
+  peakDeltaMiB: number
+  residentMiB?: number
+  steps?: number
+  requiredIfLoadedMiB: number
+  requiredIfUnloadedMiB: number
 }
 
 interface GpuStatusPayload {
@@ -68,6 +81,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
   const status = ref<GpuStatusPayload | null>(null)
   const error = ref('')
   const runtimes = ref<ModelRuntimeStatus[]>([])
+  const runtimeMode = ref<'manual' | 'auto'>('manual')
   let pending: Promise<void> | null = null
 
   const primaryGpu = computed(() => status.value?.gpus[0] ?? null)
@@ -128,11 +142,95 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     await refresh()
   }
 
+  async function fetchRuntimeMode() {
+    try {
+      const response = await fetch('/api/gpu/policy/mode', { cache: 'no-store' })
+      if (response.ok) runtimeMode.value = (await response.json()).mode
+    } catch {}
+  }
+
+  async function setRuntimeMode(mode: 'manual' | 'auto') {
+    const response = await fetch('/api/gpu/policy/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    })
+    if (!response.ok) throw new Error(await readApiError(response) || '模式设置失败')
+    runtimeMode.value = mode
+  }
+
+  async function estimatePolicy(modelId: string, durationSeconds: number) {
+    const response = await fetch('/api/gpu/policy/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId, durationSeconds }),
+    })
+    const payload = await response.json()
+    if (!response.ok || !payload.ok) throw new Error(payload.reason || '显存策略估算失败')
+    runtimes.value = payload.runtimes ?? []
+    runtimeMode.value = payload.mode ?? runtimeMode.value
+    return payload as {
+      freeMiB: number
+      estimate: GpuPolicyEstimate
+      runtimes: ModelRuntimeStatus[]
+    }
+  }
+
+  async function prepareRuntime(modelId: string, durationSeconds: number) {
+    await refresh()
+    const policy = await estimatePolicy(modelId, durationSeconds)
+    const runtime = runtimes.value.find(item => item.modelId === modelId
+      && (item.state === 'ready' || item.state === 'busy'))
+    const required = runtime ? policy.estimate.requiredIfLoadedMiB : policy.estimate.requiredIfUnloadedMiB
+    if (policy.freeMiB >= required) {
+      if (!runtime) await loadRuntime(modelId)
+      return { ok: true as const, policy, required, loaded: Boolean(runtime) }
+    }
+    const evictions = evictionOrder(runtimes.value, modelId)
+    let available = policy.freeMiB
+    const needed: ModelRuntimeStatus[] = []
+    for (const item of evictions) {
+      if (available >= required) break
+      available += item.residentMiB ?? 0
+      needed.push(item)
+    }
+    if (runtimeMode.value === 'auto') {
+      for (const item of needed) await unloadRuntime(item.id)
+      const after = await estimatePolicy(modelId, durationSeconds)
+      if (after.freeMiB < required) {
+        return { ok: false as const, insufficient: true, policy, required, evictions: needed }
+      }
+      if (!runtimes.value.some(item => item.modelId === modelId && item.state === 'ready')) {
+        await loadRuntime(modelId)
+      }
+      return { ok: true as const, policy, required, evictions: needed, loaded: true }
+    }
+    return {
+      ok: false as const,
+      action: 'confirm' as const,
+      policy,
+      required,
+      evictions: needed,
+      loaded: Boolean(runtime),
+    }
+  }
+
+  async function evictUntilFit(modelId: string, requiredMiB: number, evictions: Array<{ id: string; residentMiB?: number }>) {
+    for (const item of evictions) await unloadRuntime(item.id)
+    await refresh()
+    if ((status.value?.gpus[0]?.freeMiB ?? 0) < requiredMiB) return false
+    if (!runtimes.value.some(item => item.modelId === modelId && item.state === 'ready')) {
+      await loadRuntime(modelId)
+    }
+    return true
+  }
+
   return {
     loading,
     status,
     error,
     runtimes,
+    runtimeMode,
     primaryGpu,
     usageLabel,
     refresh,
@@ -140,8 +238,31 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     releaseAll,
     loadRuntime,
     unloadRuntime,
+    fetchRuntimeMode,
+    setRuntimeMode,
+    estimatePolicy,
+    prepareRuntime,
+    evictUntilFit,
   }
 })
+
+function evictionOrder(runtimes: ModelRuntimeStatus[], activeModelId: string): ModelRuntimeStatus[] {
+  return runtimes
+    .filter(item => item.modelId !== activeModelId)
+    .filter(item => item.state === 'ready' || item.state === 'busy')
+    .sort((left, right) => (
+      Date.parse(left.lastUsedAt || left.startedAt || '0') - Date.parse(right.lastUsedAt || right.startedAt || '0')
+    ))
+}
+
+async function readApiError(response: Response): Promise<string> {
+  try {
+    const json = await response.json()
+    return json.reason || json.error || json.message || ''
+  } catch {
+    return ''
+  }
+}
 
 function formatGiB(mib: number): string {
   return `${(mib / 1024).toFixed(1)} GB`

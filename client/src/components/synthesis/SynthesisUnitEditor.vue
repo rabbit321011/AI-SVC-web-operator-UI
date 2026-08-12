@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NRadioButton, NRadioGroup, NSlider } from 'naive-ui'
 import { Add, ColorWandOutline, DownloadOutline, EllipsisHorizontal, LinkOutline, MicOutline, MusicalNotesOutline, OpenOutline, Pause, Play, Remove, Stop, UnlinkOutline } from '@vicons/ionicons5'
 import { useObjectTreeStore } from '@/stores/objectTree'
+import { useGpuRuntimeStore } from '@/stores/gpuRuntime'
 import { useTracksStore } from '@/stores/tracks'
 import { useHistoryStore } from '@/stores/history'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
@@ -17,6 +18,7 @@ import { kanaToHTokens } from '@/utils/kanaToHTokens'
 
 const props = defineProps<{ objectId: string }>()
 const objectTree = useObjectTreeStore()
+const gpuRuntime = useGpuRuntimeStore()
 const tracks = useTracksStore()
 const history = useHistoryStore()
 const editorWorkspace = useEditorWorkspaceStore()
@@ -38,6 +40,15 @@ const referenceDropActive = ref(false)
 const auditionSource = ref<'guide' | 'midi-p' | 'take'>('guide')
 const playbackRate = ref(1)
 const takeGeneration = ref({ running: false, progress: 0, message: '' })
+const forceCapacity = ref(false)
+const capacityDialog = ref<{
+  modelId: string
+  requiredMiB: number
+  freeMiB: number
+  insufficient: boolean
+  estimate: any
+  evictions: Array<{ modelId: string; residentMiB?: number }>
+} | null>(null)
 const hPicker = ref({ show: false, frame: 0 })
 const hoveredHTokenId = ref<number | null>(null)
 const hTokenTooltip = ref({ show: false, x: 0, y: 0, frame: 0 })
@@ -713,6 +724,48 @@ async function generateTake() {
     return
   }
   if (takeGeneration.value.running) return
+  if (forceCapacity.value) {
+    forceCapacity.value = false
+    await generateTakeCore()
+    return
+  }
+  const durationSeconds = unit.value.synthesisUnit.guide.duration ?? 0
+  const prepared = await gpuRuntime.prepareRuntime('V5P_40K_EMA', durationSeconds) as any
+  if (!prepared.ok) {
+    if (prepared.action === 'confirm') {
+      capacityDialog.value = {
+        modelId: 'V5P_40K_EMA',
+        requiredMiB: prepared.required,
+        freeMiB: prepared.policy.freeMiB,
+        insufficient: false,
+        estimate: prepared.policy.estimate,
+        evictions: prepared.evictions,
+      }
+      return
+    }
+    if (prepared.insufficient) {
+      capacityDialog.value = {
+        modelId: 'V5P_40K_EMA',
+        requiredMiB: prepared.required,
+        freeMiB: prepared.policy.freeMiB,
+        insufficient: true,
+        estimate: prepared.policy.estimate,
+        evictions: [],
+      }
+      return
+    }
+    flashStatus(prepared.reason || '显存策略检查失败')
+    return
+  }
+  await generateTakeCore()
+}
+
+async function generateTakeCore() {
+  if (!unit.value || !referenceUnit.value || !guideBlob.value || !referenceGuideBlob.value) {
+    flashStatus('请先绑定可用的 A 区参考和完整 Guide')
+    return
+  }
+  if (takeGeneration.value.running) return
   let snapshot: ReturnType<typeof createSynthesisMaterialSnapshot>
   try {
     snapshot = createSynthesisMaterialSnapshot(referenceUnit.value, unit.value)
@@ -765,6 +818,28 @@ async function generateTake() {
   } finally {
     takeGeneration.value = { running: false, progress: 0, message: '' }
   }
+}
+
+async function evictFromCapacityDialog() {
+  const dialog = capacityDialog.value
+  if (!dialog) return
+  const evicted = await gpuRuntime.evictUntilFit(dialog.modelId, dialog.requiredMiB, dialog.evictions)
+  if (!evicted) {
+    capacityDialog.value = { ...dialog, insufficient: true, evictions: [] }
+    return
+  }
+  capacityDialog.value = null
+  await generateTake()
+}
+
+function forceRunFromCapacityDialog() {
+  capacityDialog.value = null
+  forceCapacity.value = true
+  void generateTake()
+}
+
+function closeCapacityDialog() {
+  capacityDialog.value = null
 }
 
 function selectTake(takeId: string) {
@@ -2477,6 +2552,26 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </NModal>
+    <NModal :show="capacityDialog !== null" preset="card" title="显存容量检查" class="capacity-modal" @update:show="closeCapacityDialog">
+      <div v-if="capacityDialog" class="capacity-content">
+        <div class="capacity-summary">
+          <span>需要约 {{ (capacityDialog.requiredMiB / 1024).toFixed(1) }} GB</span>
+          <span>当前可用 {{ (capacityDialog.freeMiB / 1024).toFixed(1) }} GB</span>
+          <span>估算来自 {{ capacityDialog.estimate.sampleSeconds }}s / {{ capacityDialog.estimate.steps ?? 1 }}步标定</span>
+        </div>
+        <div v-if="capacityDialog.insufficient" class="capacity-insufficient">您的显存实在不足。</div>
+        <div v-else-if="capacityDialog.evictions.length > 0" class="capacity-evictions">
+          删除最久未使用模型：{{ capacityDialog.evictions.map(item => item.modelId).join('、') }}
+        </div>
+        <div v-else class="capacity-evictions">没有可删除的其他常驻模型。</div>
+        <div class="modal-actions">
+          <NButton v-if="!capacityDialog.insufficient" @click="closeCapacityDialog">取消运行</NButton>
+          <NButton v-if="!capacityDialog.insufficient" type="warning" @click="evictFromCapacityDialog">删除最久未使用</NButton>
+          <NButton type="error" ghost @click="forceRunFromCapacityDialog">强制运行</NButton>
+          <NButton v-if="capacityDialog.insufficient" @click="closeCapacityDialog">放弃运行</NButton>
+        </div>
+      </div>
+    </NModal>
   </main>
   <div v-else class="missing-unit">合成单元不存在或已被删除</div>
 </template>
@@ -2957,6 +3052,11 @@ audio { display: none; }
 .segment-form label { display: grid; gap: 5px; color: #98a4b2; font-size: 11px; }
 .frame-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.capacity-content { display: grid; gap: 12px; color: #b6c0cc; font-size: 12px; }
+.capacity-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.capacity-summary span { padding: 8px; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 4px; }
+.capacity-insufficient { color: #f28b94; }
+.capacity-evictions { color: #d6a86a; }
 
 @container (max-width: 760px) {
   .unit-summary { gap: 12px; }

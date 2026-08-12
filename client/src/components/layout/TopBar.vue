@@ -25,6 +25,7 @@ const gpuRuntime = useGpuRuntimeStore()
 void gpuRuntime.refresh()
 let gpuRefreshTimer = 0
 onMounted(() => {
+  void gpuRuntime.fetchRuntimeMode()
   gpuRefreshTimer = window.setInterval(() => void gpuRuntime.refresh(), 3000)
 })
 onUnmounted(() => window.clearInterval(gpuRefreshTimer))

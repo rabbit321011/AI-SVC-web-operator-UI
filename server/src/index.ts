@@ -40,6 +40,20 @@ import {
   unloadAllModelRuntimes,
   unloadV5PRuntime,
 } from './services/model-runtime.service.js'
+import {
+  currentFreeMiB,
+  estimateGpuMemory,
+  readRuntimeMode,
+  setRuntimeMode,
+} from './services/gpu-policy.service.js'
+import {
+  isSvsRuntimeReady,
+  loadSvsRuntime,
+  readSvsRuntimeStatus,
+  runSvsResidentInfer,
+  unloadAllSvsRuntimes,
+  unloadSvsRuntime,
+} from './services/svs-model-runtime.service.js'
 
 const app = express()
 app.use(cors())
@@ -157,17 +171,16 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/gpu/status', async (_req, res) => {
-  res.json({ ...(await readGpuStatus()), runtimes: readModelRuntimeStatus() })
+  res.json({ ...(await readGpuStatus()), runtimes: [...readModelRuntimeStatus(), ...readSvsRuntimeStatus()] })
 })
 
 app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
   const id = String(req.params.id || '')
-  if (id !== 'V5P_40K_EMA') {
-    res.status(404).json({ ok: false, reason: `Runtime ${id} 尚未实现常驻加载` })
-    return
-  }
   try {
-    res.json({ ok: true, runtime: await loadV5PRuntime() })
+    const runtime = id === 'V5P_40K_EMA'
+      ? await loadV5PRuntime()
+      : await loadSvsRuntime(id)
+    res.json({ ok: true, runtime })
   } catch (error: any) {
     res.status(400).json({ ok: false, reason: error?.message || String(error) })
   }
@@ -175,12 +188,38 @@ app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
 
 app.post('/api/gpu/runtimes/:id/unload', async (req, res) => {
   const id = String(req.params.id || '')
-  if (id !== 'V5P_40K_EMA') {
-    res.status(404).json({ ok: false, reason: `Runtime ${id} 尚未实现常驻加载` })
+  const result = id === 'V5P_40K_EMA' ? await unloadV5PRuntime() : await unloadSvsRuntime(id)
+  res.status(result.ok ? 200 : 404).json(result)
+})
+
+app.get('/api/gpu/policy/mode', (_req, res) => {
+  res.json({ mode: readRuntimeMode() })
+})
+
+app.post('/api/gpu/policy/mode', (req, res) => {
+  const mode = String(req.body?.mode || '')
+  if (mode !== 'manual' && mode !== 'auto') {
+    res.status(400).json({ ok: false, reason: 'mode 必须是 manual 或 auto' })
     return
   }
-  const result = await unloadV5PRuntime()
-  res.status(result.ok ? 200 : 404).json(result)
+  res.json({ ok: true, mode: setRuntimeMode(mode) })
+})
+
+app.post('/api/gpu/policy/estimate', async (req, res) => {
+  try {
+    const modelId = String(req.body?.modelId || '')
+    const durationSeconds = Number(req.body?.durationSeconds)
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error('durationSeconds 无效')
+    res.json({
+      ok: true,
+      mode: readRuntimeMode(),
+      freeMiB: await currentFreeMiB(),
+      runtimes: [...readModelRuntimeStatus(), ...readSvsRuntimeStatus()],
+      estimate: estimateGpuMemory(modelId, durationSeconds),
+    })
+  } catch (error: any) {
+    res.status(400).json({ ok: false, reason: error?.message || String(error) })
+  }
 })
 
 app.post('/api/gpu/processes/:id/release', async (req, res) => {
@@ -193,6 +232,7 @@ app.post('/api/gpu/release-all', async (_req, res) => {
     ok: true,
     ...(await releaseAllGpuProcesses()),
     runtimes: await unloadAllModelRuntimes(),
+    svsRuntimes: await unloadAllSvsRuntimes(),
   })
 })
 
@@ -575,6 +615,24 @@ app.post('/api/svs/run', async (req, res) => {
       console.log(`[SVS] job ${jobId} started, WS found`)
       try {
         if (isV4h) void runV4h(v4hReq, ws, { dryRun: Boolean(dryRun) })
+        else if (verifiedResources.modelId && isSvsRuntimeReady(verifiedResources.modelId)) {
+          void runSvsResidentInfer(verifiedResources.modelId, {
+            refAudio: svsReq.refAudio,
+            melodyAudio: svsReq.melodyAudio,
+            refPhrases: svsReq.refPhrases,
+            targetPhrases: svsReq.targetPhrases,
+            output: svsReq.output,
+            steps: svsReq.steps,
+            cfg: svsReq.cfg,
+            seed: svsReq.seed,
+            device: svsReq.device || 'cuda:0',
+          }, event => {
+            if (event.type === 'complete') console.log(`[SVS Resident] ${JSON.stringify(event)}`)
+          }).then(
+            () => ws.send(JSON.stringify({ type: 'done', outputFile: svsReq.output })),
+            error => ws.send(JSON.stringify({ type: 'error', message: error?.message || String(error) })),
+          )
+        }
         else runSvs(svsReq, ws)
       } catch (error: any) {
         ws.send(JSON.stringify({ type: 'error', message: error?.message || String(error) }))

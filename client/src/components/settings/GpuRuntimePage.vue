@@ -16,6 +16,7 @@ const analysisModels = computed(() => (gpuRuntime.status?.catalog ?? []).filter(
 
 onMounted(() => {
   void gpuRuntime.refresh()
+  void gpuRuntime.fetchRuntimeMode()
   timer = window.setInterval(() => void gpuRuntime.refresh(), 2000)
 })
 onUnmounted(() => window.clearInterval(timer))
@@ -65,6 +66,15 @@ function flash(message: string) {
   window.setTimeout(() => { if (notice.value === message) notice.value = '' }, 2400)
 }
 
+async function setMode(mode: 'manual' | 'auto') {
+  try {
+    await gpuRuntime.setRuntimeMode(mode)
+    flash(mode === 'auto' ? '自动模式：显存不足时自动释放最久未使用模型' : '手动模式：显存不足时先询问')
+  } catch (error: any) {
+    flash(error?.message || '模式设置失败')
+  }
+}
+
 function memoryLabel(mib?: number) {
   return mib == null ? '等待 GPU 统计' : `${(mib / 1024).toFixed(2)} GB`
 }
@@ -106,6 +116,10 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
       </div>
       <div class="head-actions">
         <span v-if="notice" class="notice">{{ notice }}</span>
+        <div class="mode-toggle">
+          <button type="button" :class="{ active: gpuRuntime.runtimeMode === 'manual' }" @click="setMode('manual')">手动</button>
+          <button type="button" :class="{ active: gpuRuntime.runtimeMode === 'auto' }" @click="setMode('auto')">自动</button>
+        </div>
         <n-button size="small" :loading="gpuRuntime.loading" @click="gpuRuntime.refresh">刷新</n-button>
         <n-button size="small" type="error" ghost :disabled="processes.length === 0" @click="releaseAll">释放本应用全部显存</n-button>
       </div>
@@ -168,7 +182,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           </n-tag>
           <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
           <n-button
-            v-if="model.id === 'V5P_40K_EMA'"
+            v-if="['V5P_40K_EMA', 'V4Hg_10k', 'V4fg_10k'].includes(model.id)"
             size="tiny"
             type="primary"
             ghost
@@ -201,6 +215,9 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
 .page-head h1 { margin: 0 0 4px; font-size: 22px; }
 .page-head p, .section-note { margin: 0; color: var(--app-muted); font-size: 12px; }
 .head-actions { display: flex; align-items: center; gap: 8px; }
+.mode-toggle { display: inline-flex; border: 1px solid var(--app-border); border-radius: 4px; overflow: hidden; }
+.mode-toggle button { height: 24px; padding: 0 10px; border: 0; background: transparent; color: var(--app-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.mode-toggle button.active { background: var(--app-accent); color: #fff; }
 .notice { color: var(--app-accent); font-size: 12px; }
 .error-band { max-width: 1120px; margin-top: 18px; padding: 10px 12px; border: 1px solid #8f3f46; color: #f28b94; }
 .gpu-band { max-width: 1120px; margin-top: 20px; }
