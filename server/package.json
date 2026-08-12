@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/services/svs.service.test.ts src/services/whisper.service.test.ts src/services/msst.service.test.ts src/services/global-resource.service.test.ts src/services/synthesis-text-control.service.test.ts src/services/synthesis-midi-p.service.test.ts src/services/synthesis-direct-control.service.test.ts src/services/model-catalog.service.test.ts src/services/gpu-runtime.service.test.ts"
+    "test": "tsx --test src/services/svs.service.test.ts src/services/whisper.service.test.ts src/services/msst.service.test.ts src/services/global-resource.service.test.ts src/services/synthesis-text-control.service.test.ts src/services/synthesis-midi-p.service.test.ts src/services/synthesis-direct-control.service.test.ts src/services/model-catalog.service.test.ts src/services/gpu-runtime.service.test.ts src/services/model-runtime.service.test.ts"
   },
   "dependencies": {
     "express": "^4.21.0",

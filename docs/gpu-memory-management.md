@@ -11,7 +11,7 @@
 - 用户可以取消并释放单个任务，也可以释放本应用的全部 GPU 任务；
 - 外部程序只显示在 GPU 总量中，不由软件结束。
 
-现阶段 SVS/V5-P/GAME/Whisper/SOFA/SVC/MSST 仍是一次一进程 Runtime。任务完成后进程退出，显存随进程释放。页面会明确标记“任务型 Runtime”，不会把它显示成模型已经常驻。
+现阶段 V5-P 已支持常驻 Runtime：用户可以在显存页手动“加载模型”，DiT 与 VAE 保留在独立 worker 中；加载后重复生成不再重新读取 checkpoint。其余 SVS/GAME/Whisper/SOFA/SVC/MSST 仍是一次一进程 Runtime，任务完成后进程退出，显存随进程释放。
 
 ## 模型范围
 
@@ -25,11 +25,11 @@
 
 ## 释放规则
 
-“取消并释放”会结束本应用创建的 Python 进程树。它适用于正在运行的临时 Runtime，可能丢失当前未完成输出，因此需要确认。任务完成、失败或取消后，登记会短暂保留，随后清理。
+“取消并释放”会结束本应用创建的 Python 进程树。它适用于正在运行的临时 Runtime，可能丢失当前未完成输出，因此需要确认。任务完成、失败或取消后，登记会短暂保留，随后清理。“释放模型”会关闭常驻 V5-P worker，正在执行的推理会被取消。
 
 用户从显存页终止任务后，服务端向原任务返回“用户已取消 GPU 任务并释放显存”。V5-P 合成单元中的占位 Take 保留为 `cancelled`，与模型执行失败的 `failed` 状态分开。
 
-未来改为常驻 worker 后，模型页面增加“加载模型”和“释放模型”：释放操作关闭对应 worker，而不是只调用 `torch.cuda.empty_cache()`。正在执行的 worker 必须先完成、排队释放，或者由用户显式取消。
+V5-P 常驻 worker 使用 JSONL 协议；显存页展示 `ready/busy/loading/releasing/error` 状态、PID 和 torch reserved 统计。释放操作关闭对应 worker，而不是只调用 `torch.cuda.empty_cache()`。正在执行的 worker 必须先完成、排队释放，或者由用户显式取消。
 
 ## 显存标定
 
@@ -54,6 +54,8 @@ python server/scripts/profile_vram.py `
 实际模型 runner 的参数仍由对应 preset 决定。标定输出使用 `aisvc.gpu-vram-profile.v1`，结果属于本机，不提交到项目仓库；实测数据应放在本机的 profile 目录并在 UI 显示“本机实测”。
 
 界面中的“峰值增量”按 `推理期间整卡已用峰值 - 启动前整卡已用基线` 计算；整卡峰值仍保留在原始 profile 中。2026-08-12 的 `V5P_40K_EMA` 3 秒、1-step 标定为：基线 1819 MiB、整卡峰值 5506 MiB、峰值增量 3687 MiB、结束后 1828 MiB。
+
+2026-08-12 常驻 Runtime 实测：显存页加载约 26 秒后进入 `ready`，torch reserved 约 2.3 GB；第一次 1-step 推理约 20 秒，第二次复用常驻模型约 3 秒；运行中释放后 GPU 回落至约 1.85 GB，无残留 Python 进程。
 
 ## 后续常驻 Runtime
 

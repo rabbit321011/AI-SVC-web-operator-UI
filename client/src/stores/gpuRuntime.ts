@@ -32,12 +32,25 @@ export interface ModelCatalogItem {
   vramProfile?: { device?: string; peakUsedMiB?: number; peakDeltaMiB?: number; sampleSeconds?: number; measuredAt?: string }
 }
 
+export interface ModelRuntimeStatus {
+  id: string
+  modelId: string
+  device: string
+  state: 'unloaded' | 'loading' | 'ready' | 'busy' | 'releasing' | 'error'
+  pid?: number
+  residentMiB?: number
+  activeJobId?: string
+  startedAt?: string
+  lastError?: string
+}
+
 interface GpuStatusPayload {
   ok: boolean
   commandAvailable: boolean
   gpus: GpuDeviceStatus[]
   processes: GpuProcessStatus[]
   catalog: ModelCatalogItem[]
+  runtimes?: ModelRuntimeStatus[]
   updatedAt: string
   error?: string
 }
@@ -46,6 +59,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
   const loading = ref(false)
   const status = ref<GpuStatusPayload | null>(null)
   const error = ref('')
+  const runtimes = ref<ModelRuntimeStatus[]>([])
   let pending: Promise<void> | null = null
 
   const primaryGpu = computed(() => status.value?.gpus[0] ?? null)
@@ -64,6 +78,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
         const payload = await response.json() as GpuStatusPayload
         if (!response.ok) throw new Error(payload.error || `GPU 状态读取失败 (${response.status})`)
         status.value = payload
+        runtimes.value = payload.runtimes ?? []
         error.value = payload.error || ''
       } catch (cause: any) {
         error.value = cause?.message || 'GPU 状态读取失败'
@@ -90,7 +105,34 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     return result as { released: string[]; failed: Array<{ id: string; reason: string }> }
   }
 
-  return { loading, status, error, primaryGpu, usageLabel, refresh, releaseProcess, releaseAll }
+  async function loadRuntime(id: string) {
+    const response = await fetch(`/api/gpu/runtimes/${encodeURIComponent(id)}/load`, { method: 'POST' })
+    const result = await response.json()
+    if (!response.ok || !result.ok) throw new Error(result.reason || 'Runtime 加载失败')
+    await refresh()
+    return result.runtime as ModelRuntimeStatus
+  }
+
+  async function unloadRuntime(id: string) {
+    const response = await fetch(`/api/gpu/runtimes/${encodeURIComponent(id)}/unload`, { method: 'POST' })
+    const result = await response.json()
+    if (!response.ok || !result.ok) throw new Error(result.reason || 'Runtime 释放失败')
+    await refresh()
+  }
+
+  return {
+    loading,
+    status,
+    error,
+    runtimes,
+    primaryGpu,
+    usageLabel,
+    refresh,
+    releaseProcess,
+    releaseAll,
+    loadRuntime,
+    unloadRuntime,
+  }
 })
 
 function formatGiB(mib: number): string {

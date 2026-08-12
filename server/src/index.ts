@@ -34,6 +34,12 @@ import { MSST_MODEL_IDS, MSST_OUTPUT_IDS, runMsst, verifyMsstResources } from '.
 import { GlobalResourceRepository } from './services/global-resource.service.js'
 import { compareAudioPitch, pitchShiftAudio } from './services/pitch.service.js'
 import { readGpuStatus, releaseAllGpuProcesses, releaseGpuProcess } from './services/gpu-runtime.service.js'
+import {
+  loadV5PRuntime,
+  readModelRuntimeStatus,
+  unloadAllModelRuntimes,
+  unloadV5PRuntime,
+} from './services/model-runtime.service.js'
 
 const app = express()
 app.use(cors())
@@ -151,7 +157,30 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/gpu/status', async (_req, res) => {
-  res.json(await readGpuStatus())
+  res.json({ ...(await readGpuStatus()), runtimes: readModelRuntimeStatus() })
+})
+
+app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
+  const id = String(req.params.id || '')
+  if (id !== 'V5P_40K_EMA') {
+    res.status(404).json({ ok: false, reason: `Runtime ${id} 尚未实现常驻加载` })
+    return
+  }
+  try {
+    res.json({ ok: true, runtime: await loadV5PRuntime() })
+  } catch (error: any) {
+    res.status(400).json({ ok: false, reason: error?.message || String(error) })
+  }
+})
+
+app.post('/api/gpu/runtimes/:id/unload', async (req, res) => {
+  const id = String(req.params.id || '')
+  if (id !== 'V5P_40K_EMA') {
+    res.status(404).json({ ok: false, reason: `Runtime ${id} 尚未实现常驻加载` })
+    return
+  }
+  const result = await unloadV5PRuntime()
+  res.status(result.ok ? 200 : 404).json(result)
 })
 
 app.post('/api/gpu/processes/:id/release', async (req, res) => {
@@ -160,7 +189,11 @@ app.post('/api/gpu/processes/:id/release', async (req, res) => {
 })
 
 app.post('/api/gpu/release-all', async (_req, res) => {
-  res.json({ ok: true, ...(await releaseAllGpuProcesses()) })
+  res.json({
+    ok: true,
+    ...(await releaseAllGpuProcesses()),
+    runtimes: await unloadAllModelRuntimes(),
+  })
 })
 
 // Demo audio endpoints

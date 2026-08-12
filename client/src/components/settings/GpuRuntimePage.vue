@@ -10,6 +10,7 @@ let timer = 0
 const devices = computed(() => gpuRuntime.status?.gpus ?? [])
 const processes = computed(() => (gpuRuntime.status?.processes ?? [])
   .filter(item => item.status === 'running' || item.status === 'releasing'))
+const runtimes = computed(() => gpuRuntime.runtimes)
 const svsModels = computed(() => (gpuRuntime.status?.catalog ?? []).filter(item => item.family === 'svs'))
 const analysisModels = computed(() => (gpuRuntime.status?.catalog ?? []).filter(item => item.family === 'analysis'))
 
@@ -40,6 +41,25 @@ async function releaseAll() {
   }
 }
 
+async function loadRuntime(id: string) {
+  try {
+    await gpuRuntime.loadRuntime(id)
+    flash('模型加载中，完成后可重复生成')
+  } catch (error: any) {
+    flash(error?.message || '模型加载失败')
+  }
+}
+
+async function unloadRuntime(id: string) {
+  if (!window.confirm('释放该常驻模型？正在执行的推理会被取消。')) return
+  try {
+    await gpuRuntime.unloadRuntime(id)
+    flash('模型已释放')
+  } catch (error: any) {
+    flash(error?.message || '模型释放失败')
+  }
+}
+
 function flash(message: string) {
   notice.value = message
   window.setTimeout(() => { if (notice.value === message) notice.value = '' }, 2400)
@@ -55,6 +75,17 @@ function engineLabel(engine: string) {
   if (engine === 't1') return 'T1'
   if (engine === 'unregistered') return '尚未注册适配器'
   return engine
+}
+
+function runtimeLabel(state: string) {
+  return {
+    unloaded: '未加载',
+    loading: '加载中',
+    ready: '已就绪',
+    busy: '推理中',
+    releasing: '释放中',
+    error: '异常',
+  }[state] ?? state
 }
 </script>
 
@@ -101,6 +132,24 @@ function engineLabel(engine: string) {
     </section>
 
     <section class="page-section">
+      <div class="section-head"><h2>驻留 Runtime</h2><span>{{ runtimes.length }} 个</span></div>
+      <div v-if="runtimes.length === 0" class="empty-row">尚未加载任何常驻模型。当前一次性 Runtime 仍可正常完成任务。</div>
+      <div v-else class="model-table">
+        <div v-for="runtime in runtimes" :key="runtime.id" class="runtime-row">
+          <div><strong>{{ runtime.modelId }}</strong><small>{{ runtime.device }} · PID {{ runtime.pid ?? '--' }}</small></div>
+          <n-tag size="small" :bordered="false" :type="runtime.state === 'ready' ? 'success' : runtime.state === 'busy' ? 'warning' : runtime.state === 'error' ? 'error' : 'default'">
+            {{ runtimeLabel(runtime.state) }}
+          </n-tag>
+          <span>{{ runtime.residentMiB != null ? `torch ${(runtime.residentMiB / 1024).toFixed(2)} GB` : '等待统计' }}</span>
+          <span>{{ runtime.activeJobId ? `任务 ${runtime.activeJobId}` : '空闲' }}</span>
+          <div class="runtime-actions">
+            <n-button size="tiny" type="error" ghost :disabled="runtime.state === 'unloaded' || runtime.state === 'loading' || runtime.state === 'releasing'" @click="unloadRuntime(runtime.id)">释放模型</n-button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-section">
       <div class="section-head"><h2>SVS 模型目录</h2><span>{{ svsModels.length }} 个 preset</span></div>
       <div class="model-table">
         <div v-for="model in svsModels" :key="model.id" class="model-row">
@@ -110,9 +159,18 @@ function engineLabel(engine: string) {
             {{ model.runtimeState === 'configured' ? '已配置' : model.runtimeState === 'discovered' ? '已发现' : '资源缺失' }}
           </n-tag>
           <span class="runtime-kind">{{ model.vramProfile?.peakDeltaMiB != null ? `峰值增量 ${(model.vramProfile.peakDeltaMiB / 1024).toFixed(1)} GB / ${model.vramProfile.sampleSeconds}s` : '尚未标定' }}</span>
+          <n-button
+            v-if="model.id === 'V5P_40K_EMA'"
+            size="tiny"
+            type="primary"
+            ghost
+            :loading="runtimes.some(item => item.id === model.id && item.state === 'loading')"
+            :disabled="runtimes.some(item => item.id === model.id && item.state !== 'unloaded' && item.state !== 'error')"
+            @click="loadRuntime(model.id)"
+          >加载模型</n-button>
         </div>
       </div>
-      <p class="section-note">“已配置”表示模型可被现有推理链路使用；“已发现”表示本机有 checkpoint，但还没有安全的 engine/VAE/adapter 注册，不能直接加载。当前任务型 Runtime 在每次运行时加载，并在结束后退出。常驻 Runtime 接入后才会出现“加载模型 / 释放模型”。</p>
+      <p class="section-note">“已配置”表示模型可被现有推理链路使用；“已发现”表示本机有 checkpoint，但还没有安全的 engine/VAE/adapter 注册，不能直接加载。V5-P 已支持常驻加载；其他模型仍使用任务型 Runtime，在每次运行时加载，并在结束后退出。</p>
     </section>
 
     <section class="page-section">
@@ -150,10 +208,14 @@ function engineLabel(engine: string) {
 .empty-row { padding: 14px 0; color: var(--app-muted); font-size: 12px; }
 .process-row, .model-row { min-height: 48px; display: grid; align-items: center; gap: 14px; border-top: 1px solid color-mix(in srgb, var(--app-border) 65%, transparent); font-size: 12px; }
 .process-row { grid-template-columns: minmax(180px, 1fr) 80px 72px 96px auto; }
-.model-row { grid-template-columns: minmax(190px, 1fr) minmax(90px, 130px) 78px minmax(100px, 130px); }
+.model-row { grid-template-columns: minmax(190px, 1fr) minmax(90px, 130px) 78px minmax(100px, 130px) 84px; }
+.runtime-row { min-height: 52px; display: grid; grid-template-columns: minmax(220px, 1fr) 90px 100px minmax(120px, 1fr) auto; align-items: center; gap: 14px; border-top: 1px solid color-mix(in srgb, var(--app-border) 65%, transparent); font-size: 12px; }
 .process-row > div, .model-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .process-row small, .model-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-muted); }
 .process-row > span, .model-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-row > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.runtime-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-actions { display: flex; justify-content: flex-end; }
 .runtime-kind { color: var(--app-muted); }
 .section-note { margin-top: 12px; max-width: 840px; line-height: 1.6; }
 </style>
