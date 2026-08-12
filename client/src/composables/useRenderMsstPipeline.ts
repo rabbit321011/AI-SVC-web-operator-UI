@@ -4,6 +4,7 @@ import { useObjectTreeStore } from '@/stores/objectTree'
 import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useTracksStore } from '@/stores/tracks'
+import { isGpuCancellation } from './gpuCancellation'
 
 type MsstOutputId = 'vocals' | 'instrumental' | 'dry' | 'other'
 
@@ -47,7 +48,8 @@ export function useRenderMsstPipeline() {
       if (!response.ok) throw new Error(await readError(response) || 'MSST 启动失败')
       await done
     } catch (error: any) {
-      renderPanel.setMsstFailed(error?.message || 'MSST 执行失败')
+      if (isGpuCancellation(error)) renderPanel.setMsstCancelled(error?.message || 'MSST 已取消')
+      else renderPanel.setMsstFailed(error?.message || 'MSST 执行失败')
     } finally {
       ws?.close()
     }

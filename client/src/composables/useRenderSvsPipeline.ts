@@ -14,6 +14,7 @@ import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSvsConfigStore } from '@/stores/svsConfig'
 import { useTracksStore } from '@/stores/tracks'
+import { isGpuCancellation } from './gpuCancellation'
 
 export function useRenderSvsPipeline() {
   const renderPanel = useRenderPanelStore()
@@ -65,7 +66,8 @@ export function useRenderSvsPipeline() {
       const melodyLabel = prepared.body.melodyAudio ? '含 melody_audio' : '未带 melody_audio'
       renderPanel.setSvsDone(`SVS dryRun OK: ${result.args?.length ?? 0} args, ${melodyLabel}`)
     } catch (error: any) {
-      renderPanel.setSvsFailed(error?.message || 'SVS dryRun 失败')
+      if (isGpuCancellation(error)) renderPanel.setSvsCancelled(error?.message || 'SVS 已取消')
+      else renderPanel.setSvsFailed(error?.message || 'SVS dryRun 失败')
     } finally {
       if (ws) ws.close()
     }
@@ -106,7 +108,8 @@ export function useRenderSvsPipeline() {
 
       await done
     } catch (error: any) {
-      renderPanel.setSvsFailed(error?.message || 'SVS 执行失败')
+      if (isGpuCancellation(error)) renderPanel.setSvsCancelled(error?.message || 'SVS 已取消')
+      else renderPanel.setSvsFailed(error?.message || 'SVS 执行失败')
     } finally {
       if (ws) ws.close()
     }

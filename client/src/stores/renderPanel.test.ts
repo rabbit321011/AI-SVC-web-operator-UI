@@ -36,6 +36,15 @@ describe('right tool panel store', () => {
     expect(renderPanel.localProcessingTool).toBeNull()
   })
 
+  it('records user GPU cancellation separately from failure', () => {
+    setActivePinia(createPinia())
+    const renderPanel = useRenderPanelStore()
+    renderPanel.setSvcRunning('job-cancel')
+    renderPanel.setSvcCancelled('用户已取消 GPU 任务并释放显存')
+    expect(renderPanel.svcStatus).toBe('cancelled')
+    expect(renderPanel.localProcessingTool).toBeNull()
+  })
+
   it('accepts ordinary AudioObject references for Whisper and MSST audio slots', () => {
     setActivePinia(createPinia())
     const objectTree = useObjectTreeStore()

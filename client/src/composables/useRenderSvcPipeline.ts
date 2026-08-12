@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSvcConfigStore } from '@/stores/svcConfig'
 import { useTracksStore } from '@/stores/tracks'
+import { isGpuCancellation } from './gpuCancellation'
 
 export function useRenderSvcPipeline() {
   const renderPanel = useRenderPanelStore()
@@ -83,7 +84,8 @@ export function useRenderSvcPipeline() {
 
       await done
     } catch (error: any) {
-      renderPanel.setSvcFailed(error?.message || 'SVC 执行失败')
+      if (isGpuCancellation(error)) renderPanel.setSvcCancelled(error?.message || 'SVC 已取消')
+      else renderPanel.setSvcFailed(error?.message || 'SVC 执行失败')
     } finally {
       if (ws) ws.close()
     }

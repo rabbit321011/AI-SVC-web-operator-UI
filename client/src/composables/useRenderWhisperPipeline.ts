@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useTracksStore } from '@/stores/tracks'
 import { runWhisperSofa } from './whisperSofaClient'
+import { isGpuCancellation } from './gpuCancellation'
 
 export function useRenderWhisperPipeline() {
   const renderPanel = useRenderPanelStore()
@@ -50,7 +51,8 @@ export function useRenderWhisperPipeline() {
       project.bumpRedraw()
       renderPanel.setWhisperDone(`Whisper + SOFA 完成: ${result.outputName}`)
     } catch (error: any) {
-      renderPanel.setWhisperFailed(error?.message || 'Whisper 执行失败')
+      if (isGpuCancellation(error)) renderPanel.setWhisperCancelled(error?.message || 'Whisper 已取消')
+      else renderPanel.setWhisperFailed(error?.message || 'Whisper 执行失败')
     }
   }
 

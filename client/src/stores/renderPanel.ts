@@ -4,9 +4,9 @@ import type { RenderInputRef, RenderPanelMode, RenderSlotId } from '@/object-wor
 import { makeRenderInputRef, validateRenderSlot } from '@/object-workbench'
 import { useObjectTreeStore } from './objectTree'
 
-export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed'
-export type SvsRenderStatus = 'idle' | 'running' | 'done' | 'failed'
-export type ToolRunStatus = 'idle' | 'running' | 'done' | 'failed'
+export type SvcRenderStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
+export type SvsRenderStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
+export type ToolRunStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
 export type LocalProcessingTool = 'svc' | 'svs' | 'whisper' | 'msst'
 
 export const useRenderPanelStore = defineStore('renderPanel', () => {
@@ -221,6 +221,12 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     endLocalProcessing('svc')
   }
 
+  function setSvcCancelled(message: string) {
+    svcStatus.value = 'cancelled'
+    svcMessage.value = message
+    endLocalProcessing('svc')
+  }
+
   function setSvsRunning(jobId: string, message = '准备 SVS') {
     if (!beginLocalProcessing('svs')) return false
     currentSvsJobId.value = jobId
@@ -244,6 +250,12 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
 
   function setSvsFailed(message: string) {
     svsStatus.value = 'failed'
+    svsMessage.value = message
+    endLocalProcessing('svs')
+  }
+
+  function setSvsCancelled(message: string) {
+    svsStatus.value = 'cancelled'
     svsMessage.value = message
     endLocalProcessing('svs')
   }
@@ -274,6 +286,12 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     endLocalProcessing('whisper')
   }
 
+  function setWhisperCancelled(message: string) {
+    whisperStatus.value = 'cancelled'
+    whisperMessage.value = message
+    endLocalProcessing('whisper')
+  }
+
   function setMsstRunning(message = '准备 MSST') {
     if (!beginLocalProcessing('msst')) return false
     msstStatus.value = 'running'
@@ -296,6 +314,12 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
 
   function setMsstFailed(message: string) {
     msstStatus.value = 'failed'
+    msstMessage.value = message
+    endLocalProcessing('msst')
+  }
+
+  function setMsstCancelled(message: string) {
+    msstStatus.value = 'cancelled'
     msstMessage.value = message
     endLocalProcessing('msst')
   }
@@ -336,17 +360,21 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     updateSvcProgress,
     setSvcDone,
     setSvcFailed,
+    setSvcCancelled,
     setSvsRunning,
     updateSvsProgress,
     setSvsDone,
     setSvsFailed,
+    setSvsCancelled,
     setWhisperRunning,
     updateWhisperProgress,
     setWhisperDone,
     setWhisperFailed,
+    setWhisperCancelled,
     setMsstRunning,
     updateMsstProgress,
     setMsstDone,
     setMsstFailed,
+    setMsstCancelled,
   }
 })
