@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useTracksStore } from '@/stores/tracks'
 import { isGpuCancellation } from './gpuCancellation'
+import { ensureRenderCapacity } from './renderCapacity'
 
 type MsstOutputId = 'vocals' | 'instrumental' | 'dry' | 'other'
 
@@ -37,6 +38,7 @@ export function useRenderMsstPipeline() {
       })
       renderPanel.updateMsstProgress(8, '合并 MSST 音频')
       const blob = await combineSegmentsToBlob(resolved.segmentInputs, resolved.duration, resolved.sampleRate)
+      if (!(await ensureRenderCapacity([`MSST_${task.model}`], resolved.duration))) return
       const upload = await uploadTempWav(`render_${jobId}_msst_input`, blob, resolved.sampleRate)
       renderPanel.updateMsstProgress(15, '连接 MSST')
       ws = await openRenderWebSocket(jobId)

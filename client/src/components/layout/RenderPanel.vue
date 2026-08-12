@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NCheckbox, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
+import { NButton, NCheckbox, NInput, NInputNumber, NModal, NSelect, NSpace, NSwitch, NTag } from 'naive-ui'
 import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useSelectionStore } from '@/stores/selection'
 import { useObjectTreeStore } from '@/stores/objectTree'
@@ -96,6 +96,10 @@ function flash(message: string) {
   window.setTimeout(() => {
     if (notice.value === message) notice.value = ''
   }, 1400)
+}
+
+function updateCapacityShow(show: boolean) {
+  if (!show) renderPanel.resolveCapacity('cancel')
 }
 
 function slotLabel(input: { displayName: string; kind: string } | null) {
@@ -433,6 +437,25 @@ onMounted(() => {
     </div>
 
     <div class="notice">{{ notice }}</div>
+    <NModal :show="renderPanel.capacityPrompt !== null" preset="card" title="显存容量检查" class="capacity-modal" @update:show="updateCapacityShow">
+      <div v-if="renderPanel.capacityPrompt" class="capacity-prompt">
+        <div v-if="renderPanel.capacityPrompt.insufficient" class="capacity-insufficient">您的显存实在不足。</div>
+        <div v-else-if="renderPanel.capacityPrompt.evictions.length > 0" class="capacity-evictions">
+          共需释放以下模型：{{ renderPanel.capacityPrompt.evictions.map(item => item.modelId).join('、') }}
+        </div>
+        <div v-else class="capacity-evictions">没有可释放的其他常驻模型。</div>
+        <div class="capacity-metrics">
+          <span>需要约 {{ (renderPanel.capacityPrompt.requiredMiB / 1024).toFixed(1) }} GB</span>
+          <span>当前可用 {{ (renderPanel.capacityPrompt.freeMiB / 1024).toFixed(1) }} GB</span>
+        </div>
+        <div class="capacity-actions">
+          <NButton v-if="!renderPanel.capacityPrompt.insufficient" @click="renderPanel.resolveCapacity('cancel')">取消运行</NButton>
+          <NButton v-if="!renderPanel.capacityPrompt.insufficient" type="warning" @click="renderPanel.resolveCapacity('evict')">按计划释放并运行</NButton>
+          <NButton type="error" ghost @click="renderPanel.resolveCapacity('force')">强制运行</NButton>
+          <NButton v-if="renderPanel.capacityPrompt.insufficient" @click="renderPanel.resolveCapacity('cancel')">放弃运行</NButton>
+        </div>
+      </div>
+    </NModal>
   </aside>
 </template>
 
@@ -533,6 +556,11 @@ onMounted(() => {
   font-size: 11px;
   color: var(--app-warning);
 }
+.capacity-prompt { display: grid; gap: 10px; color: #b6c0cc; font-size: 12px; }
+.capacity-insufficient { color: #f28b94; }
+.capacity-evictions { color: #d6a86a; }
+.capacity-metrics { display: flex; gap: 12px; }
+.capacity-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .run-status {
   display: flex;
   flex-direction: column;

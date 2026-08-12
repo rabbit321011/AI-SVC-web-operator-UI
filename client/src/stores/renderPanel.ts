@@ -9,6 +9,14 @@ export type SvsRenderStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelle
 export type ToolRunStatus = 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
 export type LocalProcessingTool = 'svc' | 'svs' | 'whisper' | 'msst'
 
+export interface CapacityPromptPayload {
+  requiredMiB: number
+  freeMiB: number
+  insufficient: boolean
+  evictions: Array<{ id: string; modelId: string; residentMiB?: number }>
+  modelIds: string[]
+}
+
 export const useRenderPanelStore = defineStore('renderPanel', () => {
   const mode = ref<RenderPanelMode>('svc')
   const svcStatus = ref<SvcRenderStatus>('idle')
@@ -64,6 +72,10 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     outputMode: 'both' as 'primary' | 'secondary' | 'both',
     backfillAll: true,
   })
+
+  const capacityPrompt = ref<CapacityPromptPayload & {
+    resolve: (action: 'force' | 'evict' | 'cancel') => void
+  } | null>(null)
 
   const isLocalProcessingRunning = computed(() => localProcessingTool.value !== null)
 
@@ -318,6 +330,18 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     endLocalProcessing('msst')
   }
 
+  function requestCapacity(payload: CapacityPromptPayload): Promise<'force' | 'evict' | 'cancel'> {
+    return new Promise(resolve => {
+      capacityPrompt.value = { ...payload, resolve }
+    })
+  }
+
+  function resolveCapacity(action: 'force' | 'evict' | 'cancel') {
+    const prompt = capacityPrompt.value
+    capacityPrompt.value = null
+    prompt?.resolve(action)
+  }
+
   function setMsstCancelled(message: string) {
     msstStatus.value = 'cancelled'
     msstMessage.value = message
@@ -342,6 +366,7 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     msstStatus,
     msstProgress,
     msstMessage,
+    capacityPrompt,
     svc,
     svs,
     whisper,
@@ -376,5 +401,7 @@ export const useRenderPanelStore = defineStore('renderPanel', () => {
     setMsstDone,
     setMsstFailed,
     setMsstCancelled,
+    requestCapacity,
+    resolveCapacity,
   }
 })

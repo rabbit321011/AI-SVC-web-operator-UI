@@ -6,6 +6,7 @@ import { useRenderPanelStore } from '@/stores/renderPanel'
 import { useTracksStore } from '@/stores/tracks'
 import { runWhisperSofa } from './whisperSofaClient'
 import { isGpuCancellation } from './gpuCancellation'
+import { ensureRenderCapacity } from './renderCapacity'
 
 export function useRenderWhisperPipeline() {
   const renderPanel = useRenderPanelStore()
@@ -32,6 +33,7 @@ export function useRenderWhisperPipeline() {
       })
       renderPanel.updateWhisperProgress(10, mergeWarnings('合并转写音频', resolved.warnings))
       const blob = await combineSegmentsToBlob(resolved.segmentInputs, resolved.duration, resolved.sampleRate)
+      if (!(await ensureRenderCapacity(['Whisper large-v3', 'SOFA Japanese'], resolved.duration))) return
       const resultSegments = await runWhisperSofa({
         blob,
         sampleRate: resolved.sampleRate,

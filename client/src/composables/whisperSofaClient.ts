@@ -37,6 +37,7 @@ export async function runWhisperSofa(options: RunWhisperSofaOptions): Promise<Wh
     return await done
   } finally {
     ws.close()
+    gpuRuntime.clearActiveStageReleases()
   }
 }
 
