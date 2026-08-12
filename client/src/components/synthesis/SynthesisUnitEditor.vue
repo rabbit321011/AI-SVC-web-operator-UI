@@ -865,42 +865,44 @@ async function ensureAnalysisCapacity(
     return true
   }
   const durationSeconds = unit.value?.synthesisUnit.guide.duration ?? 0
-  for (const request of requests) {
-    const prepared = await gpuRuntime.prepareTransientTask(request.modelId, durationSeconds) as any
-    if (prepared.ok) continue
-    if (prepared.busy) {
-      flashStatus(prepared.reason || `${request.modelId} 正在运行其他任务`)
-      return false
-    }
-    pendingAnalysis.value = { kind, ...context }
-    capacityRetry.value = kind
-    if (prepared.action === 'confirm') {
-      capacityDialog.value = {
-        modelId: request.modelId,
-        requiredMiB: prepared.required,
-        freeMiB: prepared.policy.freeMiB,
-        insufficient: false,
-        estimate: prepared.policy.estimate,
-        evictions: prepared.evictions,
-      }
-      return false
-    }
-    if (prepared.insufficient) {
-      capacityDialog.value = {
-        modelId: request.modelId,
-        requiredMiB: prepared.required,
-        freeMiB: prepared.policy.freeMiB,
-        insufficient: true,
-        estimate: prepared.policy.estimate,
-        evictions: [],
-      }
-      return false
-    }
-    flashStatus(prepared.reason || '显存策略检查失败')
+  const prepared = await gpuRuntime.prepareCompositeTask(
+    requests.map(request => request.modelId),
+    durationSeconds,
+  ) as any
+  if (prepared.ok) {
+    pendingAnalysis.value = null
+    return true
+  }
+  if (prepared.busy) {
+    flashStatus(prepared.reason || '模型正在运行其他任务')
     return false
   }
-  pendingAnalysis.value = null
-  return true
+  pendingAnalysis.value = { kind, ...context }
+  capacityRetry.value = kind
+  if (prepared.action === 'confirm') {
+    capacityDialog.value = {
+      modelId: requests[0].modelId,
+      requiredMiB: prepared.required,
+      freeMiB: prepared.policy.freeMiB,
+      insufficient: false,
+      estimate: prepared.policy.estimate,
+      evictions: prepared.evictions,
+    }
+    return false
+  }
+  if (prepared.insufficient) {
+    capacityDialog.value = {
+      modelId: requests[0].modelId,
+      requiredMiB: prepared.required,
+      freeMiB: prepared.policy.freeMiB,
+      insufficient: true,
+      estimate: prepared.policy.estimate,
+      evictions: [],
+    }
+    return false
+  }
+  flashStatus(prepared.reason || '显存策略检查失败')
+  return false
 }
 
 async function runCapacityRetry() {
@@ -2652,7 +2654,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="capacityDialog.insufficient" class="capacity-insufficient">您的显存实在不足。</div>
         <div v-else-if="capacityDialog.evictions.length > 0" class="capacity-evictions">
-          删除最久未使用模型：{{ capacityDialog.evictions.map(item => item.modelId).join('、') }}
+          共需释放以下模型：{{ capacityDialog.evictions.map(item => item.modelId).join('、') }}
         </div>
         <div v-else class="capacity-evictions">没有可删除的其他常驻模型。</div>
         <div class="modal-actions">

@@ -258,6 +258,72 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     }
   }
 
+  async function prepareCompositeTask(modelIds: string[], durationSeconds: number) {
+    await refresh()
+    if (runtimes.value.some(item => item.state === 'busy')) {
+      return { ok: false as const, busy: true, reason: '存在正在运行的其他模型' }
+    }
+    const freeMiB = status.value?.gpus[0]?.freeMiB ?? 0
+    let available = freeMiB
+    const releaseSet = new Map<string, ModelRuntimeStatus>()
+    const stageReleases: ModelRuntimeStatus[][] = modelIds.map(() => [])
+    let policyForDialog: GpuPolicyEstimate | null = null
+    let required = 0
+    for (let index = 0; index < modelIds.length; index++) {
+      const modelId = modelIds[index]
+      const policy = await estimatePolicy(modelId, durationSeconds)
+      policyForDialog = policy.estimate
+      const runtime = runtimes.value.find(item => item.modelId === modelId
+        && (item.state === 'ready' || item.state === 'busy'))
+      const stageRequired = runtime
+        ? policy.estimate.requiredIfLoadedMiB
+        : policy.estimate.peakDeltaMiB
+      required = Math.max(required, stageRequired)
+      if (available >= stageRequired) continue
+      const futureModels = new Set(modelIds.slice(index + 1))
+      const candidates = evictionOrderExcluding(runtimes.value, [
+        modelId,
+        ...futureModels,
+        ...[...releaseSet.values()].map(item => item.modelId),
+      ])
+      for (const item of candidates) {
+        if (available >= stageRequired) break
+        if (releaseSet.has(item.id)) continue
+        releaseSet.set(item.id, item)
+        stageReleases[index].push(item)
+        available += item.residentMiB ?? 0
+      }
+      if (available < stageRequired) {
+        return {
+          ok: false as const,
+          insufficient: true,
+          required: stageRequired,
+          freeMiB,
+          policy: policyForDialog,
+          evictions: [...releaseSet.values()],
+        }
+      }
+    }
+    const needed = [...releaseSet.values()]
+    if (needed.length === 0) {
+      return { ok: true as const, required: 0, freeMiB, policy: policyForDialog }
+    }
+    if (runtimeMode.value === 'auto') {
+      for (const item of needed) await unloadRuntime(item.id)
+      await refresh()
+      return { ok: true as const, required, freeMiB, policy: policyForDialog, evictions: needed }
+    }
+    return {
+      ok: false as const,
+      action: 'confirm' as const,
+      required,
+      freeMiB,
+      policy: policyForDialog,
+      evictions: needed,
+      stageReleases,
+    }
+  }
+
   async function evictUntilFit(modelId: string, requiredMiB: number, evictions: Array<{ id: string; residentMiB?: number }>) {
     for (const item of evictions) await unloadRuntime(item.id)
     await refresh()
@@ -286,13 +352,19 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     estimatePolicy,
     prepareRuntime,
     prepareTransientTask,
+    prepareCompositeTask,
     evictUntilFit,
   }
 })
 
 function evictionOrder(runtimes: ModelRuntimeStatus[], activeModelId: string): ModelRuntimeStatus[] {
+  return evictionOrderExcluding(runtimes, [activeModelId])
+}
+
+function evictionOrderExcluding(runtimes: ModelRuntimeStatus[], excludedModelIds: string[]): ModelRuntimeStatus[] {
+  const excluded = new Set(excludedModelIds)
   return runtimes
-    .filter(item => item.modelId !== activeModelId)
+    .filter(item => !excluded.has(item.modelId))
     .filter(item => item.state === 'ready' || item.state === 'busy')
     .sort((left, right) => (
       Date.parse(left.lastUsedAt || left.startedAt || '0') - Date.parse(right.lastUsedAt || right.startedAt || '0')
