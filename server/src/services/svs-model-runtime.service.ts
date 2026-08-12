@@ -214,11 +214,14 @@ function handleWorkerLine(record: SvsRuntimeRecord, line: string): void {
       record.pendingLoad = undefined
       pending?.reject(new Error(record.lastError))
       failRuntime(record, record.lastError)
+      return
     }
-    record.pendingInfer?.onEvent?.(event)
-    record.pendingInfer?.reject(new Error(record.lastError))
-    record.pendingInfer = undefined
-    record.state = 'ready'
+    if (record.state === 'busy') {
+      record.pendingInfer?.onEvent?.(event)
+      record.pendingInfer?.reject(new Error(record.lastError))
+      record.pendingInfer = undefined
+      record.state = 'ready'
+    }
     return
   }
   if (event.type === 'complete') {

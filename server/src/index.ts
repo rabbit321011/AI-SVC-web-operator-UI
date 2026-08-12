@@ -629,7 +629,13 @@ app.post('/api/svs/run', async (req, res) => {
           }, event => {
             if (event.type === 'complete') console.log(`[SVS Resident] ${JSON.stringify(event)}`)
           }).then(
-            () => ws.send(JSON.stringify({ type: 'done', outputFile: svsReq.output })),
+            () => {
+              if (!fs.existsSync(svsReq.output)) {
+                ws.send(JSON.stringify({ type: 'error', message: `SVS resident output is missing: ${svsReq.output}` }))
+                return
+              }
+              ws.send(JSON.stringify({ type: 'done', outputFile: svsReq.output }))
+            },
             error => ws.send(JSON.stringify({ type: 'error', message: error?.message || String(error) })),
           )
         }
