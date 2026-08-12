@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import shutil
@@ -60,8 +61,10 @@ def main() -> None:
         ], check=False)
         if cut.returncode != 0 or not sample.exists():
             raise RuntimeError(f"cannot create sample: {sample}")
+        sample_sha256 = hashlib.sha256(sample.read_bytes()).hexdigest()
         before = nvidia_memory(args.device)
         command = [part.replace("{input}", str(sample)).replace("{seconds}", str(seconds))
+                   .replace("{sha256}", sample_sha256)
                    for part in args.sample_command]
         if os.name == "nt" and not os.path.isfile(command[0]):
             wrapper = shutil.which(command[0] + ".cmd") or shutil.which(command[0] + ".exe")

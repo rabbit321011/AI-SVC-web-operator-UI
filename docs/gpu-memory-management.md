@@ -57,6 +57,8 @@ python server/scripts/profile_vram.py `
 
 2026-08-12 常驻 Runtime 实测：显存页加载约 26 秒后进入 `ready`，torch reserved 约 2.3 GB；第一次 1-step 推理约 20 秒，第二次复用常驻模型约 3 秒；运行中释放后 GPU 回落至约 1.85 GB，无残留 Python 进程。
 
+2026-08-12 `GAME-1.0-medium` 3 秒 MIDI-P 标定：基线 1846 MiB、整卡峰值 2304 MiB、峰值增量 458 MiB、结束后 1848 MiB。标定工具支持 `{input}`、`{seconds}` 和 `{sha256}` 占位符，后者由裁切后的样本实时计算，适合 GAME 这类要求 Guide SHA-256 的 runner。
+
 ## 后续常驻 Runtime
 
 下一阶段新增 `GpuRuntimeManager` worker 层：
