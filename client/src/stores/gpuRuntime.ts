@@ -60,6 +60,7 @@ export interface GpuPolicyEstimate {
   sampleSeconds: number
   peakDeltaMiB: number
   residentMiB?: number
+  inferenceDeltaMiB: number
   steps?: number
   requiredIfLoadedMiB: number
   requiredIfUnloadedMiB: number

@@ -14,6 +14,7 @@ export interface GpuEstimate {
   sampleSeconds: number
   peakDeltaMiB: number
   residentMiB?: number
+  inferenceDeltaMiB: number
   steps?: number
   requiredIfLoadedMiB: number
   requiredIfUnloadedMiB: number
@@ -27,15 +28,19 @@ export function estimateGpuMemory(modelId: string, durationSeconds: number): Gpu
   const selected = samples.find(item => item.seconds >= durationSeconds) ?? samples[samples.length - 1]
   const peakDeltaMiB = selected.peakDeltaMiB ?? model.vramProfile.peakDeltaMiB ?? 0
   const residentMiB = model.vramProfile.residentMiB
+  const inferenceDeltaMiB = residentMiB == null
+    ? peakDeltaMiB
+    : Math.max(0, peakDeltaMiB - residentMiB)
   return {
     modelId,
     durationSeconds,
     sampleSeconds: selected.seconds,
     peakDeltaMiB,
     residentMiB,
+    inferenceDeltaMiB,
     steps: model.vramProfile.steps,
-    requiredIfLoadedMiB: peakDeltaMiB,
-    requiredIfUnloadedMiB: peakDeltaMiB + (residentMiB ?? peakDeltaMiB),
+    requiredIfLoadedMiB: inferenceDeltaMiB,
+    requiredIfUnloadedMiB: inferenceDeltaMiB + (residentMiB ?? 0),
   }
 }
 
