@@ -216,6 +216,38 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     }
   }
 
+  async function prepareTransientTask(modelId: string, durationSeconds: number) {
+    await refresh()
+    const policy = await estimatePolicy(modelId, durationSeconds)
+    const required = policy.estimate.peakDeltaMiB
+    if (policy.freeMiB >= required) {
+      return { ok: true as const, policy, required }
+    }
+    const evictions = evictionOrder(runtimes.value, modelId)
+    let available = policy.freeMiB
+    const needed: ModelRuntimeStatus[] = []
+    for (const item of evictions) {
+      if (available >= required) break
+      available += item.residentMiB ?? 0
+      needed.push(item)
+    }
+    if (runtimeMode.value === 'auto') {
+      for (const item of needed) await unloadRuntime(item.id)
+      const after = await estimatePolicy(modelId, durationSeconds)
+      if (after.freeMiB < required) {
+        return { ok: false as const, insufficient: true, policy, required, evictions: needed }
+      }
+      return { ok: true as const, policy, required, evictions: needed }
+    }
+    return {
+      ok: false as const,
+      action: 'confirm' as const,
+      policy,
+      required,
+      evictions: needed,
+    }
+  }
+
   async function evictUntilFit(modelId: string, requiredMiB: number, evictions: Array<{ id: string; residentMiB?: number }>) {
     for (const item of evictions) await unloadRuntime(item.id)
     await refresh()
@@ -243,6 +275,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     setRuntimeMode,
     estimatePolicy,
     prepareRuntime,
+    prepareTransientTask,
     evictUntilFit,
   }
 })

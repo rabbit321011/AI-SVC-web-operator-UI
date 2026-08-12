@@ -41,6 +41,7 @@ const auditionSource = ref<'guide' | 'midi-p' | 'take'>('guide')
 const playbackRate = ref(1)
 const takeGeneration = ref({ running: false, progress: 0, message: '' })
 const forceCapacity = ref(false)
+const capacityRetry = ref<'v5p' | 'transcribe' | 'sofa' | 'game'>('v5p')
 const capacityDialog = ref<{
   modelId: string
   requiredMiB: number
@@ -48,6 +49,12 @@ const capacityDialog = ref<{
   insufficient: boolean
   estimate: any
   evictions: Array<{ modelId: string; residentMiB?: number }>
+} | null>(null)
+const pendingAnalysis = ref<{
+  kind: 'transcribe' | 'sofa' | 'game'
+  segmentId?: string
+  target?: SegmentTextControlTarget
+  kanaUnitId?: string
 } | null>(null)
 const hPicker = ref({ show: false, frame: 0 })
 const hoveredHTokenId = ref<number | null>(null)
@@ -733,6 +740,7 @@ async function generateTake() {
   const prepared = await gpuRuntime.prepareRuntime('V5P_40K_EMA', durationSeconds) as any
   if (!prepared.ok) {
     if (prepared.action === 'confirm') {
+      capacityRetry.value = 'v5p'
       capacityDialog.value = {
         modelId: 'V5P_40K_EMA',
         requiredMiB: prepared.required,
@@ -744,6 +752,7 @@ async function generateTake() {
       return
     }
     if (prepared.insufficient) {
+      capacityRetry.value = 'v5p'
       capacityDialog.value = {
         modelId: 'V5P_40K_EMA',
         requiredMiB: prepared.required,
@@ -829,17 +838,80 @@ async function evictFromCapacityDialog() {
     return
   }
   capacityDialog.value = null
-  await generateTake()
+  await runCapacityRetry()
 }
 
 function forceRunFromCapacityDialog() {
   capacityDialog.value = null
   forceCapacity.value = true
-  void generateTake()
+  void runCapacityRetry()
 }
 
 function closeCapacityDialog() {
   capacityDialog.value = null
+}
+
+async function ensureAnalysisCapacity(
+  requests: Array<{ modelId: string }>,
+  kind: 'transcribe' | 'sofa' | 'game',
+  context?: { segmentId?: string; target?: SegmentTextControlTarget; kanaUnitId?: string },
+): Promise<boolean> {
+  if (forceCapacity.value) {
+    forceCapacity.value = false
+    return true
+  }
+  const durationSeconds = unit.value?.synthesisUnit.guide.duration ?? 0
+  for (const request of requests) {
+    const prepared = await gpuRuntime.prepareTransientTask(request.modelId, durationSeconds) as any
+    if (prepared.ok) continue
+    pendingAnalysis.value = { kind, ...context }
+    capacityRetry.value = kind
+    if (prepared.action === 'confirm') {
+      capacityDialog.value = {
+        modelId: request.modelId,
+        requiredMiB: prepared.required,
+        freeMiB: prepared.policy.freeMiB,
+        insufficient: false,
+        estimate: prepared.policy.estimate,
+        evictions: prepared.evictions,
+      }
+      return false
+    }
+    if (prepared.insufficient) {
+      capacityDialog.value = {
+        modelId: request.modelId,
+        requiredMiB: prepared.required,
+        freeMiB: prepared.policy.freeMiB,
+        insufficient: true,
+        estimate: prepared.policy.estimate,
+        evictions: [],
+      }
+      return false
+    }
+    flashStatus(prepared.reason || '显存策略检查失败')
+    return false
+  }
+  pendingAnalysis.value = null
+  return true
+}
+
+async function runCapacityRetry() {
+  const kind = capacityRetry.value
+  if (kind === 'v5p') {
+    await generateTake()
+    return
+  }
+  if (kind === 'transcribe') {
+    await transcribeSegmentTrack()
+    return
+  }
+  if (kind === 'game') {
+    await generateMidiPTrack()
+    return
+  }
+  const pending = pendingAnalysis.value
+  if (pending?.kanaUnitId) await executeKanaAlignment(pending.kanaUnitId)
+  else if (pending?.segmentId && pending.target) await executeSegmentAlignment(pending.segmentId, pending.target)
 }
 
 function selectTake(takeId: string) {
@@ -945,6 +1017,11 @@ function chooseHToken(entry: V5PHTokenCatalogEntry | null) {
 }
 
 async function transcribeSegmentTrack() {
+  const ok = await ensureAnalysisCapacity([
+    { modelId: 'Whisper large-v3' },
+    { modelId: 'SOFA Japanese' },
+  ], 'transcribe')
+  if (!ok) return
   const result = await analysis.transcribeSegmentTrack(props.objectId)
   flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'Whisper + SOFA 失败')
 }
@@ -977,6 +1054,8 @@ async function confirmMidiPGeneration() {
 }
 
 async function generateMidiPTrack() {
+  const ok = await ensureAnalysisCapacity([{ modelId: 'GAME-1.0-medium' }], 'game')
+  if (!ok) return
   const result = await analysis.generateMidiPTrack(props.objectId)
   flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'GAME MIDI-P 失败')
 }
@@ -1458,6 +1537,8 @@ async function confirmSegmentAlignment() {
 }
 
 async function executeSegmentAlignment(segmentId: string, target: SegmentTextControlTarget) {
+  const ok = await ensureAnalysisCapacity([{ modelId: 'SOFA Japanese' }], 'sofa', { segmentId, target })
+  if (!ok) return
   const result = await analysis.alignSegmentTextControl(props.objectId, segmentId, target)
   flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'Text Control 对齐失败')
 }
@@ -1574,6 +1655,8 @@ async function confirmKanaAlignment() {
 }
 
 async function executeKanaAlignment(kanaUnitId: string) {
+  const ok = await ensureAnalysisCapacity([{ modelId: 'SOFA Japanese' }], 'sofa', { kanaUnitId })
+  if (!ok) return
   const result = await analysis.alignKanaTextControl(props.objectId, kanaUnitId)
   flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'Kana → H 对齐失败')
 }
