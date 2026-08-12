@@ -66,6 +66,7 @@ def main() -> None:
         before = nvidia_memory(args.device)
         command = [part.replace("{input}", str(sample)).replace("{seconds}", str(seconds))
                    .replace("{sha256}", sample_sha256)
+                   .replace("{frames}", str(int(44100 * seconds / 2048)))
                    for part in args.sample_command]
         if os.name == "nt" and not os.path.isfile(command[0]):
             wrapper = shutil.which(command[0] + ".cmd") or shutil.which(command[0] + ".exe")

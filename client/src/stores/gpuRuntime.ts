@@ -29,7 +29,15 @@ export interface ModelCatalogItem {
   vaeCheckpoint?: string
   runtimeState: 'configured' | 'unavailable'
   capabilities: string[]
-  vramProfile?: { device?: string; steps?: number; peakUsedMiB?: number; peakDeltaMiB?: number; sampleSeconds?: number; measuredAt?: string }
+  vramProfile?: {
+    device?: string
+    steps?: number
+    peakUsedMiB?: number
+    peakDeltaMiB?: number
+    sampleSeconds?: number
+    measuredAt?: string
+    samples?: Array<{ seconds: number; peakUsedMiB?: number; peakDeltaMiB?: number }>
+  }
 }
 
 export interface ModelRuntimeStatus {

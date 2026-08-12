@@ -62,6 +62,14 @@ python server/scripts/profile_vram.py `
 - `V4Hg_10k` 3 秒：基线 1328 MiB、整卡峰值 5344 MiB、峰值增量 4016 MiB、结束后 1293 MiB。
 - `GAME-1.0-medium` 3 秒 MIDI-P：峰值增量 458 MiB。
 
+2026-08-12 工具模型 30s / 60s / 120s / 180s 整卡峰值：
+
+- `GAME-1.0-medium`：1703 / 2100 / 3813 / 6376 MiB。
+- `MSST_duality`：5988 / 5996 / 5988 / 5995 MiB，基本不随时长增长。
+- `SVC_v3_20k_campplus`（20 步）：3892 / 3943 / 4689 / 5429 MiB。
+- `Whisper large-v3`：4746 / 4728 / 4754 / 4787 MiB，基本不随时长增长。
+- `SOFA Japanese`：1578 / 1748 / 1793 / 1932 MiB。
+
 常驻 Runtime 实测：显存页加载约 26 秒后进入 `ready`，torch reserved 约 2.3 GB；第一次 1-step 推理约 20 秒，第二次复用常驻模型约 3 秒；运行中释放后 GPU 回落至约 1.85 GB，无残留 Python 进程。标定工具支持 `{input}`、`{seconds}` 和 `{sha256}` 占位符。
 
 ## 后续常驻 Runtime

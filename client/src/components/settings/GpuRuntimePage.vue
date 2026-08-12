@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { NButton, NProgress, NTag } from 'naive-ui'
-import { useGpuRuntimeStore } from '@/stores/gpuRuntime'
+import { useGpuRuntimeStore, type ModelCatalogItem } from '@/stores/gpuRuntime'
 
 const gpuRuntime = useGpuRuntimeStore()
 const notice = ref('')
@@ -86,6 +86,15 @@ function runtimeLabel(state: string) {
     error: '异常',
   }[state] ?? state
 }
+
+function profileLabel(profile: ModelCatalogItem['vramProfile']) {
+  if (!profile) return '尚未标定'
+  const steps = profile.steps ? ` / ${profile.steps}步` : ''
+  const curve = profile.samples?.length
+    ? profile.samples.map(item => `${item.seconds}s ${((item.peakDeltaMiB ?? 0) / 1024).toFixed(1)}GB`).join(' · ')
+    : ''
+  return curve ? `${curve}${steps}` : `峰值增量 ${((profile.peakDeltaMiB ?? 0) / 1024).toFixed(1)} GB${steps}`
+}
 </script>
 
 <template>
@@ -157,7 +166,7 @@ function runtimeLabel(state: string) {
           <n-tag size="small" :bordered="false" :type="model.runtimeState === 'configured' ? 'success' : 'error'">
             {{ model.runtimeState === 'configured' ? '已配置' : '资源缺失' }}
           </n-tag>
-          <span class="runtime-kind">{{ model.vramProfile?.peakDeltaMiB != null ? `峰值增量 ${(model.vramProfile.peakDeltaMiB / 1024).toFixed(1)} GB / ${model.vramProfile.sampleSeconds}s / ${model.vramProfile.steps ?? 1}步` : '尚未标定' }}</span>
+          <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
           <n-button
             v-if="model.id === 'V5P_40K_EMA'"
             size="tiny"
@@ -179,7 +188,7 @@ function runtimeLabel(state: string) {
           <div><strong>{{ model.id }}</strong><small>{{ model.capabilities.join(' / ') }}</small></div>
           <span>{{ engineLabel(model.engine) }}</span>
           <n-tag size="small" :bordered="false" type="success">已注册</n-tag>
-          <span class="runtime-kind">{{ model.vramProfile?.peakDeltaMiB != null ? `峰值增量 ${(model.vramProfile.peakDeltaMiB / 1024).toFixed(1)} GB` : '尚未标定' }}</span>
+          <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
         </div>
       </div>
     </section>

@@ -26,6 +26,11 @@ export interface ModelCatalogEntry {
     peakDeltaMiB?: number
     sampleSeconds?: number
     measuredAt?: string
+    samples?: Array<{
+      seconds: number
+      peakUsedMiB?: number
+      peakDeltaMiB?: number
+    }>
   }
 }
 
@@ -87,6 +92,18 @@ function readVramProfile(modelId: string): ModelCatalogEntry['vramProfile'] {
     const peakUsedMiB = Number(sample?.peak?.usedMiB)
     const baselineUsedMiB = Number(sample?.before?.usedMiB)
     if (!Number.isFinite(peakUsedMiB)) return undefined
+    const samples = Array.isArray(payload.samples)
+      ? payload.samples
+        .map((item: any) => ({
+          seconds: Number(item.seconds),
+          peakUsedMiB: Number(item.peak?.usedMiB),
+          peakDeltaMiB: Number.isFinite(Number(item.before?.usedMiB))
+            ? Math.max(0, Number(item.peak?.usedMiB) - Number(item.before?.usedMiB))
+            : undefined,
+        }))
+        .filter((item: { seconds: number; peakUsedMiB: number; peakDeltaMiB?: number }) => Number.isFinite(item.peakUsedMiB))
+        .sort((left: any, right: any) => left.seconds - right.seconds)
+      : undefined
     return {
       device: String(payload.device || ''),
       steps: Number.isInteger(Number(payload.steps)) ? Number(payload.steps) : undefined,
@@ -94,6 +111,7 @@ function readVramProfile(modelId: string): ModelCatalogEntry['vramProfile'] {
       peakDeltaMiB: Number.isFinite(baselineUsedMiB) ? Math.max(0, peakUsedMiB - baselineUsedMiB) : undefined,
       sampleSeconds: Number(sample.seconds),
       measuredAt: String(payload.measuredAt || ''),
+      samples,
     }
   } catch {
     return undefined
