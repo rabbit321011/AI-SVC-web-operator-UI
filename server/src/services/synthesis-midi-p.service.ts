@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
 import { verifyOwnedGuideWav } from './owned-guide-runtime.js'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const TO_LINUX_ROOT = 'E:/MyProject/ToLinuxServer'
@@ -73,7 +74,7 @@ export async function runSynthesisMidiP(req: SynthesisMidiPRequest, ws?: WebSock
       if (event.type === 'loaded_model') send(ws, { type: 'progress', progress: 55, message: 'GAME medium 已加载' })
       if (event.type === 'extracting') send(ws, { type: 'progress', progress: 65, message: 'GAME K=4 提取音符区域' })
       if (event.type === 'complete') summary = event
-    })
+    }, { id: `game:${req.jobId}`, kind: 'analysis', modelId: 'GAME-1.0-medium', device: req.device || 'cuda:0' })
     const result = JSON.parse(fs.readFileSync(outputFile, 'utf-8'))
     if (result.schema !== 'aisvc.v5p-midi-p.v1' || result.frameCount !== req.frameCount) {
       throw new Error('GAME runner 返回了不兼容的 MIDI-P 结果')
@@ -95,6 +96,7 @@ function runJsonProcess(
   command: string,
   args: string[],
   onEvent: (event: ProcessEvent) => void,
+  runtime: { id: string; kind: string; modelId?: string; device?: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -109,6 +111,7 @@ function runJsonProcess(
         PATH: addPathPrefix(process.env.PATH ?? '', FFMPEG_SHARED_BIN),
       },
     })
+    registerGpuProcess(child, runtime)
     let stdout = ''
     let stderr = ''
     let reportedError = ''
@@ -131,7 +134,8 @@ function runJsonProcess(
         if (finalEvent.type === 'error' && finalEvent.message) reportedError = finalEvent.message
         onEvent(finalEvent)
       }
-      if (code === 0) resolve()
+      if (wasGpuProcessReleased(child)) reject(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
+      else if (code === 0) resolve()
       else reject(new Error(reportedError || conciseProcessError(stderr) || `GAME process exited with code ${code}`))
     })
   })

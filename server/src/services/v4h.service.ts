@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
 import type { SvsPhrase, SvsRequest } from './svs.service.js'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const SOFA_PYTHON = 'E:/AIscene/SOFA-Japanese/.venv-gpu/Scripts/python.exe'
@@ -141,7 +142,7 @@ export async function runV4h(req: V4hRequest, ws?: WebSocket, options: V4hRunOpt
         })
       }
       if (event.type === 'complete') alignedSummary = event
-    })
+    }, { id: `v4h-sofa:${path.basename(output)}`, kind: 'analysis', modelId: 'SOFA Japanese', device: req.device || 'cuda:0' })
 
     if (options.dryRun) {
       send(ws, {
@@ -176,7 +177,7 @@ export async function runV4h(req: V4hRequest, ws?: WebSocket, options: V4hRunOpt
       if (event.type === 'loaded_model') send(ws, { type: 'progress', progress: 90, message: `${req.modelId} 已加载` })
       if (event.type === 'synthesizing') send(ws, { type: 'progress', progress: 91, message: 'V4H 合成中' })
       if (event.type === 'complete') inferenceSummary = event
-    })
+    }, { id: `v4h:${path.basename(output)}`, kind: 'svs', modelId: req.modelId, device: req.device || 'cuda:0' })
     if (!fs.existsSync(output) || fs.statSync(output).size <= 44) {
       throw new Error(`V4H finished but output was not found: ${output}`)
     }
@@ -210,7 +211,12 @@ function validateBoundedPhrases(phrases: SvsPhrase[], label: string) {
   })
 }
 
-function runJsonProcess(command: string, args: string[], onEvent: (event: ProcessEvent) => void): Promise<void> {
+function runJsonProcess(
+  command: string,
+  args: string[],
+  onEvent: (event: ProcessEvent) => void,
+  runtime: { id: string; kind: string; modelId?: string; device?: string },
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: SINGER_ROOT,
@@ -225,6 +231,7 @@ function runJsonProcess(command: string, args: string[], onEvent: (event: Proces
         PATH: addPathPrefix(process.env.PATH ?? '', FFMPEG_SHARED_BIN),
       },
     })
+    registerGpuProcess(child, runtime)
     let stdoutBuffer = ''
     let stderr = ''
     let reportedError = ''
@@ -251,7 +258,8 @@ function runJsonProcess(command: string, args: string[], onEvent: (event: Proces
         } else if (finalEvent.type === 'error' && finalEvent.message) reportedError = finalEvent.message
         onEvent(finalEvent)
       }
-      if (code === 0) resolve()
+      if (wasGpuProcessReleased(child)) reject(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
+      else if (code === 0) resolve()
       else reject(new Error(reportedError || conciseProcessError(stderr) || `V4H process exited with code ${code}`))
     })
   })

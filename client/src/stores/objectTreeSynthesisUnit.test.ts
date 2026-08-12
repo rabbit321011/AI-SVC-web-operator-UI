@@ -177,6 +177,29 @@ describe('SynthesisUnit object-tree integration', () => {
       vaeSHA256: 'b'.repeat(64), adapterSHA256: 'c'.repeat(64), seed: 42,
     })).toEqual({ ok: false, reason: '已完成 Take 不可覆盖' })
   })
+
+  it('keeps a user-cancelled GPU Take distinct from a failed Take', () => {
+    const objectTree = useObjectTreeStore()
+    const tree = createEmptyProjectObjectTree()
+    const workspace = tree.root.children.find(node => node.id === TOP_LEVEL_IDS.workspace)
+    if (!workspace || workspace.kind !== 'folder') throw new Error('missing workspace')
+    workspace.children.push(makeUnit('node:synthesisUnit:a', 'Unit A'))
+    workspace.children.push(makeUnit('node:synthesisUnit:b', 'Unit B'))
+    objectTree.loadObjectTree(tree)
+    expect(objectTree.queueSynthesisTake('node:synthesisUnit:b', {
+      id: 'take:cancelled', name: 'Take cancelled', status: 'running',
+      targetUnitRevision: 2, referenceUnitId: 'node:synthesisUnit:a', referenceUnitRevision: 3,
+      presetId: 'V5P_40K_EMA', checkpointSHA256: 'a'.repeat(64), vaeSHA256: 'b'.repeat(64),
+      adapterSHA256: 'c'.repeat(64), seed: 42, createdAt: '2026-08-11T00:00:00.000Z',
+    })).toEqual({ ok: true })
+    expect(objectTree.cancelSynthesisTake(
+      'node:synthesisUnit:b',
+      'take:cancelled',
+      '用户已取消 GPU 任务并释放显存',
+    )).toEqual({ ok: true })
+    const unit = objectTree.node('node:synthesisUnit:b')
+    expect(unit?.kind === 'synthesisUnit' ? unit.synthesisUnit.takes[0]?.status : undefined).toBe('cancelled')
+  })
 })
 
 function makeUnit(id: NodeId, name: string): SynthesisUnitObjectNode {

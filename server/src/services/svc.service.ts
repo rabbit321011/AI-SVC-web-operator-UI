@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { WebSocket } from 'ws'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PYTHON = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const RUNNER_SCRIPT = 'E:/AIscene/AISVC-midi-web/server/scripts/svc_runner.py'
@@ -48,6 +49,12 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
       HF_DATASETS_OFFLINE: process.env.HF_DATASETS_OFFLINE ?? '1',
       HF_HUB_DISABLE_TELEMETRY: process.env.HF_HUB_DISABLE_TELEMETRY ?? '1',
     },
+  })
+  registerGpuProcess(child, {
+    id: `svc:${req.expname}`,
+    kind: 'svc',
+    modelId: path.basename(req.checkpoint),
+    device: normalizeGpuDevice(req.device),
   })
 
   let stdoutBuf = ''
@@ -110,7 +117,9 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
   child.on('close', (code) => {
     processFinished = true
     ws.off('close', handleSocketClose)
-    if (code === 0) {
+    if (wasGpuProcessReleased(child)) {
+      send({ type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+    } else if (code === 0) {
       const outDir = path.join(OUTPUT_ROOT, req.expname)
       if (fs.existsSync(outDir)) {
         const files = fs.readdirSync(outDir)
@@ -137,6 +146,11 @@ export function runSvc(req: SvcRequest, ws: WebSocket): void {
     ws.off('close', handleSocketClose)
     send({ type: 'error', message: err.message })
   })
+}
+
+function normalizeGpuDevice(device: string): string {
+  if (device === 'cpu') return 'cpu'
+  return /^cuda:\d+$/i.test(device) ? device : `cuda:${device || '0'}`
 }
 
 function formatSvcError(code: number | null, output: string): string {

@@ -759,7 +759,8 @@ async function generateTake() {
     flashStatus(`${activeTake.value?.name ?? 'Take'} 已完成 · snapshot ${result.snapshotSHA256.slice(0, 10)}`)
   } catch (error: any) {
     const message = error?.message || 'V5-P 合成失败'
-    objectTree.failSynthesisTake(targetUnitId, takeId, message)
+    if (message.includes('用户已取消 GPU 任务')) objectTree.cancelSynthesisTake(targetUnitId, takeId, message)
+    else objectTree.failSynthesisTake(targetUnitId, takeId, message)
     flashStatus(message)
   } finally {
     takeGeneration.value = { running: false, progress: 0, message: '' }

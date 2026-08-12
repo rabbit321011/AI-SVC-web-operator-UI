@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 import { verifyOwnedGuideWav } from './owned-guide-runtime.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
@@ -191,7 +192,7 @@ export async function runSynthesisTextControl(
           message: `SOFA 对齐第 ${event.index}/${event.total} 句`,
         })
       }
-    })
+    }, { id: `text-control:${req.jobId}`, kind: 'analysis', modelId: 'SOFA Japanese', device: req.device || 'cuda:0' })
 
     send(ws, { type: 'progress', progress: 90, message: '按训练 placement 编译 Kana/H' })
     await runJsonProcess(SOFA_PYTHON, [
@@ -201,7 +202,7 @@ export async function runSynthesisTextControl(
       '--runtime', V5P_RUNTIME,
       '--vocab', V5P_VOCAB,
       '--frame-count', String(req.frameCount),
-    ], () => {})
+    ], () => {}, { id: `text-compile:${req.jobId}`, kind: 'analysis', modelId: 'V5-P Text Compiler', device: 'cpu' })
 
     const result = JSON.parse(fs.readFileSync(controlFile, 'utf-8'))
     if (result.schema !== 'aisvc.v5p-text-control.v1' || result.frameCount !== req.frameCount) {
@@ -226,6 +227,7 @@ function runJsonProcess(
   command: string,
   args: string[],
   onEvent: (event: ProcessEvent) => void,
+  runtime: { id: string; kind: string; modelId?: string; device?: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -241,6 +243,7 @@ function runJsonProcess(
         PATH: addPathPrefix(process.env.PATH ?? '', FFMPEG_SHARED_BIN),
       },
     })
+    if (runtime.device !== 'cpu') registerGpuProcess(child, runtime)
     let stdout = ''
     let stderr = ''
     let reportedError = ''
@@ -263,7 +266,8 @@ function runJsonProcess(
         if (finalEvent.type === 'error' && finalEvent.message) reportedError = finalEvent.message
         onEvent(finalEvent)
       }
-      if (code === 0) resolve()
+      if (wasGpuProcessReleased(child)) reject(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
+      else if (code === 0) resolve()
       else reject(new Error(reportedError || conciseProcessError(stderr) || `Text Control process exited with code ${code}`))
     })
   })

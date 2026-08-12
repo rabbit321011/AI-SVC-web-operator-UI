@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
 import { verifyOwnedGuideWav } from './owned-guide-runtime.js'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const DATA_ROOT = path.resolve(PROJECT_ROOT, 'data')
@@ -289,7 +290,7 @@ export async function runSynthesisDirectControl(
       if (event.type === 'sampling') send(ws, { type: 'progress', progress: 68, message: 'V5-P 采样' })
       if (event.type === 'decoding') send(ws, { type: 'progress', progress: 92, message: '解码 B 区 Take' })
       if (event.type === 'complete' && event.resultFile) resultFile = event.resultFile
-    })
+    }, { id: `v5p:${req.jobId}`, kind: 'svs', modelId: V5P_DIRECT_PRESET.id, device: verified.render.device })
     const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8')) as SynthesisDirectControlResult
     if (
       result.schema !== 'aisvc.v5p-direct-result.v1'
@@ -663,6 +664,7 @@ function runJsonProcess(
   command: string,
   args: string[],
   onEvent: (event: DirectProcessEvent) => void,
+  runtime: { id: string; kind: string; modelId?: string; device?: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -676,6 +678,7 @@ function runJsonProcess(
         HF_DATASETS_OFFLINE: process.env.HF_DATASETS_OFFLINE ?? '1',
       },
     })
+    registerGpuProcess(child, runtime)
     let stdout = ''
     let stderr = ''
     let reportedError = ''
@@ -698,7 +701,8 @@ function runJsonProcess(
         if (finalEvent.type === 'error' && finalEvent.message) reportedError = finalEvent.message
         onEvent(finalEvent)
       }
-      if (code === 0) resolve()
+      if (wasGpuProcessReleased(child)) reject(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
+      else if (code === 0) resolve()
       else reject(new Error(
         reportedError
         || conciseProcessError(stderr)

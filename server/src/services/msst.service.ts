@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const MSST_ROOT = 'E:/MyProject/cyanAI/nodeServer/src/utility/MSST/msst_webui'
 const PYTHON = path.join(MSST_ROOT, 'venv', 'Scripts', 'python.exe')
@@ -38,6 +39,12 @@ export function runMsst(req: MsstRequest, ws: WebSocket): void {
   fs.mkdirSync(req.outputDir, { recursive: true })
   const args = [RUNNER, '--model', req.model, '--input', req.inputWav, '--output-dir', req.outputDir, '--device', req.device || 'cuda']
   const child = spawn(PYTHON, args, { cwd: MSST_ROOT, env: { ...process.env, PYTHONUNBUFFERED: '1' } })
+  registerGpuProcess(child, {
+    id: `msst:${path.basename(req.outputDir)}`,
+    kind: 'msst',
+    modelId: req.model,
+    device: req.device === 'cpu' ? 'cpu' : 'cuda:0',
+  })
   let stdoutBuffer = ''
   let stderrBuffer = ''
   let outputs: Record<string, string> | null = null
@@ -58,6 +65,10 @@ export function runMsst(req: MsstRequest, ws: WebSocket): void {
     console.error(`[MSST] ${data.toString().trimEnd()}`)
   })
   child.on('close', code => {
+    if (wasGpuProcessReleased(child)) {
+      send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+      return
+    }
     if (code === 0 && outputs) {
       send(ws, { type: 'done', outputs: Object.keys(outputs) })
       return

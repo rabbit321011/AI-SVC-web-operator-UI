@@ -1,0 +1,66 @@
+# GPU 显存管理设计与使用说明
+
+## 当前版本
+
+当前版本已经提供 GPU 状态中心和本应用 GPU 任务登记：
+
+- 顶栏显示第一张 GPU 的已用 / 总显存；
+- 点击显存状态可以打开显存页面；
+- 显存页面列出所有已配置的 SVS preset，包括 T1、V4H/V4Hg 和 `V5P_40K_EMA`；
+- 页面显示本应用启动的 GPU 子进程、PID、模型、设备和 `nvidia-smi` 可见的进程显存；
+- 用户可以取消并释放单个任务，也可以释放本应用的全部 GPU 任务；
+- 外部程序只显示在 GPU 总量中，不由软件结束。
+
+现阶段 SVS/V5-P/GAME/Whisper/SOFA/SVC/MSST 仍是一次一进程 Runtime。任务完成后进程退出，显存随进程释放。页面会明确标记“任务型 Runtime”，不会把它显示成模型已经常驻。
+
+## 模型范围
+
+显存系统不只管理 V5-P。当前 SVS 模型来自 `server/models/svs_models.json`，包括：
+
+- T1：`plus_ja_sft_v4c step24k`、`v4f_sofa_base30k step24k`、`V4fg_10k`、`V4vf_12k/24k/30k`、`V4vfg_6k/10k`；
+- PH/PUL：`V4H_24k`、`V4H_30k`、`V4Hg_10k`；
+- Direct Control：`V5P_40K_EMA`。
+
+模型目录只说明模型是否可由当前链路使用，不等于模型已加载。checkpoint 文件大小也不等于显存占用。
+
+## 释放规则
+
+“取消并释放”会结束本应用创建的 Python 进程树。它适用于正在运行的临时 Runtime，可能丢失当前未完成输出，因此需要确认。任务完成、失败或取消后，登记会短暂保留，随后清理。
+
+用户从显存页终止任务后，服务端向原任务返回“用户已取消 GPU 任务并释放显存”。V5-P 合成单元中的占位 Take 保留为 `cancelled`，与模型执行失败的 `failed` 状态分开。
+
+未来改为常驻 worker 后，模型页面增加“加载模型”和“释放模型”：释放操作关闭对应 worker，而不是只调用 `torch.cuda.empty_cache()`。正在执行的 worker 必须先完成、排队释放，或者由用户显式取消。
+
+## 显存标定
+
+不要用 checkpoint 字节数估算 VRAM。推荐使用真实项目音频裁切 3、10、30 秒样本，并记录：
+
+1. runner 启动前 GPU 使用量；
+2. 加载模型后的显存；
+3. 输入长度对应的推理峰值；
+4. 任务结束后的显存。
+
+`server/scripts/profile_vram.py` 提供统一的外部测量包装器。示例：
+
+```powershell
+python server/scripts/profile_vram.py `
+  --model-id V5P_40K_EMA `
+  --input E:/path/to/real.wav `
+  --sample-dir data/vram-profile/samples `
+  --output data/vram-profile/V5P_40K_EMA.json `
+  --sample-command python my_runner.py --input {input}
+```
+
+实际模型 runner 的参数仍由对应 preset 决定。标定输出使用 `aisvc.gpu-vram-profile.v1`，结果属于本机，不提交到项目仓库；实测数据应放在本机的 profile 目录并在 UI 显示“本机实测”。
+
+界面中的“峰值增量”按 `推理期间整卡已用峰值 - 启动前整卡已用基线` 计算；整卡峰值仍保留在原始 profile 中。2026-08-12 的 `V5P_40K_EMA` 3 秒、1-step 标定为：基线 1819 MiB、整卡峰值 5506 MiB、峰值增量 3687 MiB、结束后 1828 MiB。
+
+## 后续常驻 Runtime
+
+下一阶段新增 `GpuRuntimeManager` worker 层：
+
+```text
+ModelCatalog -> GpuRuntimeManager -> worker(JSONL/IPC) -> Python model
+```
+
+每个模型 preset 都拥有独立 runtime identity；V5-P 的 DiT 与 VAE作为一个单元，T1/V4H 以及不同 checkpoint 不能因为名字相似而共享错误权重。显存不足时只提示可释放对象，由用户决定，不自动驱逐模型。

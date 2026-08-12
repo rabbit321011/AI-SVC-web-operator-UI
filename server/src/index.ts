@@ -33,6 +33,7 @@ import {
 import { MSST_MODEL_IDS, MSST_OUTPUT_IDS, runMsst, verifyMsstResources } from './services/msst.service.js'
 import { GlobalResourceRepository } from './services/global-resource.service.js'
 import { compareAudioPitch, pitchShiftAudio } from './services/pitch.service.js'
+import { readGpuStatus, releaseAllGpuProcesses, releaseGpuProcess } from './services/gpu-runtime.service.js'
 
 const app = express()
 app.use(cors())
@@ -147,6 +148,19 @@ function readWavMeta(filePath: string) {
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() })
+})
+
+app.get('/api/gpu/status', async (_req, res) => {
+  res.json(await readGpuStatus())
+})
+
+app.post('/api/gpu/processes/:id/release', async (req, res) => {
+  const result = await releaseGpuProcess(String(req.params.id || ''))
+  res.status(result.ok ? 200 : 404).json(result)
+})
+
+app.post('/api/gpu/release-all', async (_req, res) => {
+  res.json({ ok: true, ...(await releaseAllGpuProcesses()) })
 })
 
 // Demo audio endpoints

@@ -854,6 +854,22 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return { ok: true }
   }
 
+  function cancelSynthesisTake(
+    unitId: NodeId,
+    takeId: string,
+    reason: string,
+  ): { ok: boolean; reason?: string } {
+    const unit = index.value.nodes[unitId]
+    if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
+    const take = unit.synthesisUnit.takes.find(item => item.id === takeId)
+    if (!take) return { ok: false, reason: 'Take 不存在' }
+    if (take.status === 'ready') return { ok: false, reason: '已完成 Take 不可取消' }
+    take.status = 'cancelled'
+    take.error = reason
+    take.completedAt = new Date().toISOString()
+    return { ok: true }
+  }
+
   function setActiveSynthesisTake(unitId: NodeId, takeId: string): { ok: boolean; reason?: string } {
     const unit = index.value.nodes[unitId]
     if (!unit || unit.kind !== 'synthesisUnit') return { ok: false, reason: '合成单元不存在' }
@@ -2408,6 +2424,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     queueSynthesisTake,
     completeSynthesisTake,
     failSynthesisTake,
+    cancelSynthesisTake,
     setActiveSynthesisTake,
     dropAudioObjectToTimeline,
     addRenderedAudioToTimeline,

@@ -3,6 +3,7 @@ import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import MainCanvas from '@/components/layout/MainCanvas.vue'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
 import KeymapHelpPage from '@/components/settings/KeymapHelpPage.vue'
+import GpuRuntimePage from '@/components/settings/GpuRuntimePage.vue'
 import TextObjectEditor from '@/components/text/TextObjectEditor.vue'
 import SynthesisUnitEditor from '@/components/synthesis/SynthesisUnitEditor.vue'
 
@@ -40,9 +41,10 @@ const editorWorkspace = useEditorWorkspaceStore()
       <MainCanvas v-show="editorWorkspace.activeTab?.kind === 'timeline'" />
       <SettingsPage v-if="editorWorkspace.activeTab?.kind === 'settings'" />
       <KeymapHelpPage v-if="editorWorkspace.activeTab?.kind === 'keymap'" />
+      <GpuRuntimePage v-if="editorWorkspace.activeTab?.kind === 'gpu'" />
       <TextObjectEditor v-if="editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'text'" :object-id="editorWorkspace.activeTab.contextObjectId" />
       <SynthesisUnitEditor v-if="editorWorkspace.activeTab?.kind === 'object' && editorWorkspace.activeTab.objectKind === 'synthesisUnit'" :object-id="editorWorkspace.activeTab.contextObjectId" />
-      <div v-if="editorWorkspace.activeTab?.kind !== 'timeline' && editorWorkspace.activeTab?.kind !== 'settings' && editorWorkspace.activeTab?.kind !== 'keymap' && !(editorWorkspace.activeTab?.kind === 'object' && (editorWorkspace.activeTab.objectKind === 'text' || editorWorkspace.activeTab.objectKind === 'synthesisUnit'))" class="empty-editor">Editor unavailable</div>
+      <div v-if="editorWorkspace.activeTab?.kind !== 'timeline' && editorWorkspace.activeTab?.kind !== 'settings' && editorWorkspace.activeTab?.kind !== 'keymap' && editorWorkspace.activeTab?.kind !== 'gpu' && !(editorWorkspace.activeTab?.kind === 'object' && (editorWorkspace.activeTab.objectKind === 'text' || editorWorkspace.activeTab.objectKind === 'synthesisUnit'))" class="empty-editor">Editor unavailable</div>
     </div>
   </section>
 </template>

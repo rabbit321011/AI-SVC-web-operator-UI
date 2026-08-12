@@ -3,6 +3,7 @@ import { createHash } from 'crypto'
 import path from 'path'
 import fs from 'fs'
 import type { WebSocket } from 'ws'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PYTHON = 'E:/AIscene/AISVCs/.venv/Scripts/python.exe'
 const WORK_DIR = 'E:/AIscene/YingMusic_Singer_Plus'
@@ -163,6 +164,12 @@ export function runSvs(req: SvsRequest, ws?: WebSocket): void {
       PATH: addPathPrefix(process.env.PATH ?? '', FFMPEG_SHARED_BIN),
     },
   })
+  registerGpuProcess(child, {
+    id: `svs:${path.basename(req.output)}`,
+    kind: 'svs',
+    modelId: req.modelId,
+    device: req.device || 'cuda:0',
+  })
 
   let stdoutBuf = ''
   let stderrBuf = ''
@@ -178,7 +185,9 @@ export function runSvs(req: SvsRequest, ws?: WebSocket): void {
   })
 
   child.on('close', (code) => {
-    if (code === 0 && fs.existsSync(req.output)) {
+    if (wasGpuProcessReleased(child)) {
+      send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+    } else if (code === 0 && fs.existsSync(req.output)) {
       send(ws, { type: 'done', outputFile: req.output })
     } else if (code === 0) {
       send(ws, { type: 'error', message: `SVS finished but output was not found: ${req.output}` })

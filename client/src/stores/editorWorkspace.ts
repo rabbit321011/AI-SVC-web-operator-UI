@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-export type EditorTabKind = 'timeline' | 'object' | 'settings' | 'keymap'
+export type EditorTabKind = 'timeline' | 'object' | 'settings' | 'keymap' | 'gpu'
 export type EditorObjectKind = 'midi' | 'text' | 'synthesisUnit' | 'pitch' | 'analysis' | 'unknown'
 
 export interface EditorTab {
@@ -16,6 +16,7 @@ export interface EditorTab {
 export const PROJECT_ROOT_EDITOR_ID = 'editor:project-root'
 export const PROJECT_SETTINGS_EDITOR_ID = 'editor:project-settings'
 export const PROJECT_KEYMAP_EDITOR_ID = 'editor:project-keymap'
+export const PROJECT_GPU_EDITOR_ID = 'editor:gpu-runtime'
 export const PROJECT_ROOT_OBJECT_ID = 'project/root'
 
 export function objectEditorId(objectId: string): string {
@@ -62,6 +63,16 @@ export const useEditorWorkspaceStore = defineStore('editorWorkspace', () => {
       id: PROJECT_KEYMAP_EDITOR_ID,
       kind: 'keymap',
       title: 'Keymap',
+      contextObjectId: PROJECT_ROOT_OBJECT_ID,
+      closable: true,
+    })
+  }
+
+  function openGpuTab() {
+    openSingletonTab({
+      id: PROJECT_GPU_EDITOR_ID,
+      kind: 'gpu',
+      title: '显存',
       contextObjectId: PROJECT_ROOT_OBJECT_ID,
       closable: true,
     })
@@ -127,6 +138,7 @@ export const useEditorWorkspaceStore = defineStore('editorWorkspace', () => {
     activateTab,
     openSettingsTab,
     openKeymapTab,
+    openGpuTab,
     openTextObjectTab,
     openSynthesisUnitTab,
     setTimelineScroll,

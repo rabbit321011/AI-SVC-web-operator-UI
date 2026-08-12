@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
+import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const WHISPER_RUNNER = path.resolve(PROJECT_ROOT, 'server', 'scripts', 'whisper_runner.py')
@@ -65,6 +66,7 @@ export function runWhisper(req: WhisperRequest, ws: WebSocket): void {
   ]
   console.log(`[Whisper] spawning Japanese transcription: ${whisperPython} ${args.join(' ')}`)
   const child = spawnRunner(whisperPython, args, path.dirname(WHISPER_RUNNER))
+  registerGpuProcess(child, { id: `whisper:${path.basename(req.outputDir)}`, kind: 'analysis', modelId: 'Whisper large-v3', device: req.device || 'cuda' })
   let transcriptFile = ''
   let runnerErrored = false
 
@@ -80,6 +82,10 @@ export function runWhisper(req: WhisperRequest, ws: WebSocket): void {
   forwardStderr(child, ws, 'Whisper')
   child.on('error', error => send(ws, { type: 'error', message: `Whisper failed to start: ${error.message}` }))
   child.on('close', code => {
+    if (wasGpuProcessReleased(child)) {
+      send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+      return
+    }
     if (code !== 0 || runnerErrored) {
       if (!runnerErrored) send(ws, { type: 'error', message: `Whisper exited with code ${code}` })
       return
@@ -105,6 +111,7 @@ function runSofa(req: WhisperRequest, runtime: SofaRuntime, transcriptFile: stri
   ]
   console.log(`[SOFA] spawning ${SOFA_ALIGNMENT_METHOD}: ${runtime.python} ${args.join(' ')}`)
   const child = spawnRunner(runtime.python, args, path.dirname(SOFA_RUNNER))
+  registerGpuProcess(child, { id: `sofa:${path.basename(req.outputDir)}`, kind: 'analysis', modelId: 'SOFA Japanese', device: normalizeSofaDevice(req.device) })
   let runnerErrored = false
   let alignedResult: RunnerMessage | null = null
 
@@ -130,6 +137,10 @@ function runSofa(req: WhisperRequest, runtime: SofaRuntime, transcriptFile: stri
   forwardStderr(child, ws, 'SOFA')
   child.on('error', error => send(ws, { type: 'error', message: `SOFA failed to start: ${error.message}` }))
   child.on('close', code => {
+    if (wasGpuProcessReleased(child)) {
+      send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+      return
+    }
     if (code !== 0 && !runnerErrored) {
       send(ws, { type: 'error', message: `SOFA exited with code ${code}` })
       return

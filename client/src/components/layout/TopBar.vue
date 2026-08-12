@@ -4,12 +4,13 @@ import { useTracksStore } from '@/stores/tracks'
 import { useSelectionStore } from '@/stores/selection'
 import { NButton, NDropdown, NSwitch, NSpace } from 'naive-ui'
 import { usePlaybackStore } from '@/stores/playback'
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useEditorWorkspaceStore } from '@/stores/editorWorkspace'
 import { useSaveStatusStore } from '@/stores/saveStatus'
 import { getAudioBlobMeta } from '@/utils/audioMeta'
 import { useObjectTreeStore } from '@/stores/objectTree'
 import { useObjectTreeUiStore } from '@/stores/objectTreeUi'
+import { useGpuRuntimeStore } from '@/stores/gpuRuntime'
 
 const project = useProjectStore()
 const tracks = useTracksStore()
@@ -19,6 +20,14 @@ const editorWorkspace = useEditorWorkspaceStore()
 const saveStatus = useSaveStatusStore()
 const objectTree = useObjectTreeStore()
 const objectTreeUi = useObjectTreeUiStore()
+const gpuRuntime = useGpuRuntimeStore()
+
+void gpuRuntime.refresh()
+let gpuRefreshTimer = 0
+onMounted(() => {
+  gpuRefreshTimer = window.setInterval(() => void gpuRuntime.refresh(), 3000)
+})
+onUnmounted(() => window.clearInterval(gpuRefreshTimer))
 
 const playSelectedOnly = ref(false)
 
@@ -247,6 +256,10 @@ function downloadBlob(filename: string, blob: Blob) {
     </div>
 
     <div class="topbar-right">
+      <button class="gpu-status" type="button" title="打开显存管理" @click="editorWorkspace.openGpuTab">
+        <span class="gpu-dot" :class="{ active: gpuRuntime.primaryGpu }" />
+        <span>{{ gpuRuntime.usageLabel }}</span>
+      </button>
       <div v-if="saveStatus.state !== 'idle'" class="save-status" :class="saveStatus.state" :title="saveStatus.message">
         <svg v-if="saveStatus.state === 'saving'" class="save-spinner" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V2Z" /></svg>
         <svg v-else-if="saveStatus.state === 'success'" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7 1 1-8 8-4-4 1-1Z" /></svg>
@@ -277,6 +290,24 @@ function downloadBlob(filename: string, blob: Blob) {
 .topbar-left { display: flex; align-items: center; gap: 8px; }
 .topbar-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .topbar-right { display: flex; align-items: center; }
+.gpu-status {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--app-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.gpu-status:hover { color: var(--app-text); border-color: var(--app-accent); }
+.gpu-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--app-muted); }
+.gpu-dot.active { background: #4fd1a5; }
 .save-status {
   min-width: 142px;
   max-width: 300px;
