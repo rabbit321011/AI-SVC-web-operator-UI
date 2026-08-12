@@ -14,6 +14,7 @@ const SOFA_PYTHON = 'E:/AIscene/SOFA-Japanese/.venv-gpu/Scripts/python.exe'
 const RUNTIME_DIR = path.join(PROJECT_ROOT, 'data', 'analysis-runtime')
 const WHISPER_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'whisper_resident_worker.py')
 const SOFA_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'sofa_resident_worker.py')
+const GAME_WORKER = path.join(PROJECT_ROOT, 'server', 'scripts', 'game_resident_worker.py')
 
 const ANALYSIS_PRESETS = {
   'Whisper large-v3': {
@@ -29,6 +30,18 @@ const ANALYSIS_PRESETS = {
     args: (device: string) => [
       '--repo', 'E:/AIscene/SOFA-Japanese/Voicebank2DiffSinger-main',
       '--ckpt', 'E:/AIscene/SOFA-Japanese/Voicebank2DiffSinger-main/community_models/JPN_Test2_Plus/step.100000.server-practiced.ckpt',
+      '--device', device,
+    ],
+  },
+  'GAME-1.0-medium': {
+    python: APP_PYTHON,
+    worker: GAME_WORKER,
+    requestType: 'extract',
+    args: (device: string) => [
+      '--game-repo', 'E:/MyProject/ToLinuxServer/TEMP/source_robustness_repos/GAME',
+      '--game-deps', 'E:/MyProject/ToLinuxServer/TEMP/game_v4pf_deps',
+      '--game-model', 'E:/MyProject/ToLinuxServer/TEMP/GAME-1.0-medium/GAME-1.0-medium/model.pt',
+      '--singer-repo', 'E:/MyProject/ToLinuxServer/YingMusic-Singer-Plus-src',
       '--device', device,
     ],
   },
@@ -220,7 +233,7 @@ function handleWorkerLine(record: AnalysisRuntimeRecord, line: string): void {
     }
     return
   }
-  if (event.type === 'transcribe_done' || event.type === 'align_done') {
+  if (event.type === 'transcribe_done' || event.type === 'align_done' || event.type === 'extract_done') {
     const pending = record.pendingInfer
     record.pendingInfer = undefined
     record.state = 'ready'

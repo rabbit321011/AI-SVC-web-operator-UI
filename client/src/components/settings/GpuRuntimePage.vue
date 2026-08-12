@@ -182,7 +182,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           </n-tag>
           <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
           <n-button
-            v-if="['V5P_40K_EMA', 'V4Hg_10k', 'V4fg_10k', 'Whisper large-v3', 'SOFA Japanese'].includes(model.id)"
+            v-if="['V5P_40K_EMA', 'V4Hg_10k', 'V4fg_10k', 'Whisper large-v3', 'SOFA Japanese', 'GAME-1.0-medium'].includes(model.id)"
             size="tiny"
             type="primary"
             ghost

@@ -4,6 +4,7 @@ import path from 'path'
 import type { WebSocket } from 'ws'
 import { verifyOwnedGuideWav } from './owned-guide-runtime.js'
 import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
+import { isAnalysisRuntimeReady, runAnalysisInfer } from './analysis-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const TO_LINUX_ROOT = 'E:/MyProject/ToLinuxServer'
@@ -57,24 +58,39 @@ export async function runSynthesisMidiP(req: SynthesisMidiPRequest, ws?: WebSock
     fs.rmSync(outputFile, { force: true })
     send(ws, { type: 'progress', progress: 5, message: '校验 GAME medium K=4 运行时' })
     let summary: ProcessEvent = {}
-    await runJsonProcess(GAME_PYTHON, [
-      RUNNER,
-      '--input', path.resolve(req.inputWav),
-      '--output', outputFile,
-      '--guide-sha256', req.guideSHA256,
-      '--frame-count', String(req.frameCount),
-      '--game-repo', GAME_REPO,
-      '--game-deps', GAME_DEPS,
-      '--game-model', GAME_MODEL,
-      '--singer-repo', SINGER_REPO,
-      '--device', req.device || 'cuda:0',
-      '--language', 'ja',
-    ], event => {
-      if (event.type === 'loading_model') send(ws, { type: 'progress', progress: 15, message: '加载 GAME medium' })
-      if (event.type === 'loaded_model') send(ws, { type: 'progress', progress: 55, message: 'GAME medium 已加载' })
-      if (event.type === 'extracting') send(ws, { type: 'progress', progress: 65, message: 'GAME K=4 提取音符区域' })
-      if (event.type === 'complete') summary = event
-    }, { id: `game:${req.jobId}`, kind: 'analysis', modelId: 'GAME-1.0-medium', device: req.device || 'cuda:0' })
+    if (isAnalysisRuntimeReady('GAME-1.0-medium')) {
+      await runAnalysisInfer('GAME-1.0-medium', {
+        input: path.resolve(req.inputWav),
+        output: outputFile,
+        guideSha256: req.guideSHA256,
+        frameCount: req.frameCount,
+        language: 'ja',
+      }, event => {
+        if (event.type === 'loading_model') send(ws, { type: 'progress', progress: 15, message: '加载 GAME medium' })
+        if (event.type === 'loaded_model') send(ws, { type: 'progress', progress: 55, message: 'GAME medium 已加载' })
+        if (event.type === 'extracting') send(ws, { type: 'progress', progress: 65, message: 'GAME K=4 提取音符区域' })
+        if (event.type === 'complete') summary = event
+      })
+    } else {
+      await runJsonProcess(GAME_PYTHON, [
+        RUNNER,
+        '--input', path.resolve(req.inputWav),
+        '--output', outputFile,
+        '--guide-sha256', req.guideSHA256,
+        '--frame-count', String(req.frameCount),
+        '--game-repo', GAME_REPO,
+        '--game-deps', GAME_DEPS,
+        '--game-model', GAME_MODEL,
+        '--singer-repo', SINGER_REPO,
+        '--device', req.device || 'cuda:0',
+        '--language', 'ja',
+      ], event => {
+        if (event.type === 'loading_model') send(ws, { type: 'progress', progress: 15, message: '加载 GAME medium' })
+        if (event.type === 'loaded_model') send(ws, { type: 'progress', progress: 55, message: 'GAME medium 已加载' })
+        if (event.type === 'extracting') send(ws, { type: 'progress', progress: 65, message: 'GAME K=4 提取音符区域' })
+        if (event.type === 'complete') summary = event
+      }, { id: `game:${req.jobId}`, kind: 'analysis', modelId: 'GAME-1.0-medium', device: req.device || 'cuda:0' })
+    }
     const result = JSON.parse(fs.readFileSync(outputFile, 'utf-8'))
     if (result.schema !== 'aisvc.v5p-midi-p.v1' || result.frameCount !== req.frameCount) {
       throw new Error('GAME runner 返回了不兼容的 MIDI-P 结果')
