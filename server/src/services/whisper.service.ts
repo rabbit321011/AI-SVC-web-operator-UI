@@ -3,6 +3,11 @@ import fs from 'fs'
 import path from 'path'
 import type { WebSocket } from 'ws'
 import { GPU_PROCESS_CANCELLED_MESSAGE, registerGpuProcess, wasGpuProcessReleased } from './gpu-runtime.service.js'
+import {
+  isAnalysisRuntimeReady,
+  runAnalysisInfer,
+  unloadAnalysisRuntime,
+} from './analysis-runtime.service.js'
 
 const PROJECT_ROOT = 'E:/AIscene/AISVC-midi-web'
 const WHISPER_RUNNER = path.resolve(PROJECT_ROOT, 'server', 'scripts', 'whisper_runner.py')
@@ -22,6 +27,7 @@ export interface WhisperRequest {
   vad: boolean
   device: string
   computeType: string
+  releaseAfterWhisper?: string[]
 }
 
 interface SofaRuntime {
@@ -38,7 +44,7 @@ interface RunnerMessage {
   [key: string]: unknown
 }
 
-export function runWhisper(req: WhisperRequest, ws: WebSocket): void {
+export async function runWhisper(req: WhisperRequest, ws: WebSocket): Promise<void> {
   let runtime: SofaRuntime
   try {
     runtime = resolveSofaRuntime()
@@ -54,6 +60,42 @@ export function runWhisper(req: WhisperRequest, ws: WebSocket): void {
     return
   }
 
+  const transcriptFile = await runWhisperStage(req, ws)
+  if (!transcriptFile || !fs.existsSync(transcriptFile)) {
+    send(ws, { type: 'error', message: 'Whisper did not produce a phrase transcript for SOFA' })
+    return
+  }
+  for (const runtimeId of req.releaseAfterWhisper ?? []) {
+    await unloadAnalysisRuntime(runtimeId)
+  }
+  await runSofaStage(req, ws, transcriptFile)
+}
+
+async function runWhisperStage(req: WhisperRequest, ws: WebSocket): Promise<string> {
+  if (isAnalysisRuntimeReady('Whisper large-v3')) {
+    return await new Promise<string>((resolve, reject) => {
+      let transcriptFile = ''
+      void runAnalysisInfer('Whisper large-v3', {
+        input: req.inputWav,
+        outputDir: req.outputDir,
+        outputName: req.outputName,
+        vad: req.vad ?? true,
+      }, message => {
+        if (message.type === 'transcript' && typeof message.transcriptFile === 'string') {
+          transcriptFile = message.transcriptFile
+        }
+        forwardStageMessage(ws, message, 'whisper')
+      }).then(
+        () => transcriptFile ? resolve(transcriptFile) : reject(new Error('Whisper resident did not return a transcript file')),
+        error => {
+          send(ws, { type: 'error', message: error?.message || String(error) })
+          reject(error)
+        },
+      )
+    })
+  }
+
+  const whisperPython = process.env.AISVC_WHISPER_PYTHON?.trim() || DEFAULT_WHISPER_PYTHON
   const args = [
     WHISPER_RUNNER,
     '--input', req.inputWav,
@@ -80,25 +122,64 @@ export function runWhisper(req: WhisperRequest, ws: WebSocket): void {
     forwardStageMessage(ws, message, 'whisper')
   })
   forwardStderr(child, ws, 'Whisper')
-  child.on('error', error => send(ws, { type: 'error', message: `Whisper failed to start: ${error.message}` }))
-  child.on('close', code => {
-    if (wasGpuProcessReleased(child)) {
-      send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
-      return
-    }
-    if (code !== 0 || runnerErrored) {
-      if (!runnerErrored) send(ws, { type: 'error', message: `Whisper exited with code ${code}` })
-      return
-    }
-    if (!transcriptFile || !fs.existsSync(transcriptFile)) {
-      send(ws, { type: 'error', message: 'Whisper did not produce a phrase transcript for SOFA' })
-      return
-    }
-    runSofa(req, runtime, transcriptFile, ws)
+  return await new Promise<string>((resolve, reject) => {
+    child.on('error', error => {
+      send(ws, { type: 'error', message: `Whisper failed to start: ${error.message}` })
+      reject(error)
+    })
+    child.on('close', code => {
+      if (wasGpuProcessReleased(child)) {
+        send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+        reject(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
+        return
+      }
+      if (code !== 0 || runnerErrored) {
+        if (!runnerErrored) send(ws, { type: 'error', message: `Whisper exited with code ${code}` })
+        reject(new Error(runnerErrored ? 'Whisper failed' : `Whisper exited with code ${code}`))
+        return
+      }
+      resolve(transcriptFile)
+    })
   })
 }
 
-function runSofa(req: WhisperRequest, runtime: SofaRuntime, transcriptFile: string, ws: WebSocket): void {
+async function runSofaStage(req: WhisperRequest, ws: WebSocket, transcriptFile: string): Promise<void> {
+  if (isAnalysisRuntimeReady('SOFA Japanese')) {
+    return await new Promise<void>((resolve, reject) => {
+      void runAnalysisInfer('SOFA Japanese', {
+        input: req.inputWav,
+        transcript: transcriptFile,
+        outputDir: req.outputDir,
+        outputName: req.outputName,
+      }, message => {
+        if (message.type === 'result' && message.alignmentMethod !== SOFA_ALIGNMENT_METHOD) {
+          reject(new Error('SOFA resident returned an unexpected alignment method'))
+          return
+        }
+        forwardStageMessage(ws, message, 'sofa')
+      }).then(
+        () => resolve(),
+        error => {
+          send(ws, { type: 'error', message: error?.message || String(error) })
+          reject(error)
+        },
+      )
+    })
+  }
+  const runtime = resolveSofaRuntime()
+  await new Promise<void>((resolve, reject) => {
+    runSofa(req, runtime, transcriptFile, ws, resolve, reject)
+  })
+}
+
+function runSofa(
+  req: WhisperRequest,
+  runtime: SofaRuntime,
+  transcriptFile: string,
+  ws: WebSocket,
+  onDone?: () => void,
+  onError?: (error: Error) => void,
+): void {
   const args = [
     SOFA_RUNNER,
     '--repo', runtime.repo,
@@ -135,18 +216,24 @@ function runSofa(req: WhisperRequest, runtime: SofaRuntime, transcriptFile: stri
     forwardStageMessage(ws, message, 'sofa')
   })
   forwardStderr(child, ws, 'SOFA')
-  child.on('error', error => send(ws, { type: 'error', message: `SOFA failed to start: ${error.message}` }))
+  child.on('error', error => {
+    send(ws, { type: 'error', message: `SOFA failed to start: ${error.message}` })
+    onError?.(error)
+  })
   child.on('close', code => {
     if (wasGpuProcessReleased(child)) {
       send(ws, { type: 'error', message: GPU_PROCESS_CANCELLED_MESSAGE })
+      onError?.(new Error(GPU_PROCESS_CANCELLED_MESSAGE))
       return
     }
     if (code !== 0 && !runnerErrored) {
       send(ws, { type: 'error', message: `SOFA exited with code ${code}` })
+      onError?.(new Error(`SOFA exited with code ${code}`))
       return
     }
     if (code === 0 && !runnerErrored && !alignedResult) {
       send(ws, { type: 'error', message: 'SOFA exited without an aligned TextObject' })
+      onError?.(new Error('SOFA exited without an aligned TextObject'))
       return
     }
     if (code === 0 && !runnerErrored && alignedResult) {
@@ -157,7 +244,10 @@ function runSofa(req: WhisperRequest, runtime: SofaRuntime, transcriptFile: stri
         alignmentMethod: SOFA_ALIGNMENT_METHOD,
         outputFile: alignedResult.outputFile,
       })
+      onDone?.()
+      return
     }
+    if (code !== 0 && !runnerErrored) onError?.(new Error(`SOFA exited with code ${code}`))
   })
 }
 

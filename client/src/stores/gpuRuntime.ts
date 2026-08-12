@@ -83,6 +83,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
   const error = ref('')
   const runtimes = ref<ModelRuntimeStatus[]>([])
   const runtimeMode = ref<'manual' | 'auto'>('manual')
+  const activeStageReleases = ref<ModelRuntimeStatus[][]>([])
   let pending: Promise<void> | null = null
 
   const primaryGpu = computed(() => status.value?.gpus[0] ?? null)
@@ -158,6 +159,14 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     })
     if (!response.ok) throw new Error(await readApiError(response) || '模式设置失败')
     runtimeMode.value = mode
+  }
+
+  function setActiveStageReleases(stageReleases: ModelRuntimeStatus[][]) {
+    activeStageReleases.value = stageReleases
+  }
+
+  function clearActiveStageReleases() {
+    activeStageReleases.value = []
   }
 
   async function estimatePolicy(modelId: string, durationSeconds: number) {
@@ -306,12 +315,12 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     }
     const needed = [...releaseSet.values()]
     if (needed.length === 0) {
-      return { ok: true as const, required: 0, freeMiB, policy: policyForDialog }
+      return { ok: true as const, required: 0, freeMiB, policy: policyForDialog, stageReleases }
     }
     if (runtimeMode.value === 'auto') {
       for (const item of needed) await unloadRuntime(item.id)
       await refresh()
-      return { ok: true as const, required, freeMiB, policy: policyForDialog, evictions: needed }
+      return { ok: true as const, required, freeMiB, policy: policyForDialog, evictions: needed, stageReleases }
     }
     return {
       ok: false as const,
@@ -340,6 +349,7 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     error,
     runtimes,
     runtimeMode,
+    activeStageReleases,
     primaryGpu,
     usageLabel,
     refresh,
@@ -349,6 +359,8 @@ export const useGpuRuntimeStore = defineStore('gpuRuntime', () => {
     unloadRuntime,
     fetchRuntimeMode,
     setRuntimeMode,
+    setActiveStageReleases,
+    clearActiveStageReleases,
     estimatePolicy,
     prepareRuntime,
     prepareTransientTask,

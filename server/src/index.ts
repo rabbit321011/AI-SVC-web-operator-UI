@@ -54,6 +54,12 @@ import {
   unloadAllSvsRuntimes,
   unloadSvsRuntime,
 } from './services/svs-model-runtime.service.js'
+import {
+  loadAnalysisRuntime,
+  readAnalysisRuntimeStatus,
+  unloadAllAnalysisRuntimes,
+  unloadAnalysisRuntime,
+} from './services/analysis-runtime.service.js'
 
 const app = express()
 app.use(cors())
@@ -171,7 +177,14 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/gpu/status', async (_req, res) => {
-  res.json({ ...(await readGpuStatus()), runtimes: [...readModelRuntimeStatus(), ...readSvsRuntimeStatus()] })
+  res.json({
+    ...(await readGpuStatus()),
+    runtimes: [
+      ...readModelRuntimeStatus(),
+      ...readSvsRuntimeStatus(),
+      ...readAnalysisRuntimeStatus(),
+    ],
+  })
 })
 
 app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
@@ -179,7 +192,9 @@ app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
   try {
     const runtime = id === 'V5P_40K_EMA'
       ? await loadV5PRuntime()
-      : await loadSvsRuntime(id)
+      : id === 'V4fg_10k' || id === 'V4Hg_10k'
+        ? await loadSvsRuntime(id)
+        : await loadAnalysisRuntime(id)
     res.json({ ok: true, runtime })
   } catch (error: any) {
     res.status(400).json({ ok: false, reason: error?.message || String(error) })
@@ -188,7 +203,11 @@ app.post('/api/gpu/runtimes/:id/load', async (req, res) => {
 
 app.post('/api/gpu/runtimes/:id/unload', async (req, res) => {
   const id = String(req.params.id || '')
-  const result = id === 'V5P_40K_EMA' ? await unloadV5PRuntime() : await unloadSvsRuntime(id)
+  const result = id === 'V5P_40K_EMA'
+    ? await unloadV5PRuntime()
+    : id === 'V4fg_10k' || id === 'V4Hg_10k'
+      ? await unloadSvsRuntime(id)
+      : await unloadAnalysisRuntime(id)
   res.status(result.ok ? 200 : 404).json(result)
 })
 
@@ -214,7 +233,11 @@ app.post('/api/gpu/policy/estimate', async (req, res) => {
       ok: true,
       mode: readRuntimeMode(),
       freeMiB: await currentFreeMiB(),
-      runtimes: [...readModelRuntimeStatus(), ...readSvsRuntimeStatus()],
+      runtimes: [
+        ...readModelRuntimeStatus(),
+        ...readSvsRuntimeStatus(),
+        ...readAnalysisRuntimeStatus(),
+      ],
       estimate: estimateGpuMemory(modelId, durationSeconds),
     })
   } catch (error: any) {
@@ -233,6 +256,7 @@ app.post('/api/gpu/release-all', async (_req, res) => {
     ...(await releaseAllGpuProcesses()),
     runtimes: await unloadAllModelRuntimes(),
     svsRuntimes: await unloadAllSvsRuntimes(),
+    analysisRuntimes: await unloadAllAnalysisRuntimes(),
   })
 })
 
@@ -659,7 +683,7 @@ app.post('/api/svs/run', async (req, res) => {
 })
 
 app.post('/api/whisper/run', (req, res) => {
-  const { jobId: clientJobId, inputWav, outputName, language, vad, device, computeType } = req.body
+  const { jobId: clientJobId, inputWav, outputName, language, vad, device, computeType, releaseAfterWhisper } = req.body
 
   if (!inputWav || !fs.existsSync(inputWav)) {
     res.status(400).json({ error: 'missing or invalid inputWav' })
@@ -687,6 +711,7 @@ app.post('/api/whisper/run', (req, res) => {
         vad: vad ?? true,
         device: device || 'cuda',
         computeType: computeType || 'float16',
+        releaseAfterWhisper,
       }, ws)
       return true
     }

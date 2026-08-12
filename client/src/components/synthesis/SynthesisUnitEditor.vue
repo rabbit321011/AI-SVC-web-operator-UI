@@ -862,6 +862,7 @@ async function ensureAnalysisCapacity(
 ): Promise<boolean> {
   if (forceCapacity.value) {
     forceCapacity.value = false
+    gpuRuntime.clearActiveStageReleases()
     return true
   }
   const durationSeconds = unit.value?.synthesisUnit.guide.duration ?? 0
@@ -871,6 +872,7 @@ async function ensureAnalysisCapacity(
   ) as any
   if (prepared.ok) {
     pendingAnalysis.value = null
+    gpuRuntime.setActiveStageReleases(prepared.stageReleases ?? [])
     return true
   }
   if (prepared.busy) {
@@ -1032,8 +1034,12 @@ async function transcribeSegmentTrack() {
     { modelId: 'SOFA Japanese' },
   ], 'transcribe')
   if (!ok) return
-  const result = await analysis.transcribeSegmentTrack(props.objectId)
-  flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'Whisper + SOFA 失败')
+  try {
+    const result = await analysis.transcribeSegmentTrack(props.objectId)
+    flashStatus(result.ok ? analysisJob.value.message : result.reason ?? 'Whisper + SOFA 失败')
+  } finally {
+    gpuRuntime.clearActiveStageReleases()
+  }
 }
 
 function openGuideMenu(event: MouseEvent) {

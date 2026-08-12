@@ -1,4 +1,5 @@
 import { readWhisperSofaResult, whisperSofaProgressLabel, type WhisperSofaResult } from './whisperSofaProtocol'
+import { useGpuRuntimeStore } from '@/stores/gpuRuntime'
 
 export interface RunWhisperSofaOptions {
   blob: Blob
@@ -9,6 +10,8 @@ export interface RunWhisperSofaOptions {
 }
 
 export async function runWhisperSofa(options: RunWhisperSofaOptions): Promise<WhisperSofaResult> {
+  const gpuRuntime = useGpuRuntimeStore()
+  const releaseAfterWhisper = gpuRuntime.activeStageReleases[1]?.map(item => item.modelId) ?? []
   const jobId = crypto.randomUUID().slice(0, 8)
   options.onProgress?.(5, '上传 Whisper 音频')
   const upload = await uploadTempWav(`render_${jobId}_whisper`, options.blob, options.sampleRate)
@@ -27,6 +30,7 @@ export async function runWhisperSofa(options: RunWhisperSofaOptions): Promise<Wh
         vad: options.vad ?? true,
         device: 'cuda',
         computeType: 'float16',
+        releaseAfterWhisper,
       }),
     })
     if (!response.ok) throw new Error(await readError(response) || 'Whisper 启动失败')
