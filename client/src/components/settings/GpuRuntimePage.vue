@@ -118,11 +118,14 @@ function runtimeResidentLabel(runtime: NonNullable<typeof gpuRuntime.runtimes>[n
 function profileLabel(profile: ModelCatalogItem['vramProfile']) {
   if (!profile) return '尚未标定'
   const steps = profile.steps ? ` / ${profile.steps}步` : ''
-  const resident = profile.residentMiB != null ? ` / 常驻 ${(profile.residentMiB / 1024).toFixed(1)}GB` : ''
   const curve = profile.samples?.length
     ? profile.samples.map(item => `${item.seconds}s ${((item.peakDeltaMiB ?? 0) / 1024).toFixed(1)}GB`).join(' · ')
     : ''
-  return curve ? `${curve}${steps}${resident}` : `峰值增量 ${((profile.peakDeltaMiB ?? 0) / 1024).toFixed(1)} GB${steps}${resident}`
+  return curve ? `${curve}${steps}` : `峰值增量 ${((profile.peakDeltaMiB ?? 0) / 1024).toFixed(1)} GB${steps}`
+}
+
+function residentLabel(profile: ModelCatalogItem['vramProfile']) {
+  return profile?.residentMiB != null ? `常驻 ${(profile.residentMiB / 1024).toFixed(1)}GB` : '常驻 --'
 }
 </script>
 
@@ -200,6 +203,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
             {{ model.runtimeState === 'configured' ? '已配置' : '资源缺失' }}
           </n-tag>
           <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
+          <span class="resident-badge">{{ residentLabel(model.vramProfile) }}</span>
           <n-button
             v-if="['V5P_40K_EMA', 'V4Hg_10k', 'V4fg_10k', 'Whisper large-v3', 'SOFA Japanese', 'GAME-1.0-medium'].includes(model.id)"
             size="tiny"
@@ -222,6 +226,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           <span>{{ engineLabel(model.engine) }}</span>
           <n-tag size="small" :bordered="false" type="success">已注册</n-tag>
           <span class="runtime-kind">{{ profileLabel(model.vramProfile) }}</span>
+          <span class="resident-badge">{{ residentLabel(model.vramProfile) }}</span>
           <n-button
             size="tiny"
             type="primary"
@@ -261,11 +266,12 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
 .empty-row { padding: 14px 0; color: var(--app-muted); font-size: 12px; }
 .process-row, .model-row { min-height: 48px; display: grid; align-items: center; gap: 14px; border-top: 1px solid color-mix(in srgb, var(--app-border) 65%, transparent); font-size: 12px; }
 .process-row { grid-template-columns: minmax(180px, 1fr) 80px 72px 96px auto; }
-.model-row { grid-template-columns: minmax(190px, 1fr) minmax(90px, 130px) 78px minmax(100px, 130px) 84px; }
+.model-row { grid-template-columns: minmax(180px, 1fr) minmax(80px, 120px) 70px minmax(120px, 180px) 88px 84px; }
 .runtime-row { min-height: 52px; display: grid; grid-template-columns: minmax(220px, 1fr) 90px 100px minmax(120px, 1fr) auto; align-items: center; gap: 14px; border-top: 1px solid color-mix(in srgb, var(--app-border) 65%, transparent); font-size: 12px; }
 .process-row > div, .model-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .process-row small, .model-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-muted); }
 .process-row > span, .model-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resident-badge { color: var(--app-accent); }
 .runtime-row > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .runtime-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .runtime-actions { display: flex; justify-content: flex-end; }
