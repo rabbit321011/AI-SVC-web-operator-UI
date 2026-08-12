@@ -33,11 +33,12 @@ async function releaseProcess(id: string) {
 }
 
 async function releaseAll() {
-  if (!processes.value.some(item => item.status === 'running')) return flash('当前没有本应用 GPU 任务')
-  if (!window.confirm('取消所有本应用 GPU 任务并释放显存？')) return
+  if (processes.value.length === 0 && runtimes.value.length === 0) return flash('当前没有本应用 GPU 任务或常驻模型')
+  if (processes.value.length > 0 && !window.confirm('取消所有本应用 GPU 任务并释放显存？')) return
   try {
     const result = await gpuRuntime.releaseAll()
-    flash(`已释放 ${result.released.length} 个 GPU 任务`)
+    const runtimeCount = result.runtimes?.released?.length ?? 0
+    flash(`已释放 ${result.released.length} 个任务、${runtimeCount} 个常驻模型`)
   } catch (error: any) {
     flash(error?.message || '释放失败')
   }
@@ -53,7 +54,8 @@ async function loadRuntime(id: string) {
 }
 
 async function unloadRuntime(id: string) {
-  if (!window.confirm('释放该常驻模型？正在执行的推理会被取消。')) return
+  const runtime = runtimes.value.find(item => item.id === id)
+  if (runtime?.state === 'busy' && !window.confirm('该模型正在推理，释放会取消当前任务。确定继续？')) return
   try {
     await gpuRuntime.unloadRuntime(id)
     flash('模型已释放')
@@ -107,13 +109,20 @@ function runtimeLabel(state: string) {
   }[state] ?? state
 }
 
+function runtimeResidentLabel(runtime: NonNullable<typeof gpuRuntime.runtimes>[number]) {
+  const profile = gpuRuntime.status?.catalog.find(item => item.id === runtime.id)?.vramProfile
+  const mib = runtime.residentMiB ?? profile?.residentMiB
+  return mib != null ? `${(mib / 1024).toFixed(2)} GB` : '等待统计'
+}
+
 function profileLabel(profile: ModelCatalogItem['vramProfile']) {
   if (!profile) return '尚未标定'
   const steps = profile.steps ? ` / ${profile.steps}步` : ''
+  const resident = profile.residentMiB != null ? ` / 常驻 ${(profile.residentMiB / 1024).toFixed(1)}GB` : ''
   const curve = profile.samples?.length
     ? profile.samples.map(item => `${item.seconds}s ${((item.peakDeltaMiB ?? 0) / 1024).toFixed(1)}GB`).join(' · ')
     : ''
-  return curve ? `${curve}${steps}` : `峰值增量 ${((profile.peakDeltaMiB ?? 0) / 1024).toFixed(1)} GB${steps}`
+  return curve ? `${curve}${steps}${resident}` : `峰值增量 ${((profile.peakDeltaMiB ?? 0) / 1024).toFixed(1)} GB${steps}${resident}`
 }
 </script>
 
@@ -131,7 +140,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           <button type="button" :class="{ active: gpuRuntime.runtimeMode === 'auto' }" @click="setMode('auto')">自动</button>
         </div>
         <n-button size="small" :loading="manualRefreshing" @click="manualRefresh">刷新</n-button>
-        <n-button size="small" type="error" ghost :disabled="processes.length === 0" @click="releaseAll">释放本应用全部显存</n-button>
+        <n-button size="small" type="error" ghost :disabled="processes.length === 0 && runtimes.length === 0" @click="releaseAll">释放本应用全部显存</n-button>
       </div>
     </header>
 
@@ -172,7 +181,7 @@ function profileLabel(profile: ModelCatalogItem['vramProfile']) {
           <n-tag size="small" :bordered="false" :type="runtime.state === 'ready' ? 'success' : runtime.state === 'busy' ? 'warning' : runtime.state === 'error' ? 'error' : 'default'">
             {{ runtimeLabel(runtime.state) }}
           </n-tag>
-          <span>{{ runtime.residentMiB != null ? `torch ${(runtime.residentMiB / 1024).toFixed(2)} GB` : '等待统计' }}</span>
+          <span>{{ runtimeResidentLabel(runtime) }}</span>
           <span>{{ runtime.activeJobId ? `任务 ${runtime.activeJobId}` : '空闲' }}</span>
           <div class="runtime-actions">
             <n-button size="tiny" type="error" ghost :disabled="runtime.state === 'unloaded' || runtime.state === 'loading' || runtime.state === 'releasing'" @click="unloadRuntime(runtime.id)">释放模型</n-button>
